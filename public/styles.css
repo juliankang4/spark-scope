@@ -99,3 +99,5 @@ html,body{overflow-anchor:none}
   .settings-preview{padding:14px 16px;overflow:visible}
   .settings-foot{padding:10px 16px}
 }
+/* Korean lines break between words, not between the syllables of a word. */
+html:lang(ko){word-break:keep-all}

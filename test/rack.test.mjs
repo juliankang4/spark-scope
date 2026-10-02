@@ -310,3 +310,51 @@ test("temperature traces keep a sensible scale and caption, and odd inputs do no
   // An invalid time zone falls back to the viewer's own instead of throwing.
   assert.match(clockTime(Date.UTC(2026, 9, 2, 3, 4), { timeZone: "Not/AZone" }), /^\d\d:\d\d$/);
 });
+
+test("in Korean the bays and the band use the Korean table, and the server message follows its key", async () => {
+  const { setLanguage, t, STRINGS } = await import("../public/i18n.js");
+  setLanguage("ko");
+  try {
+    assert.equal(nodeView(META["1"], undefined).role, STRINGS.ko["role.head"]);
+    assert.deepEqual(nodeView(META["3"], healthy()).reasons, [STRINGS.ko["rack.reason.ok"]]);
+    const node = healthy({ systemState: "degraded", failedUnits: 2, disk: { usedPercent: 97, availableBytes: 31 * GIB } });
+    assert.deepEqual(nodeView(META["2"], node, { links: nodeLinks(ringState({ "2-3": "down" }), "2") }).reasons, [
+      t("rack.link.down", { label: "2–3" }), t("rack.reason.system", { state: STRINGS.ko["systemState.degraded"] }),
+      t("rack.reason.failedUnits", { count: 2 }), t("rack.reason.disk", { percent: 97 }),
+    ]);
+    assert.equal(linkReason(link("2-3", "up", { slow: true, a: { available: true, up: true }, b: { available: true, up: true } })), t("rack.link.slowNoSpeed", { label: "2–3" }));
+    assert.equal(tempRangeLabel([]), STRINGS.ko["rack.tempRange.noData"]);
+
+    const nodes = nodesAll((meta) => (meta.id === "3" ? { ok: false, collected: true } : { ok: true }));
+    const fault = {
+      ...ringState({ "2-3": "down", "3-4": "down" }),
+      status: "degraded", inferenceState: "unknown", message: "Node connection needs attention (3/4 reachable)",
+      messageKey: "status.nodeConnection", messageParams: { connected: 3, count: 4 }, nodes,
+      inference: { ok: false }, usage: { modelName: "example-model", today: { total: 1, requests: 1 } },
+    };
+    const view = clusterView(fault);
+    assert.equal(view.title, STRINGS.ko["rack.cluster.inferenceDown"]);
+    assert.deepEqual(view.lines, [
+      `example-model | ${STRINGS.ko["rack.cluster.apiNoResponse"]}`,
+      [t("rack.count.nodes", { up: 3, count: 4 }), t("rack.count.links", { up: 2, count: 4 }), t("rack.note.notResponding", { node: "spark-3" }), t("rack.note.linkDown", { label: "2–3" })].join(" | "),
+    ]);
+    // A degradation without a note shows the server's message in Korean; a key the table does not know keeps the English.
+    const thermal = { ...ringState(), status: "degraded", inferenceState: "serving", nodes: nodesAll(), inference: { ok: true, modelName: "example-model", runningRequests: 1, waitingRequests: 0 }, serving: { engine: "SGLang", parallel: 4, label: "SGLang | 4 nodes" } };
+    const hot = clusterView({ ...thermal, message: "GPU thermal slowdown detected", messageKey: "status.thermal", messageParams: {} });
+    assert.equal(hot.title, STRINGS.ko["rack.cluster.serving"]);
+    assert.equal(hot.lines[0], `example-model | SGLang | ${t("serving.nodes", { count: 4 })}`);
+    assert.ok(hot.lines[1].includes(STRINGS.ko["status.thermal"]));
+    assert.ok(clusterView({ ...thermal, message: "Something new", messageKey: "status.somethingNew" }).lines[1].includes("Something new"));
+    const offline = clusterView({ ...ringState(), status: "offline", message: "Cannot reach any node", messageKey: "status.cannotReachAny", messageParams: {}, nodes: nodesAll(() => ({ ok: false, collected: true })), inference: { ok: false } });
+    assert.equal(offline.lines[0], STRINGS.ko["status.cannotReachAny"]);
+    const lost = clusterView(fault, { fetchFailed: true });
+    assert.deepEqual(lost.lines, [t("rack.cluster.serverDown", { brand: "SPARK SCOPE" }), t("rack.cluster.lastUpdate", { time: STRINGS.ko["rack.cluster.never"] })]);
+  } finally {
+    setLanguage("en");
+  }
+  // In English the engine label is the same as the server's.
+  const serving = { engine: "SGLang", parallel: 4, label: "SGLang | 4 nodes" };
+  const state = { ...ringState(), status: "healthy", inferenceState: "serving", nodes: nodesAll(), inference: { ok: true, modelName: "example-model", runningRequests: 0, waitingRequests: 0 }, serving };
+  assert.equal(clusterView(state).lines[0], "example-model | SGLang | 4 nodes");
+  assert.equal(clusterView({ ...state, serving: { engine: "SGLang", parallel: 1, label: "SGLang" } }).lines[0], "example-model | SGLang");
+});

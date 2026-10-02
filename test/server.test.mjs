@@ -72,6 +72,11 @@ test("the server serves the dashboard, the rack panel, the fonts and the JSON AP
     assert.deepEqual(state.pollIntervals, { nodeMs: 5000, apiMs: 2000 });
     assert.equal(state.version, JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version);
     assert.ok(Array.isArray(state.history));
+    // The status message comes with a key and parameters for the pages' other languages.
+    const { t } = await import("../public/i18n.js");
+    assert.match(state.messageKey, /^status\./);
+    assert.equal(typeof state.messageParams, "object");
+    assert.equal(t(state.messageKey, state.messageParams, "en"), state.message);
     const light = await (await fetch(`${base}/api/state?minutes=15&history=0`)).json();
     assert.equal(light.history, undefined);
     assert.equal(light.historyStats.windowMinutes, 15);

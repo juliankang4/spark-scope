@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { collectNode, uncollectedNode, InferenceCollector, applyNetworkRates } from "./lib/collectors.mjs";
-import { buildRingLinks, clusterStatus, servingSummary, DEFAULT_LINK_MIN_GBPS } from "./lib/cluster.mjs";
+import { buildRingLinks, clusterStatus, servingSummary, DEFAULT_LINK_MIN_GBPS, STARTING_MESSAGE } from "./lib/cluster.mjs";
 import { downsampleHistory, summarizeHistory } from "./lib/history.mjs";
 import { hostAllowed, hostRules, SECURITY_HEADERS } from "./lib/http-guard.mjs";
 import { publicState } from "./lib/public-state.mjs";
@@ -84,7 +84,9 @@ try {
 const unavailableUsage = () => ({ persistent: false, error: usageOpenError, updatedAt: new Date().toISOString() });
 const state = {
   status: "starting",
-  message: "Waiting for the first measurements",
+  message: STARTING_MESSAGE,
+  messageKey: "status.starting",
+  messageParams: {},
   inference: null,
   topology: publicTopology(topology),
   nodes: Object.fromEntries(topology.nodes.map((node) => [node.id, null])),

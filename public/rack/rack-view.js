@@ -1,8 +1,8 @@
 // Pure view-model helpers for the Spark Scope rack panel (1920 x 480 by default). No DOM access, so node --test can import them.
-import { compact as compactCount } from "../view-data.js";
+import { compact as compactCount, roleName, systemStateText } from "../view-data.js";
+import { t, serverText } from "../i18n.js";
 
 export const BRAND = "SPARK SCOPE";
-const ROLE_LABELS = { HEAD: "Head", WORKER: "Worker", NODE: "Node" };
 const GIB = 2 ** 30;
 
 export const DISK_WARN_PERCENT = 95;
@@ -60,16 +60,16 @@ export function linkReason(link) {
   if (!link) return null;
   const label = link.label ?? String(link.id ?? "").replace("-", "–");
   const planes = Array.isArray(link.planes) && link.planes.length ? link.planes : Object.keys(PLANE_NAMES);
-  if (link.state === "pending") return `Link ${label} not cabled`;
-  if (link.state === "down") return `Link ${label} down`;
+  if (link.state === "pending") return t("rack.link.notCabled", { label });
+  if (link.state === "down") return t("rack.link.down", { label });
   if (link.state === "partial") {
     // Partial always has a dark plane next to one that is up; a plane nobody can see makes the link unknown instead.
     const dark = planes.filter((plane) => link[plane]?.up === false);
-    return `Link ${label} ${dark.map((plane) => PLANE_NAMES[plane]).join("/")} down`;
+    return t("rack.link.planesDown", { label, planes: dark.map((plane) => PLANE_NAMES[plane]).join("/") });
   }
   if (link.state === "up" && link.slow) {
     const speeds = planes.map((plane) => link[plane]?.speedGbps).filter(finite);
-    return `Link ${label} slow${speeds.length ? ` ${Math.round(Math.min(...speeds))}G` : ""}`;
+    return speeds.length ? t("rack.link.slow", { label, speed: Math.round(Math.min(...speeds)) }) : t("rack.link.slowNoSpeed", { label });
   }
   return null;
 }
@@ -99,10 +99,10 @@ export function nodeLinks(state, id) {
 }
 
 const GPU_PROBLEMS = {
-  stuck: { level: "crit", text: "nvidia-smi stuck" },
-  timeout: { level: "crit", text: "GPU query timed out" },
-  error: { level: "crit", text: "GPU query failed" },
-  missing: { level: "warn", text: "no nvidia-smi" },
+  stuck: { level: "crit", key: "rack.gpu.stuck" },
+  timeout: { level: "crit", key: "rack.gpu.timeout" },
+  error: { level: "crit", key: "rack.gpu.error" },
+  missing: { level: "warn", key: "rack.gpu.missing" },
 };
 
 // Reasons are ordered by severity so the bay header can show the most important one.
@@ -113,18 +113,18 @@ export function nodeView(meta, node, { inferenceOk = false, lastOkAt = null, now
     name: meta?.name ?? node?.name ?? node?.host ?? id,
     host: meta?.host ?? node?.host ?? null,
     local: Boolean(meta?.local ?? node?.local),
-    role: ROLE_LABELS[meta?.role ?? node?.role] ?? meta?.role ?? node?.role ?? "",
+    role: roleName(meta?.role ?? node?.role),
     links: links.map((link) => ({ peer: link.peer, tag: link.tag ?? link.peer, level: linkLevel(link) })),
   };
   const linkReasons = links.map(linkReason).filter(Boolean);
   if (meta?.collect === false || node?.collected === false) {
     // Not collected: neighbours can still vouch for its links, but its own figures are unknown (the body says so).
-    return { ...base, ok: false, pending: true, level: linkReasons.length ? "warn" : "idle", reasons: linkReasons.length ? linkReasons : ["not collected"] };
+    return { ...base, ok: false, pending: true, level: linkReasons.length ? "warn" : "idle", reasons: linkReasons.length ? linkReasons : [t("rack.reason.notCollected")] };
   }
-  if (!node) return { ...base, ok: false, pending: true, waiting: true, level: "idle", reasons: ["waiting for data"] };
+  if (!node) return { ...base, ok: false, pending: true, waiting: true, level: "idle", reasons: [t("rack.reason.waitingData")] };
   if (!node.ok) {
     return {
-      ...base, ok: false, pending: false, level: "crit", reasons: ["no response"],
+      ...base, ok: false, pending: false, level: "crit", reasons: [t("rack.reason.noResponse")],
       error: node.error ?? null,
       lastOk: lastOkAt ? clockTime(lastOkAt, clock) : null,
     };
@@ -144,24 +144,27 @@ export function nodeView(meta, node, { inferenceOk = false, lastOkAt = null, now
 
   const crit = [];
   const warn = [...linkReasons];
-  if (node.gpu?.thermalSlowdown) crit.push("thermal slowdown");
+  if (node.gpu?.thermalSlowdown) crit.push(t("rack.reason.thermalSlowdown"));
   // No GPU readings: a hung or failing nvidia-smi is a likely GPU fault; a missing one is a setup issue.
   const gpuProblem = node.gpu?.available === false ? GPU_PROBLEMS[node.gpu.status] ?? GPU_PROBLEMS.error : null;
-  if (gpuProblem) (gpuProblem.level === "crit" ? crit : warn).push(gpuProblem.text);
-  if (node.systemState && node.systemState !== "running") warn.push(`system ${node.systemState}`);
-  if (node.failedUnits > 0) warn.push(`${node.failedUnits} failed ${node.failedUnits === 1 ? "unit" : "units"}`);
+  if (gpuProblem) (gpuProblem.level === "crit" ? crit : warn).push(t(gpuProblem.key));
+  if (node.systemState && node.systemState !== "running") warn.push(t("rack.reason.system", { state: systemStateText(node.systemState) }));
+  if (node.failedUnits > 0) warn.push(t("rack.reason.failedUnits", { count: node.failedUnits }));
   // Nodes marked "inference": false in topology.json may idle while the API serves.
-  if (inferenceOk && meta?.inference !== false && !node.inferenceProcessUp) warn.push("no inference process");
-  if (restarts > 0 && recent(node.container?.startedAt)) warn.push(`restarted ×${restarts}`);
-  if (diskPct !== null && diskPct >= DISK_WARN_PERCENT) warn.push(`disk ${diskPct}%`);
-  if (memFreeGiB !== null && memFreeGiB < MEMORY_WARN_GIB) warn.push(`${memFreeGiB.toFixed(1)} GiB memory free`);
-  if (kernel?.total > 0 && recent(kernel.lastAt)) warn.push(`kernel ${kernel.capped ? "≥" : ""}${kernel.total}${kernel.lastAt ? ` (${clockTime(kernel.lastAt, clock)})` : ""}`);
+  if (inferenceOk && meta?.inference !== false && !node.inferenceProcessUp) warn.push(t("rack.reason.noInferenceProcess"));
+  if (restarts > 0 && recent(node.container?.startedAt)) warn.push(t("rack.reason.restarted", { count: restarts }));
+  if (diskPct !== null && diskPct >= DISK_WARN_PERCENT) warn.push(t("rack.reason.disk", { percent: diskPct }));
+  if (memFreeGiB !== null && memFreeGiB < MEMORY_WARN_GIB) warn.push(t("rack.reason.memoryFree", { free: memFreeGiB.toFixed(1) }));
+  if (kernel?.total > 0 && recent(kernel.lastAt)) {
+    const count = `${kernel.capped ? "≥" : ""}${kernel.total}`;
+    warn.push(kernel.lastAt ? t("rack.reason.kernel", { count, time: clockTime(kernel.lastAt, clock) }) : t("rack.reason.kernelNoTime", { count }));
+  }
 
   const reasons = [...crit, ...warn];
   return {
     ...base, ok: true, pending: false,
     level: crit.length ? "crit" : warn.length ? "warn" : "good",
-    reasons: reasons.length ? reasons : ["OK"],
+    reasons: reasons.length ? reasons : [t("rack.reason.ok")],
     temp: finite(node.gpu?.temperature) ? node.gpu.temperature : null,
     load: finite(node.gpu?.utilization) ? node.gpu.utilization : null,
     power: finite(node.gpu?.powerWatts) ? node.gpu.powerWatts : null,
@@ -175,12 +178,20 @@ export function reasonText(view) {
   return `${view.reasons[0]}${view.reasons.length > 1 ? ` +${view.reasons.length - 1}` : ""}`;
 }
 
+// The engine with the number of serving nodes ("SGLang | 4 nodes"), rebuilt from serving.engine and serving.parallel
+// so the count reads in the panel's language; a payload without them keeps the server's English label.
+function servingLabel(serving) {
+  if (!serving) return null;
+  if (!("engine" in serving)) return serving.label ?? null;
+  return [serving.engine, serving.parallel > 1 ? t("serving.nodes", { count: serving.parallel }) : null].filter(Boolean).join(" | ") || null;
+}
+
 // Model and engine as reported by the API and the nodes; nothing is assumed about the engine or the node count.
 function servingLine(state) {
   const inference = state?.inference;
   const model = inference?.modelName ?? state?.usage?.modelName ?? null;
-  const engine = state?.serving?.label ?? (inference?.ok ? inference.engine : null) ?? null;
-  return [model ?? "model unknown", engine].filter(Boolean).join(" | ");
+  const engine = servingLabel(state?.serving) ?? (inference?.ok ? inference.engine : null) ?? null;
+  return [model ?? t("rack.modelUnknown"), engine].filter(Boolean).join(" | ");
 }
 
 // Second band line: counts first, then at most two things worth reading.
@@ -189,8 +200,8 @@ function countLine(state, extras, { power = true } = {}) {
   const nodesUp = metas.filter((meta) => state?.nodes?.[meta.id]?.ok).length;
   const links = state?.topology?.links ?? [];
   const linksUp = links.filter((link) => state?.ringLinks?.[link.id]?.state === "up").length;
-  const parts = [metas.length === 1 ? (nodesUp ? "Node up" : "Node down") : `Nodes ${nodesUp}/${metas.length}`];
-  if (links.length) parts.push(`Links ${linksUp}/${links.length}`);
+  const parts = [metas.length === 1 ? t(nodesUp ? "rack.count.nodeUp" : "rack.count.nodeDown") : t("rack.count.nodes", { up: nodesUp, count: metas.length })];
+  if (links.length) parts.push(t("rack.count.links", { up: linksUp, count: links.length }));
   // GPU power summed over the nodes that report it (nvidia-smi power draw; the whole box draws more).
   const watts = metas.map((meta) => state?.nodes?.[meta.id]).filter((node) => node?.ok && finite(node.gpu?.powerWatts)).map((node) => node.gpu.powerWatts);
   if (power && watts.length) parts.push(`GPU ${Math.round(watts.reduce((sum, value) => sum + value, 0))} W`);
@@ -203,14 +214,14 @@ function bandNotes(state) {
   const urgent = [];
   const standing = [];
   const down = metas.filter((meta) => meta.collect !== false && state?.nodes?.[meta.id]?.ok === false && state.nodes[meta.id].collected !== false);
-  if (down.length) urgent.push(`${down[0].name}${down.length > 1 ? ` +${down.length - 1}` : ""} not responding`);
+  if (down.length) urgent.push(t("rack.note.notResponding", { node: `${down[0].name}${down.length > 1 ? ` +${down.length - 1}` : ""}` }));
   for (const link of state?.topology?.links ?? []) {
     const live = state?.ringLinks?.[link.id];
-    if (live?.state === "down") urgent.push(`link ${link.label} down`);
-    else if (live?.state === "pending") standing.push(`link ${link.label} not cabled`);
+    if (live?.state === "down") urgent.push(t("rack.note.linkDown", { label: link.label }));
+    else if (live?.state === "pending") standing.push(t("rack.note.linkNotCabled", { label: link.label }));
   }
   const uncollected = metas.filter((meta) => meta.collect === false);
-  if (uncollected.length) standing.push(`${uncollected.map((meta) => meta.name).join(", ")} not collected`);
+  if (uncollected.length) standing.push(t("rack.note.notCollected", { names: uncollected.map((meta) => meta.name) }));
   return { urgent, standing };
 }
 
@@ -226,21 +237,24 @@ export function clusterView(state, { fetchFailed = false, lastReceivedAt = null,
     todayRequests: state?.usage?.today?.requests ?? null,
   };
   if (fetchFailed) {
-    return { ...base, out: null, level: "crit", title: `${BRAND} disconnected`, lines: [`${BRAND} server not responding`, `Last update ${lastReceivedAt ? clockTime(lastReceivedAt, { ...clock, seconds: true }) : "never"}`], stale: true };
+    const time = lastReceivedAt ? clockTime(lastReceivedAt, { ...clock, seconds: true }) : t("rack.cluster.never");
+    return { ...base, out: null, level: "crit", title: t("rack.cluster.disconnected", { brand: BRAND }), lines: [t("rack.cluster.serverDown", { brand: BRAND }), t("rack.cluster.lastUpdate", { time })], stale: true };
   }
-  if (!state || state.status === "starting") return { ...base, level: "idle", title: "Waiting for data", lines: [`Waiting for ${BRAND}`, state?.message ?? ""].filter(Boolean) };
+  // The server's status message in the panel's language (its English message when the key is unknown).
+  const message = serverText(state?.messageKey, state?.messageParams, state?.message);
+  if (!state || state.status === "starting") return { ...base, level: "idle", title: t("rack.cluster.waitingData"), lines: [t("rack.cluster.waitingBrand", { brand: BRAND }), message ?? ""].filter(Boolean) };
   const { urgent, standing } = bandNotes(state);
   // An urgent note (a node down, a broken link) matters more than the power total, so it takes its place.
   const counts = (...middle) => countLine(state, [...urgent, ...middle, ...standing], { power: !urgent.length });
-  if (state.status === "offline") return { ...base, level: "crit", title: "Nodes unreachable", lines: [state.message, counts()] };
-  if (state.inferenceState === "stopped") return { ...base, level: "idle", title: "Inference stopped", lines: ["No model serving", counts()] };
-  if (!inference?.ok) return { ...base, level: "crit", title: "Inference down", lines: [`${servingLine(state)} | API not responding`, counts()] };
-  const title = running > 0 ? "Serving" : "Ready";
-  const queue = running === null ? null : `running ${running} | waiting ${waiting ?? 0}`;
+  if (state.status === "offline") return { ...base, level: "crit", title: t("rack.cluster.unreachable"), lines: [message, counts()] };
+  if (state.inferenceState === "stopped") return { ...base, level: "idle", title: t("rack.cluster.inferenceStopped"), lines: [t("rack.cluster.noModelServing"), counts()] };
+  if (!inference?.ok) return { ...base, level: "crit", title: t("rack.cluster.inferenceDown"), lines: [`${servingLine(state)} | ${t("rack.cluster.apiNoResponse")}`, counts()] };
+  const title = t(running > 0 ? "rack.cluster.serving" : "rack.cluster.ready");
+  const queue = running === null ? null : t("rack.cluster.queue", { running, waiting: waiting ?? 0 });
   if (state.status !== "healthy") {
     // A degradation the notes do not already explain (heat, failed services, a half-dark link) shows the server message.
-    const message = urgent.length ? null : state.message;
-    return { ...base, level: "warn", title, lines: [servingLine(state), counts(message, queue)] };
+    const note = urgent.length ? null : message;
+    return { ...base, level: "warn", title, lines: [servingLine(state), counts(note, queue)] };
   }
   return { ...base, level: "good", title, lines: [servingLine(state), counts(queue)] };
 }
@@ -290,7 +304,7 @@ export function valueRange(points, floorMin, floorMax, pad = 2) {
 
 export function tempRangeLabel(points) {
   const values = points.map((point) => point.value).filter(finite);
-  if (!values.length) return "no data";
+  if (!values.length) return t("rack.tempRange.noData");
   const low = Math.round(Math.min(...values));
   const high = Math.round(Math.max(...values));
   return low === high ? `${low}°C` : `${low}–${high}°C`;

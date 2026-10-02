@@ -1,31 +1,31 @@
+import { t, language, locale, hasOwnString } from './i18n.js';
 // One colour per node in topology order (cards, cable diagram, trend lines); a ninth node starts over.
 export const COLORS = ['var(--blue)', 'var(--orange)', 'var(--green)', 'var(--ink)', 'var(--purple)', 'var(--gold)', 'var(--magenta)', 'var(--umber)'];
 // Shown wherever a value was not observed; never replaced by a made-up zero.
-export const UNKNOWN = 'unknown';
+export const unknown = (lang) => t('common.unknown', {}, lang);
 // Nodes in the order of the server's topology (topology.json); a payload without topology falls back to its node keys.
 export function nodeOrder(state) {
   const metas = state?.topology?.nodes;
   if (Array.isArray(metas) && metas.length) return metas;
   return Object.keys(state?.nodes ?? {}).map(id => ({ id, name: state.nodes[id]?.name ?? state.nodes[id]?.host ?? id, host: state.nodes[id]?.host ?? null, role: state.nodes[id]?.role ?? '', collect: true }));
 }
-export const LINK_TEXT = { up: 'A/B up', partial: 'one plane down', pending: 'not cabled yet', down: 'down', unknown: UNKNOWN };
+const LINK_TEXT = { partial: 'link.partial', pending: 'link.pending', down: 'link.down' };
 export function linkText(link) {
-  if (!link) return UNKNOWN;
+  if (!link) return unknown();
   const planes = Array.isArray(link.planes) && link.planes.length ? link.planes : ['a', 'b'];
-  const upText = planes.map(plane => plane.toUpperCase()).join('/') + ' up';
-  if (link.state === 'partial') return planes.map(plane => `${plane.toUpperCase()} ${link[plane]?.up === true ? 'up' : link[plane]?.up === false ? 'down' : UNKNOWN}`).join(', ');
-  if (link.state === 'up') return link.slow ? `${upText} (slow)` : upText;
-  return LINK_TEXT[link.state] ?? UNKNOWN;
+  if (link.state === 'partial') return planes.map(plane => t(`link.plane.${link[plane]?.up === true ? 'up' : link[plane]?.up === false ? 'down' : 'unknown'}`, { plane: plane.toUpperCase() })).join(', ');
+  if (link.state === 'up') return t(link.slow ? 'link.slow' : 'link.up', { planes: planes.map(plane => plane.toUpperCase()).join('/') });
+  return LINK_TEXT[link.state] ? t(LINK_TEXT[link.state]) : unknown();
 }
 export const finite = value => Number.isFinite(value);
 // Numbers use one fixed format (1,234.5) so the K/M/B suffixes and the columns read the same everywhere.
 export function fixed(value, digits = 1, suffix = '') {
-  return finite(value) ? value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits }) + suffix : UNKNOWN;
+  return finite(value) ? value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits }) + suffix : unknown();
 }
 // Token counts with three significant digits (1.5K, 9.55M, 1.06B), shared by the web page and the rack panel.
 // The unit is chosen after rounding, so 999,950 reads 1M rather than 1000.0K.
 const UNITS = ['K', 'M', 'B', 'T'];
-export function compact(value, missing = UNKNOWN) {
+export function compact(value, missing = unknown()) {
   if (!finite(value)) return missing;
   if (Math.abs(Math.round(value)) < 1000) return String(Math.round(value) || 0);
   let scaled = value;
@@ -38,12 +38,12 @@ export function compact(value, missing = UNKNOWN) {
 }
 // Below a second in milliseconds, otherwise seconds; 0.9996 s reads 1.00 s, not 1,000 ms.
 export function duration(seconds) {
-  if (!finite(seconds)) return UNKNOWN;
+  if (!finite(seconds)) return unknown();
   return Math.round(seconds * 1000) < 1000 ? fixed(seconds * 1000, 0, ' ms') : fixed(seconds, 2, ' s');
 }
 // Token rates: one decimal below 100 tok/s, none from there (99.96 reads 100 tok/s, not 100.0).
 export function tokenRate(value) {
-  return finite(value) ? fixed(value, Math.abs(value) >= 99.95 ? 0 : 1, ' tok/s') : UNKNOWN;
+  return finite(value) ? fixed(value, Math.abs(value) >= 99.95 ? 0 : 1, ' tok/s') : unknown();
 }
 export const gib = (bytes, digits = 1) => fixed(finite(bytes) ? bytes / 2 ** 30 : null, digits);
 // Display units chosen in the settings: memory and disk in GiB (2^30 bytes) or GB (10^9), temperatures in °C or °F.
@@ -53,20 +53,20 @@ export const temperatureUnit = unit => (unit === 'f' ? '°F' : '°C');
 export const temperature = (celsius, unit, digits = 0) => fixed(finite(celsius) ? (unit === 'f' ? celsius * 9 / 5 + 32 : celsius) : null, digits);
 export const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
 // Wall-clock times follow the viewer's own time zone, on a 24-hour clock in the viewer's locale; the 12-hour clock
-// uses the page's language for AM and PM.
-export function clockTime(value, { seconds = true, timeZone, hour12 = false } = {}) {
+// uses the page's language for AM and PM ("6:04 PM", or the Korean form with the period first).
+export function clockTime(value, { seconds = true, timeZone, hour12 = false, lang } = {}) {
   const date = new Date(value);
-  if (value == null || !finite(date.getTime())) return UNKNOWN;
+  if (value == null || !finite(date.getTime())) return unknown(lang);
   const options = { hour: hour12 ? 'numeric' : '2-digit', minute: '2-digit', hourCycle: hour12 ? 'h12' : 'h23', ...(seconds ? { second: '2-digit' } : {}) };
-  const locale = hour12 ? 'en-US' : undefined;
-  try { return date.toLocaleTimeString(locale, { ...options, timeZone }); } catch { return date.toLocaleTimeString(locale, options); }
+  const name = hour12 ? locale(lang) : undefined;
+  try { return date.toLocaleTimeString(name, { ...options, timeZone }); } catch { return date.toLocaleTimeString(name, options); }
 }
 // A past event's time, with its date when it was not today ("Oct 1 23:12:04").
-export function eventTime(value, nowMs = Date.now(), { hour12 = false } = {}) {
+export function eventTime(value, nowMs = Date.now(), { hour12 = false, lang } = {}) {
   const at = new Date(value).getTime();
-  if (value == null || !finite(at)) return UNKNOWN;
-  if (localDay(at) === localDay(nowMs)) return clockTime(value, { hour12 });
-  return `${new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${clockTime(value, { hour12 })}`;
+  if (value == null || !finite(at)) return unknown(lang);
+  if (localDay(at) === localDay(nowMs)) return clockTime(value, { hour12, lang });
+  return `${t('format.dayLabel', calendar(at), lang)} ${clockTime(value, { hour12, lang })}`;
 }
 // YYYY-MM-DD in the given IANA time zone; without one (or with an invalid one), the viewer's time zone.
 export function localDay(at = Date.now(), timeZone) {
@@ -77,15 +77,25 @@ export function localDay(at = Date.now(), timeZone) {
   const p = Object.fromEntries(parts.map(({type, value}) => [type, value]));
   return `${p.year}-${p.month}-${p.day}`;
 }
-// Calendar labels for ledger keys ("2026-09" -> "September 2026", "2026-09-17" -> "Sep 17"); the keys are plain dates, so UTC avoids shifting them.
-export function monthLabel(month) {
-  const [y, m] = month.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { timeZone: 'UTC', year: 'numeric', month: 'long' });
+// The parts of a date the calendar labels use, in the given time zone (the viewer's without one). The formatters are
+// kept, since a ledger month draws a label for every day.
+const formatters = new Map();
+function formatter(timeZone, options) {
+  const key = `${timeZone}|${JSON.stringify(options)}`;
+  if (!formatters.has(key)) formatters.set(key, new Intl.DateTimeFormat('en-US', { timeZone, ...options }));
+  return formatters.get(key);
 }
-export function dayLabel(day) {
-  const [y, m, d] = day.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
+function calendar(at, timeZone) {
+  const parts = Object.fromEntries(formatter(timeZone, { year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(at).map(({ type, value }) => [type, value]));
+  return { year: Number(parts.year), month: Number(parts.month), day: Number(parts.day), monthName: formatter(timeZone, { month: 'long' }).format(at), monthShort: formatter(timeZone, { month: 'short' }).format(at) };
 }
+// Calendar labels for ledger keys ("2026-09" -> "September 2026", "2026-09-17" -> "Sep 17"; Korean puts the year
+// first and counts months by number); the keys are plain dates, so UTC avoids shifting them. monthName is the month
+// alone ("September"), for headings such as "September total".
+const utcDate = (key) => { const [y, m, d = 1] = key.split('-').map(Number); return Date.UTC(y, m - 1, d); };
+export const monthLabel = (month, lang) => t('format.monthLabel', calendar(utcDate(month), 'UTC'), lang);
+export const monthName = (month, lang) => t('format.month', calendar(utcDate(month), 'UTC'), lang);
+export const dayLabel = (day, lang) => t('format.dayLabel', calendar(utcDate(day), 'UTC'), lang);
 export function monthOptions(first, current) {
   if (!/^\d{4}-\d{2}$/.test(first || '')) first = current;
   const options = [];
@@ -173,6 +183,12 @@ export function nodeLabel(id) {
 export function labelWidth(label) {
   return label.length <= 3 ? 38 : Math.max(38, Math.ceil(label.length * 7.6 + 18));
 }
+
+// systemctl's system state ("running", "degraded") in the page's language; a state the table does not know stays as reported.
+export const systemStateText = (state, lang = language()) => (hasOwnString(`systemState.${state}`, lang) ? t(`systemState.${state}`, {}, lang) : String(state));
+const ROLE_KEYS = { HEAD: 'role.head', WORKER: 'role.worker', NODE: 'role.node' };
+// HEAD, WORKER and NODE from topology.json; any other role is shown as written.
+export const roleName = (role, lang) => (ROLE_KEYS[role] ? t(ROLE_KEYS[role], {}, lang) : role ?? '');
 
 // The theme button cycles from the system look to the other look, then the system's look picked by hand, then back
 // to following the system. choice is the saved 'light' or 'dark' (null follows the system); system is the current one.

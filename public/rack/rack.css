@@ -10,6 +10,8 @@ body{color:var(--ink);font-family:Archivo,system-ui,sans-serif;font-size:20px;li
 
 .screen{position:absolute;left:0;top:0;width:var(--w,1920px);height:480px;transform-origin:0 0;background:var(--bg);overflow:hidden}
 .screen *{white-space:nowrap}
+/* Korean lines (a narrow bay's status) break between words, not between the syllables of a word. */
+html:lang(ko){word-break:keep-all}
 .screen svg{display:block}
 .halo{text-shadow:0 0 10px #000,0 0 3px #000}
 .lamp{display:inline-block;width:14px;height:14px;border-radius:50%;flex:none;background:var(--ink3)}
@@ -106,7 +108,7 @@ body{color:var(--ink);font-family:Archivo,system-ui,sans-serif;font-size:20px;li
 .bays[data-layout="compact"] .down b{font-size:100px}
 .bays[data-layout="compact"] .down span{white-space:normal}
 /* The narrowest bays (four nodes on a 1024 x 600 screen): the trace caption drops "GPU temp", the meters step down again. */
-@container (max-width:250px){.cap-label{display:none}.meter span{font-size:15px}.meter b{font-size:19px}.meter div{gap:6px}}
+@container (max-width:250px){.cap-label{display:none}.bays[data-layout="compact"] .meter span{font-size:15px}.bays[data-layout="compact"] .meter b{font-size:19px}.meter div{gap:6px}}
 
 /* Narrow panels (?width below 1440): the band's columns size to their content and the type steps down. */
 .screen.narrow .band .over{grid-template-columns:minmax(0,1fr) auto auto;padding:0 20px;gap:18px}
