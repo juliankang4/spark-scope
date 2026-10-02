@@ -197,6 +197,9 @@ function countLine(state, extras) {
   const linksUp = links.filter((link) => state?.ringLinks?.[link.id]?.state === "up").length;
   const parts = [metas.length === 1 ? (nodesUp ? "Node up" : "Node down") : `Nodes ${nodesUp}/${metas.length}`];
   if (links.length) parts.push(`Links ${linksUp}/${links.length}`);
+  // GPU power summed over the nodes that report it (nvidia-smi power draw; the whole box draws more).
+  const watts = metas.map((meta) => state?.nodes?.[meta.id]).filter((node) => node?.ok && finite(node.gpu?.powerWatts)).map((node) => node.gpu.powerWatts);
+  if (watts.length) parts.push(`GPU ${Math.round(watts.reduce((sum, value) => sum + value, 0))} W`);
   return [...parts, ...extras.filter(Boolean).slice(0, 2)].join(" · ");
 }
 

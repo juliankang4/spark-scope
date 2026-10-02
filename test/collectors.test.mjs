@@ -140,12 +140,21 @@ test("engine, TP rank and readiness are read from the GPU process name and /proc
   assert.equal(parseInferenceProcess("42, VLLM::Worker_TP1, 8192, ").ready, false);
 });
 
-test("only the TSOC and TS1P ACPI thermal zones are converted to Celsius", () => {
-  assert.deepEqual(parseThermals("TSOC=46800,TS1P=46300"), {
+test("every short-named ACPI thermal zone is converted to Celsius; TSOC and TS1P also get their own fields", () => {
+  assert.deepEqual(parseThermals("TSOC=46800,TS0E=47100,TS1P=46300,TGPU=47800,bad name=1,TUNC=x"), {
     tsocCelsius: 46.8,
     ts1pCelsius: 46.3,
+    zones: { TSOC: 46.8, TS0E: 47.1, TS1P: 46.3, TGPU: 47.8 },
   });
-  assert.deepEqual(parseThermals(""), { tsocCelsius: null, ts1pCelsius: null });
+  assert.deepEqual(parseThermals(""), { tsocCelsius: null, ts1pCelsius: null, zones: {} });
+});
+
+test("NVMe and NIC temperatures and the CPU load are read, unknown when absent", async () => {
+  const { parseHwmon, parseCpu } = await import("../lib/collectors.mjs");
+  assert.deepEqual(parseHwmon("nvme=44850,nic=53000"), { nvmeCelsius: 44.85, nicCelsius: 53 });
+  assert.deepEqual(parseHwmon("nvme=,nic="), { nvmeCelsius: null, nicCelsius: null });
+  assert.deepEqual(parseCpu("0.23,0.18,0.18,20"), { load1: 0.23, load5: 0.18, load15: 0.18, cores: 20 });
+  assert.deepEqual(parseCpu(""), { load1: null, load5: null, load15: null, cores: null });
 });
 
 test("the bounded kernel journal summary yields counts and the last message", () => {

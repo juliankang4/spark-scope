@@ -32,7 +32,7 @@ Phone, dark theme, two nodes joined by two cables:
 
 **Scope tab**
 
-- **Node cards.** GPU load, temperature, power, SM clock and free unified memory. A details panel adds free disk, inference process memory, system state and failed units, the inference container, the TP rank, the TSOC/TS1P board temperatures and NVIDIA kernel errors (Xid, `NV_ERR_NO_MEMORY`) from the last 24 hours. The container, TP rank and board temperatures only appear when the node reports them.
+- **Node cards.** GPU load, temperature, power, SM clock and free unified memory. A details panel adds free disk, inference process memory, CPU load (1-minute load average and core count), NVMe and ConnectX NIC chip temperatures, every ACPI thermal zone by its firmware name (on GB10 boards TSOC, TS0E, TS0P, TS1E, TS1P, TGPU and TUNC), system state and failed units, the inference container, the TP rank and NVIDIA kernel errors (Xid, `NV_ERR_NO_MEMORY`) from the last 24 hours. Sensors, the container and the TP rank only appear when the node reports them. The status line adds up the GPU power of all nodes. GB10 systems expose no fan speed and no whole-system power, so neither is shown.
 - **Node interconnect** (two or more nodes). A diagram and a table of every QSFP cable: the state of each logical plane (A/B), measured traffic in Gb/s, and whether the link is up, partially up, down, slow or not cabled yet. A single node has no such panel.
 - **Inference.** Output tok/s over 15 minutes, 1 hour or 6 hours, with the active average and the queue. Below it: prefill, cache-read and decode rates, TTFT and TPOT p95, prefix-cache hit rate, KV-cache use, speculative-decoding acceptance and running/waiting requests.
 - **Trends.** GPU temperature and available memory per node, and today's token totals.
@@ -47,7 +47,7 @@ The page follows the viewer's light or dark setting and has a toggle. It works o
 
 **Rack panel (`/rack/`)**
 
-A dark 1920 x 480 panel for a bar display or a Raspberry Pi kiosk. Each node gets a bay with its GPU temperature (with the last hour drawn behind it), GPU load, memory and disk use, power, TSOC and a coloured dot per link. The bottom band shows the cluster state, the model and engine, output tok/s over the last five minutes and today's tokens. See [Rack panel and kiosk](#rack-panel-and-kiosk).
+A dark 1920 x 480 panel for a bar display or a Raspberry Pi kiosk. Each node gets a bay with its GPU temperature (with the last hour drawn behind it), GPU load, memory and disk use, power, TSOC and a coloured dot per link. The bottom band shows the cluster state, the model and engine, node and link counts with the total GPU power, output tok/s over the last five minutes and today's tokens. See [Rack panel and kiosk](#rack-panel-and-kiosk).
 
 ## Requirements
 

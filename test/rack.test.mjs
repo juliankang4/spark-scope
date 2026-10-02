@@ -268,3 +268,13 @@ test("a node without GPU readings says why: a hung or failing query is critical,
   assert.deepEqual([nodeView(META["2"], noGpu("missing")).level, nodeView(META["2"], noGpu("missing")).reasons[0]], ["warn", "no nvidia-smi"]);
   assert.equal(nodeView(META["2"], noGpu("timeout")).temp, null);
 });
+
+test("the band adds up GPU power over the nodes that report it", () => {
+  const nodes = { 1: healthy({ gpu: { powerWatts: 9.2 } }), 2: healthy({ gpu: { powerWatts: 8.4 } }), 3: healthy({ gpu: { powerWatts: null } }), 4: { ok: false, collected: true } };
+  const view = clusterView({
+    ...ringState(), status: "degraded", inferenceState: "serving", message: "Node connection needs attention (3/4 reachable)", nodes,
+    vllm: { ok: true, engine: "SGLang", modelName: "example-model", outputTokensPerSecond: 0, runningRequests: 0, waitingRequests: 0 },
+    serving: { label: "SGLang" }, usage: { today: { total: 0, requests: 0 } },
+  });
+  assert.match(view.lines[1], /^Nodes 3\/4 · Links 4\/4 · GPU 18 W/);
+});
