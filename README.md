@@ -231,7 +231,7 @@ The engine label comes from the metric names or the GPU process name, and the nu
 
 ## Rack panel and kiosk
 
-Open `/rack/` (for example <http://127.0.0.1:8787/rack/>). The panel is laid out at 1920 x 480 and scales to fit the window, so it suits the common 1920 x 480 bar displays and works, letterboxed, on anything else. It polls `/api/state` every 2 seconds without the history and fetches the 60-minute history every 30 seconds for the temperature traces and the band's earlier samples. When the server stops answering, the bays and the band dim and the band stops moving. The page reloads itself every 12 hours, right after a successful health check, so it picks up updates without touching the kiosk.
+Open `/rack/` (for example <http://127.0.0.1:8787/rack/>). The panel is laid out at 1920 x 480 and scales to fit the window, so it suits the common 1920 x 480 bar displays and works, letterboxed, on anything else. It polls `/api/state` every 2 seconds without the history and fetches the 60-minute history every 30 seconds for the temperature traces and the band's earlier samples. The band scrolls left in steps of about one pixel rather than gliding, which keeps a Raspberry Pi's CPU low. When the server stops answering, the bays and the band dim and the band stops moving. The page reloads itself every 12 hours, right after a successful health check, so it picks up updates without touching the kiosk.
 
 ![Rack panel showing a node that stopped responding](docs/screenshots/rack-4-nodes-fault.png)
 <p align="center"><sub>One node not responding and its two links down: the bays name the cause, the band keeps the counts.</sub></p>
