@@ -107,3 +107,30 @@ html:lang(ko){word-break:keep-all}
 .help::before{content:"";position:absolute;inset:-8px}
 .help:hover,.help[aria-expanded=true]{background:transparent;color:var(--ink)}
 .help-tip{position:fixed;z-index:30;max-width:min(320px,calc(100vw - 24px));margin:0;padding:9px 11px;background:var(--ink);color:var(--paper);font:400 12px/1.5 var(--text-font);text-align:left;text-transform:none;letter-spacing:0;white-space:normal;box-shadow:0 6px 20px #0004;pointer-events:auto}
+
+/* Node card settings: four reading slots, bars, labels and warning levels; the preview's readings are selectable. */
+.slots{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;max-width:420px}
+.slots label{display:grid;gap:3px;font-size:11px;color:var(--muted)}
+.slots select,.warns input{font:500 12px var(--num-font);color:var(--ink);background:var(--screen);border:1px solid var(--line);padding:5px 6px;min-width:0}
+.slots label.flash select{outline:2px solid var(--blue);outline-offset:1px}
+.checks{display:flex;flex-wrap:wrap;gap:6px 16px}
+.warns{display:grid;gap:6px;justify-items:start}
+.warns label{display:grid;grid-template-columns:minmax(120px,auto) 64px auto;gap:8px;align-items:center;font-size:12px}
+.warns input{width:64px;text-align:right}
+.warns em{font-style:normal;color:var(--muted)}
+.settings-preview .reading{cursor:pointer;outline:1px dashed transparent;outline-offset:3px}
+.settings-preview .reading:hover{outline-color:var(--line)}
+/* A reading past its warning level, and a bar past it. */
+.reading b.warn,.reading b.warn em{color:var(--orange)}
+.meter i.warn{background:var(--orange)}
+.mem+.mem{margin-top:8px}
+/* Reading labels: full or short, or (Auto) short once the card is narrower than about 380 px, so a label never wraps. */
+.node{container-type:inline-size}
+.reading small .short{display:none}
+html[data-labels=short] .reading small .full{display:none}
+html[data-labels=short] .reading small .short{display:inline}
+html:not([data-labels=full]) .reading small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@container (max-width:380px){html[data-labels=auto] .reading small .full{display:none}html[data-labels=auto] .reading small .short{display:inline}}
+/* One of the two lower panels hidden: the other takes the whole width. */
+.lower.single{grid-template-columns:minmax(0,1fr)}
+.lower.single>*{border-right:0}

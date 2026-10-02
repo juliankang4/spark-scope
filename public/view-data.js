@@ -247,3 +247,26 @@ export function onMediaChange(query, listener) {
   if (typeof query.addEventListener === 'function') query.addEventListener('change', listener);
   else if (typeof query.addListener === 'function') query.addListener(listener);
 }
+
+// The readings a node card can show in its four slots (settings.readings). Each gives its value text and unit in the
+// chosen units, and whether it crosses the warning level set in the settings (warn levels are in °C, percent and GiB).
+// Labels live in i18n.js as node.reading.<id> (full) and node.readingShort.<id>.
+export function readingValue(id, node, settings) {
+  const ok = Boolean(node?.ok), gpu = ok ? node.gpu ?? {} : {}, disk = ok ? node.disk ?? {} : {};
+  const memUnit = memoryUnit(settings.mem), tempUnit = temperatureUnit(settings.temp);
+  const diskUsed = finite(disk.totalBytes) && finite(disk.availableBytes) ? disk.totalBytes - disk.availableBytes : null;
+  const diskWarn = finite(disk.usedPercent) && disk.usedPercent >= settings.diskWarn;
+  switch (id) {
+    case 'temp': return { text: temperature(gpu.temperature, settings.temp), unit: tempUnit, warn: finite(gpu.temperature) && gpu.temperature >= settings.tempWarn };
+    case 'power': return { text: fixed(gpu.powerWatts), unit: 'W', warn: false };
+    case 'mem': { const free = ok ? node.memory?.availableBytes : null; return { text: memory(free, settings.mem), unit: memUnit, warn: finite(free) && free < settings.memWarn * 2 ** 30 }; }
+    case 'clock': return { text: fixed(gpu.clockMHz, 0), unit: 'MHz', warn: false };
+    case 'disk': return { text: memory(diskUsed, settings.mem, 0), unit: memUnit, warn: diskWarn };
+    case 'diskfree': return { text: memory(ok ? disk.availableBytes : null, settings.mem, 0), unit: memUnit, warn: diskWarn };
+    case 'cpu': { const cpu = ok ? node.cpu : null; return { text: fixed(cpu?.load1, 2), unit: finite(cpu?.cores) ? `/ ${cpu.cores}` : '', warn: false }; }
+    case 'nvme': return { text: temperature(ok ? node.nvmeCelsius : null, settings.temp), unit: tempUnit, warn: false };
+    case 'nic': return { text: temperature(ok ? node.nicCelsius : null, settings.temp), unit: tempUnit, warn: false };
+    case 'proc': return { text: memory(ok ? node.processMemoryBytes : null, settings.mem), unit: memUnit, warn: false };
+    default: return { text: unknown(), unit: '', warn: false };
+  }
+}
