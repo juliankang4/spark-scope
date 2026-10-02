@@ -23,6 +23,8 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_ROOT = path.join(ROOT, "public");
 // Shown in the settings dialog's About section.
 const VERSION = JSON.parse(await readFile(path.join(ROOT, "package.json"), "utf8")).version;
+// When a rack panel last polled this server (see /api/state); null until one does.
+let rackSeenAt = null;
 
 // Whole numbers only: "2s" or "1e4" are rejected instead of being read as 2 or 1.
 function positiveInteger(name, fallback, minimum = 1) {
@@ -274,6 +276,9 @@ async function handle(request, response) {
     return;
   }
   if (url.pathname === "/api/state") {
+    // The rack panel marks its polls, so the web page can offer rack settings only where a rack panel is in use.
+    // Only the time is kept (in memory), not who asked.
+    if (url.searchParams.get("from") === "rack") rackSeenAt = new Date().toISOString();
     const requestedMinutes = Number(url.searchParams.get("minutes") || 60);
     const minutes = [15, 60, 360].includes(requestedMinutes) ? requestedMinutes : 60;
     const history = state.history.filter(point => point.at >= Date.now() - minutes * 60_000);
@@ -284,6 +289,7 @@ async function handle(request, response) {
       historyStats: summarizeHistory(history, minutes),
       pollIntervals: { nodeMs: config.nodeIntervalMs, apiMs: config.apiIntervalMs },
       version: VERSION,
+      rackSeenAt,
     }));
     return;
   }

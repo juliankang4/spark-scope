@@ -184,7 +184,7 @@ async function poll() {
   polling = true;
   let state = null;
   try {
-    state = await getJson("/api/state?minutes=15&history=0");
+    state = await getJson("/api/state?minutes=15&history=0&from=rack");
   } catch {
     renderCluster(true);
   }
@@ -212,7 +212,7 @@ async function poll() {
 // Every 30 s: the 60-minute history for the temperature traces and the band's earlier samples.
 async function pollTemps() {
   try {
-    const state = await getJson("/api/state?minutes=60");
+    const state = await getJson("/api/state?minutes=60&from=rack");
     tempHistory = state.history ?? [];
     if (latest) renderBays();
   } catch {
