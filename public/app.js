@@ -130,9 +130,16 @@ function drawState(state) {
   document.title=v?.modelName?`${v.modelName} | Spark Scope`:'Spark Scope';
   const empty=stopped?'stopped':UNKNOWN,value=(number,formatter=fixed)=>v?.ok?formatter(number):empty;
   text('#speed',value(v?.outputTokensPerSecond));text('#legend-speed',value(v?.outputTokensPerSecond));text('#avg',fixed(state.historyStats?.activeOutputTokensPerSecond));text('#queue',value(v?.waitingRequests,n=>fixed(n,0)));
-  document.querySelectorAll('[data-field]').forEach(el=>{const key=el.dataset.field;let result=empty;if(v?.ok){if(key==='requests')result=`${fixed(v.runningRequests,0)} / ${fixed(v.waitingRequests,0)}`;else if(key.endsWith('Seconds'))result=duration(v[key]);else if(key.endsWith('Percent'))result=fixed(v[key],1,'%');else result=tokenRate(v[key])}el.textContent=result});
+  document.querySelectorAll('[data-field]').forEach(el=>{const key=el.dataset.field;let result=empty;if(v?.ok){if(key==='requests')result=`${fixed(v.runningRequests,0)} / ${fixed(v.waitingRequests,0)}`;else if(key.endsWith('RecentSeconds'))result=recentLatency(v,key);else if(key.endsWith('Seconds'))result=duration(v[key]);else if(key.endsWith('Percent'))result=fixed(v[key],1,'%');else result=tokenRate(v[key])}el.textContent=result});
   metas.forEach(meta=>renderNode(meta,nodes[meta.id]));renderLinks(state);renderCharts(state);renderToday(state.usage);
   if(dialog.open)renderPreview();
+}
+// p95 over the requests that finished in the last 5 minutes; with none it says so instead of a value. The value
+// since the engine started is in the tooltip.
+function recentLatency(v,key) {
+  const el=document.querySelector(`[data-field="${key}"]`),overall=v[key.replace('Recent','')];
+  el.title=finite(overall)?`Since the engine started: ${duration(overall)}`:'';
+  return finite(v[key])?duration(v[key]):v.latencyWindowSeconds>0?'no requests':UNKNOWN;
 }
 function failedState() {
   latest=null;
