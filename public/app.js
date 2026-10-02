@@ -182,4 +182,7 @@ window.addEventListener('hashchange',()=>selectTab($(location.hash==='#tokens'?'
 document.querySelectorAll('[data-range]').forEach(btn=>btn.addEventListener('click',()=>{range=Number(btn.dataset.range);document.querySelectorAll('[data-range]').forEach(b=>b.setAttribute('aria-pressed',String(b===btn)));void refresh()}));
 $('#token-month').addEventListener('change',()=>{monthPicked=true;selectedMonth=$('#token-month').value;monthLoadedAt=0;clearMonth('Loading the monthly ledger…');void refreshMonth(true)});
 buildNodes();rebuildMonths();clearMonth('Loading the monthly ledger…');selectTab($(location.hash==='#tokens'?'#tab-tokens':'#tab-scope'),false);void refresh();
-setInterval(()=>{void refresh();if(!$('#tokens').hidden)void refreshMonth()},2000);
+// A hidden tab sends no requests; when it is shown again it reloads the chart history at once, so the gap fills in.
+function poll(){if(document.hidden)return;void refresh();if(!$('#tokens').hidden)void refreshMonth()}
+setInterval(poll,2000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){historyAt=0;poll()}});

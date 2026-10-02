@@ -111,15 +111,18 @@ function renderBay(meta, toMs) {
     <div class="foot"><span>Power ${f1(view.power)} W</span>${view.tsoc === null ? "" : `<span class="tsoc">TSOC ${f1(view.tsoc)}°C</span>`}${dots}</div>`;
 }
 
-// The band glides left between polls with one CSS transition per poll (composited), instead of a script that moves
-// it every frame. Each redraw puts it back at the start; with reduced motion or while disconnected it stays still.
+// The band moves left between polls with one CSS transition per poll (composited), instead of a script that moves
+// it every frame. It covers about 13 px per poll, so it moves in steps of about one pixel: a smooth glide would make
+// Chromium and the compositor draw a new frame at the display rate all day for sub-pixel moves.
+// Each redraw puts it back at the start; with reduced motion or while disconnected it stays still.
+const BAND_SHIFT = (POLL_MS / BAND_WINDOW_MS) * BW;
 function glideBand() {
   bandSvg.style.transition = "none";
   bandSvg.style.transform = "translateX(0px)";
   if (reduceMotion.matches || screen.classList.contains("stale")) return;
   void bandSvg.getBoundingClientRect();
-  bandSvg.style.transition = `transform ${POLL_MS}ms linear`;
-  bandSvg.style.transform = `translateX(${(-(POLL_MS / BAND_WINDOW_MS) * BW).toFixed(2)}px)`;
+  bandSvg.style.transition = `transform ${POLL_MS}ms steps(${Math.max(1, Math.round(BAND_SHIFT))}, end)`;
+  bandSvg.style.transform = `translateX(${(-BAND_SHIFT).toFixed(2)}px)`;
 }
 
 function drawBand() {
