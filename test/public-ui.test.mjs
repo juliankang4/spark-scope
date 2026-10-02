@@ -249,18 +249,20 @@ test('settings fall back to the default field by field when stored values are mi
   assert.deepEqual(parseSettings(null), DEFAULTS);
   assert.deepEqual(parseSettings('{"temp":"f"}'), DEFAULTS);
   assert.deepEqual(parseSettings([1, 2]), DEFAULTS);
-  assert.deepEqual(parseSettings({ temp: 'f', mem: 'tb', clock: 12, range: 60, refresh: 3, pause: 'no', extra: 1 }),
+  assert.deepEqual(parseSettings({ temp: 'f', mem: 'tb', clock: 12, range: 60, refresh: 3, pause: 'no', lang: 'fr', extra: 1 }),
     { ...DEFAULTS, temp: 'f' });
-  assert.deepEqual(parseSettings({ temp: 'f', mem: 'gb', clock: '12', range: 360, refresh: 10, pause: false }),
-    { temp: 'f', mem: 'gb', clock: '12', range: 360, refresh: 10, pause: false });
+  assert.deepEqual(parseSettings({ temp: 'f', mem: 'gb', clock: '12', range: 360, refresh: 10, pause: false, lang: 'ko' }),
+    { temp: 'f', mem: 'gb', clock: '12', range: 360, refresh: 10, pause: false, lang: 'ko' });
+  // English is the default language.
+  assert.equal(DEFAULTS.lang, 'en');
 });
 
 test('settings storage keeps only changed fields and survives broken or missing storage', () => {
   const memoryStore = () => { const data = new Map(); return { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, String(v)), removeItem: (k) => data.delete(k), data }; };
   const store = memoryStore();
-  assert.equal(saveSettings(store, { ...DEFAULTS, temp: 'f', range: 15 }), true);
-  assert.equal(store.data.get(SETTINGS_KEY), '{"temp":"f","range":15}');
-  assert.deepEqual(loadSettings(store), { ...DEFAULTS, temp: 'f', range: 15 });
+  assert.equal(saveSettings(store, { ...DEFAULTS, temp: 'f', range: 15, lang: 'ko' }), true);
+  assert.equal(store.data.get(SETTINGS_KEY), '{"temp":"f","range":15,"lang":"ko"}');
+  assert.deepEqual(loadSettings(store), { ...DEFAULTS, temp: 'f', range: 15, lang: 'ko' });
   saveSettings(store, DEFAULTS);
   assert.equal(store.data.has(SETTINGS_KEY), false);
   store.setItem(SETTINGS_KEY, '{not json');
@@ -277,16 +279,21 @@ test('settings storage keeps only changed fields and survives broken or missing 
 });
 
 test('a settings link carries the whole setup and ignores what it does not know', () => {
-  const settings = { ...DEFAULTS, temp: 'f', mem: 'gb', clock: '12', range: 15, refresh: 5, pause: false };
+  const settings = { ...DEFAULTS, temp: 'f', mem: 'gb', clock: '12', range: 15, refresh: 5, pause: false, lang: 'ko' };
   const query = settingsQuery(settings, 'dark');
-  assert.equal(query, 'temp=f&mem=gb&clock=12&range=15&refresh=5&pause=0&theme=dark');
+  assert.equal(query, 'temp=f&mem=gb&clock=12&range=15&refresh=5&pause=0&lang=ko&theme=dark');
   assert.deepEqual(settingsFromQuery(`?${query}`), { settings, theme: 'dark' });
   assert.equal(settingsQuery(DEFAULTS, null), '');
   assert.equal(settingsFromQuery(''), null);
   assert.equal(settingsFromQuery('?view=tokens'), null);
   // A link names only what differs from the defaults, so a missing field resets to its default.
   assert.deepEqual(settingsFromQuery('?temp=f&range=7&pause=maybe&theme=blue'), { settings: { ...DEFAULTS, temp: 'f' }, theme: null });
+  // A link with only the language switches only the language; an unknown language reads as English.
+  assert.deepEqual(settingsFromQuery('?lang=ko'), { settings: { ...DEFAULTS, lang: 'ko' }, theme: null });
+  assert.deepEqual(settingsFromQuery('?lang=fr'), { settings: DEFAULTS, theme: null });
+  assert.equal(settingsQuery({ ...DEFAULTS, lang: 'ko' }, null), 'lang=ko');
   assert.equal(withoutSettingsQuery('?temp=f&mem=gb&view=tokens'), '?view=tokens');
+  assert.equal(withoutSettingsQuery('?lang=ko&view=tokens'), '?view=tokens');
   assert.equal(withoutSettingsQuery('?temp=f&theme=dark'), '');
 });
 

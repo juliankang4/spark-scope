@@ -45,7 +45,7 @@ test('a single node has no links and is judged on the node and the API alone', (
   const nodes = { 1: { ...node('1'), network: {} } };
   const links = buildRingLinks(nodes, topology);
   assert.deepEqual(links, {});
-  assert.deepEqual(clusterStatus(nodes, { ok: true }, links, topology), { status: 'healthy', inferenceState: 'serving', message: 'Node and inference API healthy' });
+  assert.deepEqual(clusterStatus(nodes, { ok: true }, links, topology), { status: 'healthy', inferenceState: 'serving', message: 'Node and inference API healthy', messageKey: 'status.healthy', messageParams: { count: 1 } });
   // A machine without systemd reports no system state; that alone is not a fault.
   nodes['1'].systemState = null;
   assert.equal(clusterStatus(nodes, { ok: true }, links, topology).status, 'healthy');
@@ -220,7 +220,7 @@ test('a reachable node without GPU readings degrades the cluster instead of read
   const t = normalizeTopology(rawExample(1));
   const nodes = { 1: { ...node('1'), gpu: { thermalSlowdown: false, available: false, status: 'timeout' } } };
   assert.deepEqual(clusterStatus(nodes, { ok: true }, buildRingLinks(nodes, t), t), {
-    status: 'degraded', inferenceState: 'serving', message: 'GPU readings unavailable on spark-1',
+    status: 'degraded', inferenceState: 'serving', message: 'GPU readings unavailable on spark-1', messageKey: 'status.gpuUnavailable', messageParams: { nodes: ['spark-1'] },
   });
   // Older payloads without the flag are judged as before.
   const legacy = { 1: node('1') };
@@ -236,4 +236,46 @@ test('a plane neither end can see (a wrong interface name) reads unknown instead
   assert.equal(linkState({ ...link, cabled: false }, { a: { available: true, up: false }, b: { available: false, up: null } }), 'pending');
   assert.equal(linkState(link, { a: { available: true, up: true }, b: { available: true, up: true } }), 'up');
   assert.equal(linkState({ planes: ['a'] }, { a: { available: true, up: true }, b: { available: false, up: null } }), 'up');
+});
+
+test('every status message carries a stable key whose English text is the message, and a Korean text', async () => {
+  const { STRINGS, t } = await import('../public/i18n.js');
+  const one = normalizeTopology(rawExample(1));
+  const single = (overrides = {}) => ({ 1: { ...node('1'), network: {}, ...overrides } });
+  const nodes = (change = () => {}) => { const n = fourNodes(); change(n); return n; };
+  const status = (n, inference, topology = ring()) => clusterStatus(n, inference, buildRingLinks(n, topology), topology);
+  const results = [
+    clusterStatus({}, null, {}, ring()),
+    status({ 1: { ok: false, collected: true, id: '1' } }, { ok: false }, one),
+    status(nodes((n) => { for (const id of Object.keys(n)) n[id] = { ok: false, collected: true, id }; }), { ok: false }),
+    status(nodes((n) => { n['3'] = { ok: false, collected: true, id: '3' }; }), { ok: true }),
+    status(nodes((n) => { for (const id of ['1', '2']) n[id].gpu = { available: false, status: 'timeout' }; }), { ok: true }),
+    status(nodes((n) => { n['2'].failedUnits = 1; }), { ok: true }),
+    status(nodes((n) => { n['2'].failedUnits = 3; }), { ok: true }),
+    status(nodes((n) => { n['2'].systemState = 'starting'; }), { ok: true }),
+    status(nodes((n) => { n['2'] = node('2', { base: 10, p0: false }); }), { ok: true }),
+    status(nodes((n) => { n['4'].gpu = { thermalSlowdown: true }; }), { ok: true }),
+    status(single({ inferenceProcessUp: false, inferenceProcessReady: false }), { ok: false }, one),
+    status({ 1: node('1', { proc: false }), 2: node('2', { base: 10, proc: false }), 3: node('3', { base: 20, proc: false }), 4: node('4', { base: 30, proc: false }) }, { ok: false }),
+    status(nodes((n) => { n['4'].inferenceProcessReady = false; }), { ok: true }),
+    status(single(), { ok: true }, one),
+    status(nodes(), { ok: true }),
+    status(nodes((n) => { n['1'] = uncollected('1'); }), { ok: true }, ring({ collect1: false })),
+  ];
+  const keys = new Set(results.map((result) => result.messageKey));
+  assert.deepEqual([...keys].sort(), [
+    'status.cannotReachAny', 'status.cannotReachNode', 'status.failedServices', 'status.gpuUnavailable', 'status.healthy', 'status.healthyUncollected',
+    'status.inferenceAttention', 'status.noInferenceProcess', 'status.nodeConnection', 'status.qsfpLink', 'status.starting', 'status.systemState', 'status.thermal',
+  ]);
+  for (const result of results) {
+    assert.ok(Object.hasOwn(STRINGS.ko, result.messageKey), `${result.messageKey} has Korean text`);
+    assert.equal(t(result.messageKey, result.messageParams, 'en'), result.message, result.messageKey);
+    assert.ok(t(result.messageKey, result.messageParams, 'ko').length > 0);
+    // Parameters are plain JSON values, so /api/state carries them as they are.
+    assert.deepEqual(JSON.parse(JSON.stringify(result.messageParams)), result.messageParams);
+  }
+  assert.deepEqual(results[4].messageParams, { nodes: ['spark-1', 'spark-2'] });
+  assert.equal(results[5].message, '1 failed system service needs attention');
+  assert.equal(results[6].message, '3 failed system services need attention');
+  assert.equal(results[15].message, 'Nodes and inference API healthy (1 not collected)');
 });

@@ -2,8 +2,8 @@
 // address, poll intervals and topology stay in the server's environment and topology.json.
 export const SETTINGS_KEY = 'spark-scope-settings';
 export const THEME_KEY = 'spark-scope-theme';
-export const DEFAULTS = Object.freeze({ temp: 'c', mem: 'gib', clock: '24', range: 60, refresh: 2, pause: true });
-const CHOICES = { temp: ['c', 'f'], mem: ['gib', 'gb'], clock: ['24', '12'], range: [15, 60, 360], refresh: [2, 5, 10], pause: [true, false] };
+export const DEFAULTS = Object.freeze({ temp: 'c', mem: 'gib', clock: '24', range: 60, refresh: 2, pause: true, lang: 'en' });
+const CHOICES = { temp: ['c', 'f'], mem: ['gib', 'gb'], clock: ['24', '12'], range: [15, 60, 360], refresh: [2, 5, 10], pause: [true, false], lang: ['en', 'ko'] };
 
 // Every field is checked on its own: an unknown or invalid value falls back to its default and the others are kept.
 export function parseSettings(value) {
@@ -40,7 +40,7 @@ export function saveTheme(storage, theme) {
   try { theme === 'light' || theme === 'dark' ? storage.setItem(THEME_KEY, theme) : storage.removeItem(THEME_KEY); return true; } catch { return false; }
 }
 
-// A settings link carries the whole display setup to another browser: "?temp=f&mem=gb&clock=12&range=15&refresh=5&pause=0&theme=dark".
+// A settings link carries the whole display setup to another browser: "?temp=f&mem=gb&clock=12&range=15&refresh=5&pause=0&lang=ko&theme=dark".
 // Defaults are left out, so a link without a field means that field's default.
 export function settingsQuery(settings, theme) {
   const params = new URLSearchParams();

@@ -1,7 +1,7 @@
 // Development check: renders the rack panel and the web dashboard with synthetic data (tools/fixtures.mjs) for
-// one to six nodes, the longest ids and names, a 1024 x 600 screen and a phone in headless Chrome, saves PNGs and
-// reports clipped or overlapping text on the rack panel and overflow or script errors on the web page and in its
-// settings dialog.
+// one to six nodes, the longest ids and names, a 1024 x 600 screen and a phone in headless Chrome, in English and in
+// Korean, saves PNGs and reports clipped or overlapping text on the rack panel, overflow or script errors on the web
+// page and in its settings dialog, and English words left untranslated on the Korean pages.
 // Nothing is collected and no other machine is contacted.
 //
 //   node tools/render.mjs                 # PNGs go to $OUT or <tmp>/spark-scope-renders
@@ -36,7 +36,7 @@ function findChrome() {
 
 // ---- fixture server: the real public/ files, /api/state from fixtures ----
 let current = { count: 4, mode: "serving", longNames: false };
-const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".woff2": "font/woff2" };
+const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript; charset=utf-8", ".woff2": "font/woff2" };
 // The server's own security headers, so a page that breaks the Content-Security-Policy shows up as a console error.
 const server = createServer((request, response) => {
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) response.setHeader(name, value);
@@ -207,7 +207,7 @@ const CHECK_WEB = `(() => {
   const issues = [];
   const overflow = document.documentElement.scrollWidth - window.innerWidth;
   if (overflow > 0) issues.push("horizontal overflow " + overflow + "px");
-  for (const el of document.querySelectorAll("#scope h1, #scope h2, .identity h1, .badge, .role span, .reading b, .extra span, .links td, .trend p span, .legend div, .status .sub span")) {
+  for (const el of document.querySelectorAll("#scope h1, #scope h2, .identity h1, .badge, .role span, .reading b, .extra span, .links td, .trend p span, .legend div, .status .sub span, #tokens h2, #tokens h3, .month-metrics small, .month-metrics b, .history th, .history td, .day-bar span")) {
     if (!el.getClientRects().length) continue;
     if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).textOverflow !== "ellipsis") issues.push("text wider than its box: " + el.textContent.trim().slice(0, 40));
   }
@@ -238,6 +238,26 @@ const CHECK_SETTINGS = `(() => {
   }
   return issues;
 })()`;
+
+// Korean pages: English words on screen that are neither technical terms kept in English nor data from the fixture
+// (names, hosts, hardware, models, engines, containers, time zones) are text that missed the string table.
+const TERMS = "GPU CPU NVMe NIC ACPI TSOC TS0E TS0P TS1E TS1P TGPU TUNC Xid NO MEMORY TP rank TTFT TPOT KV cache Prefill Decode Spec acceptance tok API QSFP SPARK SCOPE Spark Scope MHz GiB GB TiB Gb SSH RAM nvidia smi ms English";
+function dataWords(state) {
+  const values = [state.usage?.timeZone, state.usage?.modelName, state.inference?.modelName, state.inference?.engine, state.serving?.engine];
+  for (const node of state.topology?.nodes ?? []) values.push(node.id, node.name, node.host, node.hardware);
+  for (const node of Object.values(state.nodes ?? {})) values.push(node?.container?.name, node?.inference?.engine);
+  for (const link of state.topology?.links ?? []) values.push(link.id, link.label);
+  return values.filter(Boolean).join(" ");
+}
+const CHECK_ENGLISH = (allowed) => `(() => {
+  const allowed = new Set(${JSON.stringify(`${TERMS} ${allowed}`)}.match(/[A-Za-z]{2,}/g));
+  const words = (document.body.innerText.match(/[A-Za-z]{2,}/g) ?? []).filter((word) => !allowed.has(word));
+  return [...new Set(words)];
+})()`;
+const englishLeft = async (page, state) => {
+  const words = await page.evaluate(CHECK_ENGLISH(dataWords(state)));
+  return words.length ? [`untranslated: ${words.join(" ")}`] : [];
+};
 
 let failures = 0;
 const report = (name, lines, problems) => {
@@ -311,7 +331,45 @@ try {
     }
   }
   await small.close();
+
+  // The rack panel in Korean (?lang=ko): one, four and six nodes, a lost connection, and the 1024 x 600 screen.
+  for (const count of [1, 4, 6].filter((count) => COUNTS.includes(count))) {
+    for (const mode of ["serving", "fault"]) {
+      current = { count, mode, longNames: false };
+      await rack.go(`${base}/rack/?lang=ko`);
+      await rack.waitFor("document.querySelectorAll('.bay').length > 0 && !document.querySelector('.bay:empty')");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const result = await rack.evaluate(CHECK_RACK);
+      const lang = await rack.evaluate("document.documentElement.lang");
+      const name = `rack-${count}-node-${mode}-ko.png`;
+      await rack.shoot(name);
+      report(name, [...result.bays, `band: ${result.band}`, `truncated: ${result.truncated.join(" / ") || "none"}`], [...result.issues, ...(lang === "ko" ? [] : [`page language ${lang}`]), ...await englishLeft(rack, fixtureState(count, mode)), ...rack.errors.splice(0)]);
+    }
+  }
+  current = { count: 4, mode: "serving", longNames: false };
+  await rack.go(`${base}/rack/?lang=ko`);
+  await rack.waitFor("document.querySelectorAll('.bay').length > 0");
+  current = { count: 4, mode: "lost", longNames: false };
+  await rack.waitFor("document.querySelector('#screen').classList.contains('stale')");
+  const lostKo = await rack.evaluate(CHECK_RACK);
+  await rack.shoot("rack-4-node-lost-ko.png");
+  report("rack-4-node-lost-ko.png", [`band: ${lostKo.band}`], [...lostKo.issues, ...await englishLeft(rack, fixtureState(4, "serving"))]);
+  rack.errors.splice(0);
   await rack.close();
+  const smallKo = await openPage({ width: 1024, height: 600 });
+  for (const count of [1, 2, 3, 4]) {
+    for (const mode of ["serving", "fault"]) {
+      current = { count, mode, longNames: false };
+      await smallKo.go(`${base}/rack/?width=819&lang=ko`);
+      await smallKo.waitFor("document.querySelectorAll('.bay').length > 0 && !document.querySelector('.bay:empty')");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const result = await smallKo.evaluate(CHECK_RACK);
+      const name = `rack-${count}-node-${mode}-1024x600-width-819-ko.png`;
+      await smallKo.shoot(name);
+      report(name, [`band: ${result.band}`, `truncated: ${result.truncated.join(" / ") || "none"}`], [...result.issues, ...await englishLeft(smallKo, fixtureState(count, mode)), ...smallKo.errors.splice(0)]);
+    }
+  }
+  await smallKo.close();
 
   // Web dashboard at desktop and phone widths.
   for (const [label, width, height, scheme] of [["desktop", 1440, 1000, "light"], ["phone", 390, 844, "dark"]]) {
@@ -320,7 +378,7 @@ try {
       for (const mode of ["serving", "fault"]) {
         current = { count, mode, longNames };
         await web.go(`${base}/`);
-        await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && document.querySelector('#updated-at').textContent !== 'waiting'");
+        await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && /\\d/.test(document.querySelector('#updated-at').textContent)");
         await new Promise((resolve) => setTimeout(resolve, 300));
         const issues = await web.evaluate(CHECK_WEB);
         const info = await web.evaluate(`(() => ({
@@ -342,7 +400,7 @@ try {
     const web = await openPage({ width, height, colorScheme: scheme });
     current = { count: 4, mode: "serving", longNames: false };
     await web.go(`${base}/`);
-    await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && document.querySelector('#updated-at').textContent !== 'waiting'");
+    await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && /\\d/.test(document.querySelector('#updated-at').textContent)");
     await web.evaluate("document.querySelector('#settings-open').click()");
     for (const section of ["units", "dashboard", "about"]) {
       await web.evaluate(`document.querySelector('[data-section="${section}"]').click()`);
@@ -353,7 +411,7 @@ try {
       report(name, [], [...issues, ...web.errors.splice(0)]);
     }
     await web.go(`${base}/?temp=f&mem=gb&clock=12&range=15`);
-    await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && document.querySelector('#updated-at').textContent !== 'waiting'");
+    await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && /\\d/.test(document.querySelector('#updated-at').textContent)");
     await new Promise((resolve) => setTimeout(resolve, 300));
     const linked = await web.evaluate(`(() => ({
       address: location.search,
@@ -370,6 +428,74 @@ try {
     const name = `web-${label}-settings-link.png`;
     await web.shoot(name, { fullPage: true });
     report(name, [`units: ${linked.units}`, `updated: ${linked.updated}`, `stored: ${linked.stored}`], problems);
+    await web.evaluate("localStorage.clear()");
+    await web.close();
+  }
+
+  // The web page in Korean, opened with a settings link (?lang=ko): four nodes serving and with a fault, and the token
+  // ledger with its Korean month and day labels.
+  for (const [label, width, height, scheme] of [["desktop", 1440, 1000, "light"], ["phone", 390, 844, "dark"]]) {
+    const web = await openPage({ width, height, colorScheme: scheme });
+    for (const mode of ["serving", "fault"]) {
+      current = { count: 4, mode, longNames: false };
+      await web.go(`${base}/?lang=ko`);
+      await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && /\\d/.test(document.querySelector('#updated-at').textContent)");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const issues = await web.evaluate(CHECK_WEB);
+      const info = await web.evaluate(`(() => ({
+        lang: document.documentElement.lang,
+        address: location.search,
+        status: document.querySelector('#status-title').textContent,
+        meta: document.querySelector('#model-meta').textContent,
+        cards: [...document.querySelectorAll('.node')].map((n) => n.querySelector('h2').textContent + ' ' + n.querySelector('.badge').textContent).join(' / '),
+      }))()`);
+      const problems = [...issues, ...await englishLeft(web, fixtureState(4, mode)), ...web.errors.splice(0)];
+      if (info.lang !== "ko") problems.push("page language " + info.lang);
+      if (info.address) problems.push("settings link left in the address: " + info.address);
+      const name = `web-${label}-4-node-${mode}-ko.png`;
+      await web.shoot(name, { fullPage: true });
+      report(name, [`status: ${info.status}`, `header: ${info.meta}`, `cards: ${info.cards}`], problems);
+    }
+    current = { count: 4, mode: "serving", longNames: false };
+    await web.go(`${base}/?lang=ko#tokens`);
+    await web.waitFor("document.querySelectorAll('#token-days tr th').length > 0");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const ledger = await web.evaluate(`(() => ({
+      title: document.querySelector('#month-title').textContent,
+      period: document.querySelector('#month-period').textContent,
+      month: document.querySelector('#token-month').selectedOptions[0]?.textContent,
+    }))()`);
+    const ledgerName = `web-${label}-tokens-ko.png`;
+    await web.shoot(ledgerName, { fullPage: true });
+    report(ledgerName, [`title: ${ledger.title}`, `period: ${ledger.period}`, `month: ${ledger.month}`], [...await web.evaluate(CHECK_WEB), ...await englishLeft(web, fixtureState(4, "serving")), ...web.errors.splice(0)]);
+    await web.evaluate("localStorage.clear()");
+    await web.close();
+  }
+
+  // The settings dialog: the page opens in English, Korean is picked in the dialog and applies at once to the page
+  // behind it and to the preview; then one PNG per section in Korean.
+  for (const [label, width, height, scheme] of [["desktop", 1440, 1000, "light"], ["phone", 390, 844, "dark"]]) {
+    const web = await openPage({ width, height, colorScheme: scheme });
+    current = { count: 4, mode: "serving", longNames: false };
+    await web.go(`${base}/`);
+    await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && /\\d/.test(document.querySelector('#updated-at').textContent)");
+    await web.evaluate("document.querySelector('#settings-open').click()");
+    await web.evaluate(`document.querySelector('[data-section="dashboard"]').click()`);
+    const before = await web.evaluate("[document.querySelector('#nodes .badge').textContent, document.querySelector('#preview-nodes .badge').textContent, document.querySelector('#settings-title').textContent]");
+    await web.evaluate("document.querySelector('input[name=lang][value=ko]').click()");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const after = await web.evaluate("[document.querySelector('#nodes .badge').textContent, document.querySelector('#preview-nodes .badge').textContent, document.querySelector('#settings-title').textContent, document.documentElement.lang, localStorage.getItem('spark-scope-settings')]");
+    const switched = [];
+    if (after[3] !== "ko") switched.push("page language " + after[3]);
+    for (const [index, part] of ["page card", "preview card", "dialog title"].entries()) if (after[index] === before[index]) switched.push(`${part} still reads ${after[index]}`);
+    for (const section of ["units", "dashboard", "about"]) {
+      await web.evaluate(`document.querySelector('[data-section="${section}"]').click()`);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const issues = await web.evaluate(CHECK_SETTINGS);
+      const name = `web-${label}-settings-${section}-ko.png`;
+      await web.shoot(name);
+      report(name, section === "dashboard" ? [`before: ${before.join(" / ")}`, `after: ${after.join(" / ")}`] : [], [...issues, ...(section === "dashboard" ? switched : []), ...await englishLeft(web, fixtureState(4, "serving")), ...web.errors.splice(0)]);
+    }
     await web.evaluate("localStorage.clear()");
     await web.close();
   }

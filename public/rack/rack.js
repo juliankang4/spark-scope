@@ -1,6 +1,7 @@
 import {
-  orderedNodes, nodeLinks, nodeView, reasonText, clusterView, seriesPoints, timePaths, valueRange, tempRangeLabel, f1, compact, freeLabel, panelWidth, bayLayout,
+  orderedNodes, nodeLinks, nodeView, reasonText, clusterView, seriesPoints, timePaths, valueRange, tempRangeLabel, f1, compact, freeLabel, panelWidth, bayLayout, BRAND,
 } from "./rack-view.js";
+import { t, setLanguage, queryLanguage, translatePage } from "../i18n.js";
 
 const POLL_MS = 2000;
 const TEMP_POLL_MS = 30_000;
@@ -14,6 +15,10 @@ const TRACE_W = 178;
 const TRACE_H = 150;
 // The panel is laid out at BW x 480 logical pixels and scaled to the window. "?width=" changes BW (default 1920).
 const BW = panelWidth(location.search);
+// "?lang=ko" shows the panel in Korean; the kiosk has no keyboard, so the address is the only setting.
+setLanguage(queryLanguage(location.search));
+translatePage();
+document.getElementById("cl-line1").textContent = t("rack.cluster.waitingBrand", { brand: BRAND });
 const PANEL_H = 480;
 const BH = 130;
 const BAND_TOP = 18;
@@ -80,20 +85,20 @@ const meter = (label, value, pct, warn = false, detail = "") => `<div class="met
 function renderBay(meta, toMs) {
   const links = nodeLinks(latest, meta.id);
   const view = nodeView(meta, latest.nodes?.[meta.id], { inferenceOk: Boolean(latest?.inference?.ok), lastOkAt: lastOkAt[meta.id], nowMs: toMs, links });
-  const target = view.local ? "local" : view.host ? `SSH ${view.host}` : "no host";
+  const target = view.local ? t("node.target.local") : view.host ? `SSH ${view.host}` : t("node.target.noHost");
   const el = bays.querySelector(`[data-node="${CSS.escape(meta.id)}"]`);
   el.className = `bay ${view.level}`;
   const head = `<span class="stripe"></span><header><div class="name">${escapeHtml(view.name)}<small>${escapeHtml(view.role)}</small></div><div class="reason" title="${escapeHtml(view.reasons.join(", "))}"><span class="lamp ${view.level}"></span><span>${escapeHtml(reasonText(view))}</span></div></header>`;
   // Peer names next to the dots only while they are short; long ids leave just the coloured dots.
   const named = view.links.every((link) => link.tag.length <= 6);
   const dots = view.links.length
-    ? `<span class="lk${named ? "" : " dots"}">Links${view.links.map((link) => `<em><i class="${link.level}"></i>${escapeHtml(link.tag)}</em>`).join("")}</span>`
+    ? `<span class="lk${named ? "" : " dots"}">${t("rack.bay.links")}${view.links.map((link) => `<em><i class="${link.level}"></i>${escapeHtml(link.tag)}</em>`).join("")}</span>`
     : "";
   if (!view.ok) {
     const body = view.pending
-      ? `<div class="down"><b class="num">—</b><span>${view.waiting ? "Waiting for the first poll" : `Not collected | ${escapeHtml(target)}`}</span></div>`
-      : `<div class="down"><b class="num">—</b><span>${escapeHtml(target)} not responding${view.lastOk ? ` | last OK ${view.lastOk}` : ""}</span></div>`;
-    const note = view.pending ? "No readings yet" : "Readings unavailable";
+      ? `<div class="down"><b class="num">—</b><span>${view.waiting ? t("rack.bay.waitingFirstPoll") : escapeHtml(t("rack.bay.notCollected", { target }))}</span></div>`
+      : `<div class="down"><b class="num">—</b><span>${escapeHtml(t("rack.bay.notResponding", { target }))}${view.lastOk ? ` | ${t("rack.bay.lastOk", { time: view.lastOk })}` : ""}</span></div>`;
+    const note = t(view.pending ? "rack.bay.noReadingsYet" : "rack.bay.readingsUnavailable");
     el.innerHTML = `${head}${body}<div class="foot"><span>${note}</span>${dots}</div>`;
     return;
   }
@@ -102,13 +107,13 @@ function renderBay(meta, toMs) {
     <div class="main">
       <div class="temp">${trace.svg}<b class="num halo">${view.temp === null ? "—" : Math.round(view.temp)}<sup>°C</sup></b></div>
       <div class="meters">
-        ${meter("GPU load", `${view.load ?? "—"}%`, view.load)}
-        ${meter("RAM", `${view.memUsedPct ?? "—"}%`, view.memUsedPct, false, `(${freeLabel(view.memFreeGiB)} free)`)}
-        ${meter("Disk", `${view.diskPct ?? "—"}%`, view.diskPct, view.diskWarn, `(${freeLabel(view.diskFreeGiB)} free)`)}
+        ${meter(t("rack.meter.gpuLoad"), `${view.load ?? "—"}%`, view.load)}
+        ${meter("RAM", `${view.memUsedPct ?? "—"}%`, view.memUsedPct, false, t("rack.meter.free", { free: freeLabel(view.memFreeGiB) }))}
+        ${meter(t("rack.meter.disk"), `${view.diskPct ?? "—"}%`, view.diskPct, view.diskWarn, t("rack.meter.free", { free: freeLabel(view.diskFreeGiB) }))}
       </div>
-      <div class="cap"><span class="cap-label">GPU temp </span>60 min: ${trace.range}</div>
+      <div class="cap"><span class="cap-label">${t("rack.caption.gpuTemp")} </span>${t("rack.caption.range", { range: trace.range })}</div>
     </div>
-    <div class="foot"><span>Power ${f1(view.power)} W</span>${view.tsoc === null ? "" : `<span class="tsoc">TSOC ${f1(view.tsoc)}°C</span>`}${dots}</div>`;
+    <div class="foot"><span>${t("rack.power", { watts: f1(view.power) })}</span>${view.tsoc === null ? "" : `<span class="tsoc">TSOC ${f1(view.tsoc)}°C</span>`}${dots}</div>`;
 }
 
 // The band moves left between polls with one CSS transition per poll (composited), instead of a script that moves
@@ -157,7 +162,7 @@ function renderCluster(fetchFailed) {
   $("cl-line2").textContent = view.lines[1] ?? "";
   $("out-value").textContent = f1(view.out);
   $("tok-total").textContent = compact(view.todayTotal);
-  $("tok-sub").textContent = view.todayRequests === null ? "Tokens today" : `Tokens today | ${view.todayRequests.toLocaleString("en-US")} requests`;
+  $("tok-sub").textContent = view.todayRequests === null ? t("rack.tokensToday") : t("rack.tokensTodayRequests", { count: view.todayRequests.toLocaleString("en-US") });
 }
 
 function renderBays() {
