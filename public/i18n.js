@@ -497,7 +497,7 @@ const ko = {
   'settings.linkLabel': '설정 링크',
   'settings.copyLink': '설정 링크 복사',
   'settings.linkCopied': '링크를 복사했습니다',
-  'settings.copyManually': '선택된 링크를 직접 복사해야 합니다',
+  'settings.copyManually': '직접 복사가 필요합니다',
   'settings.done': '완료',
 
   'rack.pageTitle': 'Spark Scope 랙 패널',
