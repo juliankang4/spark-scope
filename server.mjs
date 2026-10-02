@@ -4,8 +4,10 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
-import { collectNode, uncollectedNode, VllmCollector, applyNetworkRates } from "./lib/collectors.mjs";
+import { collectNode, uncollectedNode, InferenceCollector, applyNetworkRates } from "./lib/collectors.mjs";
 import { buildRingLinks, clusterStatus, servingSummary, DEFAULT_LINK_MIN_GBPS } from "./lib/cluster.mjs";
+import { hostAllowed, hostRules, SECURITY_HEADERS } from "./lib/http-guard.mjs";
+import { publicState } from "./lib/public-state.mjs";
 import { loadTopology, nodeInterfaces, publicTopology } from "./lib/topology.mjs";
 
 // node:sqlite (the token ledger) needs Node 22.13 or later; say so instead of failing on the import.
@@ -56,7 +58,9 @@ const config = {
   usageDbPath: process.env.SPARK_SCOPE_USAGE_DB || path.join(dataHome, "spark-scope", "usage.sqlite"),
   timeZone: validTimeZone(process.env.SPARK_SCOPE_TIME_ZONE),
   linkMinGbps: positiveInteger("SPARK_SCOPE_LINK_MIN_GBPS", DEFAULT_LINK_MIN_GBPS),
+  allowedHosts: process.env.SPARK_SCOPE_ALLOWED_HOSTS || "",
 };
+const hosts = hostRules({ bindHost: config.host, allowed: config.allowedHosts });
 const HISTORY_WINDOW_MS = 6 * 60 * 60 * 1000;
 const HISTORY_LIMIT = Math.ceil(HISTORY_WINDOW_MS / Math.min(config.nodeIntervalMs, config.apiIntervalMs)) + 20;
 
@@ -64,7 +68,7 @@ const HISTORY_LIMIT = Math.ceil(HISTORY_WINDOW_MS / Math.min(config.nodeInterval
 const topology = loadTopology();
 const nodeDefinitions = topology.nodes.map((node) => ({ ...node, interfaces: nodeInterfaces(topology, node.id) }));
 
-const vllmCollector = new VllmCollector(config.apiUrl);
+const inferenceCollector = new InferenceCollector(config.apiUrl);
 // A ledger that cannot be opened (corrupt file, wrong permissions) turns off token counting, not the dashboard.
 let usageStore = null;
 let usageOpenError = null;
@@ -78,7 +82,7 @@ const unavailableUsage = () => ({ persistent: false, error: usageOpenError, upda
 const state = {
   status: "starting",
   message: "Waiting for the first measurements",
-  vllm: null,
+  inference: null,
   topology: publicTopology(topology),
   nodes: Object.fromEntries(topology.nodes.map((node) => [node.id, null])),
   ringLinks: {},
@@ -91,16 +95,20 @@ const state = {
 };
 
 let collectingNodes = false;
-let collectingVllm = false;
+let collectingInference = false;
 // The model of the last successful poll: a restart in between (failed polls) does not hide a model switch.
 let lastServedModel = null;
 // Ledger errors repeat every poll; log a message when it changes and at most every ten minutes otherwise.
 let lastUsageError = { message: null, at: 0 };
+// Full node collection errors go to the log when they change; the browser only gets a short reason.
+const lastNodeErrors = new Map();
+// Refused Host names, logged once each so a missing SPARK_SCOPE_ALLOWED_HOSTS entry is easy to spot.
+const refusedHosts = new Set();
 
 function refreshClusterStatus() {
   state.ringLinks = buildRingLinks(state.nodes, topology, { minGbps: config.linkMinGbps });
-  state.serving = servingSummary(state.nodes, state.vllm, topology);
-  Object.assign(state, clusterStatus(state.nodes, state.vllm, state.ringLinks, topology));
+  state.serving = servingSummary(state.nodes, state.inference, topology);
+  Object.assign(state, clusterStatus(state.nodes, state.inference, state.ringLinks, topology));
   state.updatedAt = new Date().toISOString();
 }
 
@@ -108,13 +116,14 @@ const HISTORY_FIELDS = ["outputTokensPerSecond", "promptTokensPerSecond", "runni
 const HISTORY_NODE_FIELDS = ["temperature", "memoryAvailableBytes"];
 
 function addHistoryPoint() {
-  if (!state.vllm) return;
+  const inference = state.inference;
+  if (!inference) return;
   const point = {
     at: Date.now(),
-    outputTokensPerSecond: state.vllm.ok ? state.vllm.outputTokensPerSecond : null,
-    promptTokensPerSecond: state.vllm.ok ? state.vllm.promptTokensPerSecond : null,
-    runningRequests: state.vllm.ok ? state.vllm.runningRequests : null,
-    queue: state.vllm.ok ? state.vllm.waitingRequests : null,
+    outputTokensPerSecond: inference.ok ? inference.outputTokensPerSecond : null,
+    promptTokensPerSecond: inference.ok ? inference.promptTokensPerSecond : null,
+    runningRequests: inference.ok ? inference.runningRequests : null,
+    queue: inference.ok ? inference.waitingRequests : null,
     // Per node id: { temperature, memoryAvailableBytes }. Unreachable or uncollected nodes stay null.
     nodes: Object.fromEntries(topology.nodes.map(({ id }) => {
       const node = state.nodes[id];
@@ -141,6 +150,11 @@ async function collectNodes() {
       const definition = nodeDefinitions[index];
       const previous = state.nodes[definition.id];
       state.nodes[definition.id] = applyNetworkRates(snapshots[index], previous);
+      const error = snapshots[index]?.error ?? null;
+      if (error !== (lastNodeErrors.get(definition.id) ?? null)) {
+        console.error(error ? `Node ${definition.name}: ${error}` : `Node ${definition.name}: collecting again`);
+        lastNodeErrors.set(definition.id, error);
+      }
     }
     refreshClusterStatus();
   } finally {
@@ -148,21 +162,21 @@ async function collectNodes() {
   }
 }
 
-async function collectVllm() {
-  if (collectingVllm) return;
-  collectingVllm = true;
+async function collectInference() {
+  if (collectingInference) return;
+  collectingInference = true;
   try {
-    const nextVllm = await vllmCollector.collect();
-    if (nextVllm.ok && nextVllm.modelName) {
-      if (lastServedModel && lastServedModel !== nextVllm.modelName) state.history = [];
-      lastServedModel = nextVllm.modelName;
+    const next = await inferenceCollector.collect();
+    if (next.ok && next.modelName) {
+      if (lastServedModel && lastServedModel !== next.modelName) state.history = [];
+      lastServedModel = next.modelName;
     }
-    state.vllm = nextVllm;
+    state.inference = next;
     try {
       if (!usageStore) {
         state.usage = unavailableUsage();
-      } else if (nextVllm.ok) {
-        state.usage = usageStore.record(nextVllm);
+      } else if (next.ok) {
+        state.usage = usageStore.record(next);
       } else {
         const { session, modelName, processStartedAt } = state.usage;
         state.usage = { ...usageStore.summary(), session, modelName, processStartedAt };
@@ -178,7 +192,7 @@ async function collectVllm() {
     refreshClusterStatus();
     addHistoryPoint();
   } finally {
-    collectingVllm = false;
+    collectingInference = false;
   }
 }
 
@@ -270,23 +284,37 @@ function sendJson(request, response, status, body) {
 }
 
 async function handle(request, response) {
+  if (!hostAllowed(request.headers.host, hosts)) {
+    const name = String(request.headers.host).slice(0, 100);
+    if (!refusedHosts.has(name) && refusedHosts.size < 50) {
+      refusedHosts.add(name);
+      console.error(`Refused a request for host "${name}". If this is how you reach the dashboard, add it to SPARK_SCOPE_ALLOWED_HOSTS.`);
+    }
+    response.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("Host not allowed. Add it to SPARK_SCOPE_ALLOWED_HOSTS on the dashboard server.");
+    return;
+  }
   if (request.method !== "GET" && request.method !== "HEAD") {
     response.writeHead(405, { Allow: "GET, HEAD" }).end("Method not allowed");
     return;
   }
-  const url = new URL(request.url, "http://localhost");
+  let url;
+  try {
+    url = new URL(request.url, "http://localhost");
+  } catch {
+    response.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" }).end("Bad request");
+    return;
+  }
   if (url.pathname === "/api/state") {
     const requestedMinutes = Number(url.searchParams.get("minutes") || 60);
     const minutes = [15, 60, 360].includes(requestedMinutes) ? requestedMinutes : 60;
     const history = state.history.filter(point => point.at >= Date.now() - minutes * 60_000);
     // history=0 leaves out the samples: pages poll every two seconds and fetch the full history only now and then.
     const withHistory = url.searchParams.get("history") !== "0";
-    sendJson(request, response, 200, {
-      ...state,
+    sendJson(request, response, 200, publicState(state, {
       history: withHistory ? downsampleHistory(history) : undefined,
       historyStats: summarizeHistory(history, minutes),
       pollIntervals: { nodeMs: config.nodeIntervalMs, apiMs: config.apiIntervalMs },
-    });
+    }));
     return;
   }
   if (url.pathname === "/api/health") {
@@ -319,6 +347,7 @@ async function handle(request, response) {
 }
 
 const server = createServer((request, response) => {
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) response.setHeader(name, value);
   handle(request, response).catch((error) => {
     console.error(`Request ${request.url}: ${error.message}`);
     if (!response.headersSent) response.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
@@ -326,11 +355,11 @@ const server = createServer((request, response) => {
   });
 });
 
-await Promise.all([collectNodes(), collectVllm()]);
+await Promise.all([collectNodes(), collectInference()]);
 const nodeTimer = setInterval(collectNodes, config.nodeIntervalMs);
-const vllmTimer = setInterval(collectVllm, config.apiIntervalMs);
+const inferenceTimer = setInterval(collectInference, config.apiIntervalMs);
 nodeTimer.unref();
-vllmTimer.unref();
+inferenceTimer.unref();
 
 server.on("error", (error) => {
   console.error(`Spark Scope cannot listen on ${config.host}:${config.port}: ${error.message}`);
@@ -343,6 +372,7 @@ server.listen(config.port, config.host, () => {
   console.log(`Spark Scope: http://${shown}:${server.address().port}/ (rack panel: /rack/)`);
   if (!["127.0.0.1", "::1", "localhost"].includes(config.host)) {
     console.log("Warning: listening beyond localhost. Spark Scope has no authentication; expose it only on a network you trust.");
+    console.log(`Accepted host names: localhost, IP addresses, ${hosts.short}, ${hosts.short}.local, ${hosts.short}.<tailnet>.ts.net${config.allowedHosts ? `, ${config.allowedHosts}` : ""} (SPARK_SCOPE_ALLOWED_HOSTS adds more).`);
   }
   console.log(`Inference API: ${config.apiUrl}`);
   console.log(usageStore ? `Token ledger: ${config.usageDbPath} (days in ${usageStore.timeZone})` : usageOpenError);
@@ -351,7 +381,7 @@ server.listen(config.port, config.host, () => {
 
 function shutdown() {
   clearInterval(nodeTimer);
-  clearInterval(vllmTimer);
+  clearInterval(inferenceTimer);
   server.close(() => {
     usageStore?.close();
     process.exit(0);

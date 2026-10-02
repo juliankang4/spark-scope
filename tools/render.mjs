@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fixtureState, usageMonth, MODES } from "./fixtures.mjs";
+import { SECURITY_HEADERS } from "../lib/http-guard.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC = path.join(ROOT, "public");
@@ -35,7 +36,9 @@ function findChrome() {
 // ---- fixture server: the real public/ files, /api/state from fixtures ----
 let current = { count: 4, mode: "serving", longNames: false };
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".woff2": "font/woff2" };
+// The server's own security headers, so a page that breaks the Content-Security-Policy shows up as a console error.
 const server = createServer((request, response) => {
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) response.setHeader(name, value);
   const url = new URL(request.url, "http://localhost");
   if (url.pathname === "/api/state") {
     if (current.mode === "lost") { response.writeHead(503).end("{}"); return; }
@@ -94,10 +97,13 @@ async function openPage({ width, height, colorScheme = "dark" }) {
     if (message.sessionId !== sessionId) return;
     if (message.method === "Runtime.exceptionThrown") errors.push(message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text);
     if (message.method === "Runtime.consoleAPICalled" && message.params.type === "error") errors.push(message.params.args.map((arg) => arg.value ?? arg.description).join(" "));
+    // Browser-reported problems such as Content-Security-Policy violations arrive in the Log domain.
+    if (message.method === "Log.entryAdded" && message.params.entry.level === "error") errors.push(message.params.entry.text);
   });
   const call = (method, params) => send(method, params, sessionId);
   await call("Page.enable");
   await call("Runtime.enable");
+  await call("Log.enable");
   await call("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 600 });
   await call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }, { name: "prefers-color-scheme", value: colorScheme }] });
   const evaluate = async (expression) => (await call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result.value;

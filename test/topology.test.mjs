@@ -104,6 +104,11 @@ test("invalid configuration is rejected before anything reaches a shell", () => 
   const selfLink = base();
   selfLink.links[0].ends[1].node = "1";
   assert.throws(() => normalizeTopology(selfLink), /connects a node to itself/);
+  // One interface can carry only one plane of one cable.
+  const reused = base();
+  reused.nodes.push({ id: "3", name: "c", host: "c" });
+  reused.links.push({ id: "1-3", ends: [{ node: "1", a: P0A }, { node: "3", a: P1A }] });
+  assert.throws(() => normalizeTopology(reused), /interface enp1s0f0np0 on node 1 is used by link 1-2 plane A and by link 1-3 plane A/);
 });
 
 test("the browser gets names, roles and links but no interface names", () => {

@@ -188,10 +188,10 @@ export function staleAfterMs(state) {
 
 // The latest sample of a state polled without history, shaped like one point of state.history.
 export function livePoint(state) {
-  const at = Date.parse(state?.vllm?.updatedAt ?? state?.updatedAt ?? '');
+  const at = Date.parse(state?.inference?.updatedAt ?? state?.updatedAt ?? '');
   if (!finite(at)) return null;
-  const vllm = state?.vllm?.ok ? state.vllm : null;
-  const value = (key) => (vllm && finite(vllm[key]) ? vllm[key] : null);
+  const inference = state?.inference?.ok ? state.inference : null;
+  const value = (key) => (inference && finite(inference[key]) ? inference[key] : null);
   return {
     at,
     outputTokensPerSecond: value('outputTokensPerSecond'),

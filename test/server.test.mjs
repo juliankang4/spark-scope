@@ -65,7 +65,7 @@ test("the server serves the dashboard, the rack panel, the fonts and the JSON AP
     assert.deepEqual(state.topology.nodes.map((node) => [node.id, node.collect]), [["1", false]]);
     assert.deepEqual(state.ringLinks, {});
     assert.equal(state.nodes["1"].collected, false);
-    assert.equal(state.vllm.ok, false);
+    assert.equal(state.inference.ok, false);
     assert.equal(state.usage.timeZone, "UTC");
     assert.equal(state.historyStats.windowMinutes, 15);
     assert.deepEqual(state.pollIntervals, { nodeMs: 5000, apiMs: 2000 });
@@ -116,6 +116,49 @@ test("a ledger file that cannot be opened turns off token counting, not the dash
     assert.match(state.usage.error, /Token ledger unavailable/);
     const month = await fetch(`${base}/api/usage?month=2026-10`);
     assert.equal(month.status, 503);
+  } finally {
+    const exited = new Promise((resolve) => child.on("exit", resolve));
+    child.kill("SIGTERM");
+    await exited;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+// One raw HTTP request, so the Host header and the request target are sent exactly as written.
+async function rawRequest(base, lines) {
+  const net = await import("node:net");
+  const { port } = new URL(base);
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(Number(port), "127.0.0.1", () => socket.end(`${lines.join("\r\n")}\r\n\r\n`));
+    let data = "";
+    socket.on("data", (chunk) => { data += chunk; });
+    socket.on("end", () => resolve({ status: Number(/^HTTP\/1\.1 (\d+)/.exec(data)?.[1]), text: data }));
+    socket.on("error", reject);
+  });
+}
+
+test("requests for another site's host name are refused, every response carries the security headers, and a malformed target is a 400", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-server-host-"));
+  const { child, base } = await startServer(directory, { SPARK_SCOPE_ALLOWED_HOSTS: "dash.example.org" });
+  let log = "";
+  child.stderr.on("data", (chunk) => { log += chunk; });
+  try {
+    const rebinding = await rawRequest(base, ["GET /api/state HTTP/1.1", "Host: attacker.example:8787", "Connection: close"]);
+    assert.equal(rebinding.status, 403);
+    assert.doesNotMatch(rebinding.text, /topology|nodes/);
+    assert.match(rebinding.text, /Content-Security-Policy: default-src 'self'/i);
+    for (const host of ["localhost:8787", "127.0.0.1", "dash.example.org"]) {
+      assert.equal((await rawRequest(base, ["GET /api/health HTTP/1.1", `Host: ${host}`, "Connection: close"])).status, 503, host);
+    }
+    const page = await fetch(`${base}/`);
+    assert.match(page.headers.get("content-security-policy"), /frame-ancestors 'none'/);
+    assert.equal(page.headers.get("x-content-type-options"), "nosniff");
+    assert.doesNotMatch(await page.text(), /<script>/, "the page has no inline script for the policy to allow");
+    assert.equal((await rawRequest(base, ["GET http://[ HTTP/1.1", "Host: localhost", "Connection: close"])).status, 400);
+    const state = await (await fetch(`${base}/api/state?history=0`)).json();
+    assert.equal(state.inference.baseUrl, undefined);
+    assert.equal(state.vllm.ok, state.inference.ok);
+    assert.match(log, /Refused a request for host "attacker\.example:8787"/);
   } finally {
     const exited = new Promise((resolve) => child.on("exit", resolve));
     child.kill("SIGTERM");

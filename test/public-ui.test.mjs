@@ -199,7 +199,7 @@ test("a poll without history adds its own sample to the history the page already
   const { livePoint, mergeLivePoint } = await import('../public/view-data.js');
   const state = {
     updatedAt: '2026-10-02T03:00:02Z',
-    vllm: { ok: true, updatedAt: '2026-10-02T03:00:02Z', outputTokensPerSecond: 61.3, promptTokensPerSecond: 2104, runningRequests: 2, waitingRequests: 0 },
+    inference: { ok: true, updatedAt: '2026-10-02T03:00:02Z', outputTokensPerSecond: 61.3, promptTokensPerSecond: 2104, runningRequests: 2, waitingRequests: 0 },
     nodes: { 1: { ok: true, gpu: { temperature: 57 }, memory: { availableBytes: 9.5 * 2 ** 30 } }, 2: { ok: false } },
   };
   const point = livePoint(state);
@@ -211,7 +211,7 @@ test("a poll without history adds its own sample to the history the page already
   assert.deepEqual(mergeLivePoint([old, recent], point, 60 * 60_000), [recent, point]);
   // The same sample twice, or an older one, changes nothing.
   assert.deepEqual(mergeLivePoint([recent, point], point, 60 * 60_000), [recent, point]);
-  assert.equal(livePoint({ vllm: { ok: false }, updatedAt: '2026-10-02T03:00:02Z' }).outputTokensPerSecond, null);
+  assert.equal(livePoint({ inference: { ok: false }, updatedAt: '2026-10-02T03:00:02Z' }).outputTokensPerSecond, null);
 });
 
 test("timeouts and media-query listeners also work where Safari lacks the newer APIs", async () => {

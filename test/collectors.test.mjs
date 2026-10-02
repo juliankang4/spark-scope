@@ -9,7 +9,6 @@ import {
   knownEngine,
   metricsEngine,
   parseNetworkLines,
-  histogramMean,
   histogramQuantile,
   holdPrefillRates,
   metricSum,
@@ -78,17 +77,26 @@ vllm:request_success_total{finished_reason="error",model_name="model-a"} 3
   assert.equal(metricValue(metrics, "vllm:request_success_total", { finished_reason: "error" }), 3);
 });
 
-test("p95 is the first cumulative histogram bucket at or above 95%", () => {
+test("p95 is interpolated inside the bucket that reaches 95%, as Prometheus does", () => {
   const metrics = parsePrometheus(`
 vllm:time_to_first_token_seconds_bucket{le="0.1"} 2
 vllm:time_to_first_token_seconds_bucket{le="0.5"} 8
 vllm:time_to_first_token_seconds_bucket{le="1"} 10
 vllm:time_to_first_token_seconds_bucket{le="+Inf"} 10
 `);
-  assert.equal(histogramQuantile(metrics, "vllm:time_to_first_token_seconds", 0.95), 1);
+  // Rank 9.5 of 10 lies 1.5 of the 2 observations into the 0.5–1 s bucket.
+  assert.equal(histogramQuantile(metrics, "vllm:time_to_first_token_seconds", 0.95), 0.875);
+  // Inside the first bucket the lower bound is 0.
+  assert.equal(histogramQuantile(metrics, "vllm:time_to_first_token_seconds", 0.1), 0.05);
+  // In the +Inf bucket the estimate is the highest finite bound.
+  const tail = parsePrometheus(`
+vllm:time_to_first_token_seconds_bucket{le="1"} 5
+vllm:time_to_first_token_seconds_bucket{le="+Inf"} 10
+`);
+  assert.equal(histogramQuantile(tail, "vllm:time_to_first_token_seconds", 0.95), 1);
 });
 
-test("histogram means and per-label counter sums are computed", () => {
+test("per-label counter sums are computed", () => {
   const metrics = parsePrometheus(`
 vllm:request_prefill_time_seconds_count{model_name="model-a"} 4
 vllm:request_prefill_time_seconds_sum{model_name="model-a"} 10
@@ -96,7 +104,6 @@ vllm:request_success_total{finished_reason="stop"} 7
 vllm:request_success_total{finished_reason="length"} 2
 vllm:request_success_total{finished_reason="error"} 1
 `);
-  assert.equal(histogramMean(metrics, "vllm:request_prefill_time_seconds"), 2.5);
   assert.equal(metricSum(metrics, "vllm:request_success_total"), 10);
   assert.equal(metricSum(metrics, "vllm:request_success_total", { finished_reason: "error" }), 1);
 });
@@ -282,7 +289,7 @@ test("SGLang inter-token latency stands in for TPOT and its accept-rate gauge fo
   ].join("\n");
   const metrics = normalizeSglangMetrics(parsePrometheus(text));
   assert.equal(metricValue(metrics, "vllm:request_time_per_output_token_seconds_count"), 100);
-  assert.equal(metricValue(metrics, "vllm:inter_token_latency_seconds_bucket", { le: "0.04" }), 100);
+  assert.equal(metricValue(metrics, "vllm:request_time_per_output_token_seconds_bucket", { le: "0.04" }), 100);
   assert.ok(Math.abs(speculativeAcceptancePercent(metrics) - 33.5) < 1e-9);
   // No speculative decoding at all reads as unknown, not as a 0% acceptance.
   assert.equal(speculativeAcceptancePercent(parsePrometheus("vllm:num_requests_running 0\n")), null);
@@ -398,7 +405,7 @@ async function withFakeEngine(metricsText, run) {
 }
 
 test("vLLM data-parallel engines are added up, and metrics an engine does not export stay unknown", async () => {
-  const { VllmCollector } = await import("../lib/collectors.mjs");
+  const { InferenceCollector } = await import("../lib/collectors.mjs");
   const engines = (output) => [
     `vllm:num_requests_running{engine="0",model_name="example-model"} 2`,
     `vllm:num_requests_running{engine="1",model_name="example-model"} 5`,
@@ -418,7 +425,7 @@ test("vLLM data-parallel engines are added up, and metrics an engine does not ex
     `vllm:time_to_first_token_seconds_bucket{engine="1",le="+Inf"} 100`,
   ].join("\n");
   await withFakeEngine(engines([1000, 3000]), async (base, setMetrics) => {
-    const collector = new VllmCollector(base);
+    const collector = new InferenceCollector(base);
     const first = await collector.collect();
     assert.equal(first.ok, true, first.error ?? "");
     assert.equal(first.generationTokensTotal, 4000);
@@ -426,8 +433,10 @@ test("vLLM data-parallel engines are added up, and metrics an engine does not ex
     assert.equal(first.completedRequestsTotal, 40);
     assert.equal(first.runningRequests, 7);
     assert.equal(first.waitingRequests, 1);
-    // Half of all first tokens took longer than 0.1 s, so p95 is the 2.5 s bucket, not engine 0's 0.1 s.
-    assert.equal(first.ttftP95Seconds, 2.5);
+    // Half of all first tokens took longer than 0.1 s, so p95 lies inside the 0.1–2.5 s bucket, not at engine 0's 0.1 s.
+    assert.ok(Math.abs(first.ttftP95Seconds - (0.1 + 2.4 * (91 / 101))) < 1e-9, String(first.ttftP95Seconds));
+    // Engine addresses and paths stay on the server side of the reading's public form (see public-state.mjs).
+    assert.equal(first.baseUrl, undefined);
     // One sample cannot give a rate, and these metrics are simply not exported here.
     assert.equal(first.outputTokensPerSecond, null);
     for (const key of ["promptComputeTokensTotal", "promptCacheTokensTotal", "kvCachePercent", "prefixCacheHitPercent", "speculativeAcceptancePercent"]) {
@@ -446,7 +455,7 @@ test("process memory nvidia-smi does not report stays unknown", () => {
 });
 
 test("SGLang's live decode rate comes from its throughput gauge while requests run, not from the finish-time counter", async () => {
-  const { sglangDecodeRate, VllmCollector } = await import("../lib/collectors.mjs");
+  const { sglangDecodeRate, InferenceCollector } = await import("../lib/collectors.mjs");
   const gauges = (throughput, running) => parsePrometheus(`sglang:gen_throughput{tp_rank="0"} ${throughput}\nsglang:num_running_reqs{tp_rank="0"} ${running}\n`);
   assert.equal(sglangDecodeRate(gauges(84.3, 2), 0), 84.3);
   // The gauge keeps its last value when idle; with nothing running there is no decode.
@@ -463,7 +472,7 @@ test("SGLang's live decode rate comes from its throughput gauge while requests r
     `sglang:gen_throughput{model_name="example-model",tp_rank="0"} 79.8`,
   ].join("\n");
   await withFakeEngine(engine(1000), async (base) => {
-    const collector = new VllmCollector(base);
+    const collector = new InferenceCollector(base);
     await collector.collect();
     collector.previous.at -= 2000;
     const streaming = await collector.collect();
@@ -471,4 +480,34 @@ test("SGLang's live decode rate comes from its throughput gauge while requests r
     assert.equal(streaming.generationTokensTotal, 1000);
     assert.equal(streaming.outputTokensPerSecond, 79.8);
   });
+});
+
+test("response bodies the collector does not read are released, so connections are reused", async () => {
+  const { createServer } = await import("node:http");
+  const { InferenceCollector } = await import("../lib/collectors.mjs");
+  // A large /health page (as some proxies serve) and a failing /v1/models: neither body is read.
+  const big = "x".repeat(512 * 1024);
+  const sockets = new Set();
+  const server = createServer((request, response) => {
+    if (request.url === "/health") return response.end(big);
+    if (request.url === "/metrics") return response.end('vllm:num_requests_running{model_name="example-model"} 0\nvllm:generation_tokens_total{model_name="example-model"} 1\n');
+    response.writeHead(500).end(big);
+  });
+  server.on("connection", (socket) => sockets.add(socket));
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const collector = new InferenceCollector(`http://127.0.0.1:${server.address().port}`);
+    for (let i = 0; i < 20; i += 1) {
+      collector.modelsFetchedAt = 0;
+      const reading = await collector.collect();
+      assert.equal(reading.ok, true, reading.error ?? "");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const open = [...sockets].filter((socket) => !socket.destroyed).length;
+    // Unread bodies kept their connections open (about 40 after 20 polls); released ones are closed or reused.
+    assert.ok(open <= 6, `${open} of ${sockets.size} connections still open after 20 polls`);
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await new Promise((resolve) => server.close(resolve));
+  }
 });

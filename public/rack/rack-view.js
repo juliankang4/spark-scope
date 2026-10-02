@@ -63,10 +63,9 @@ export function linkReason(link) {
   if (link.state === "pending") return `Link ${label} not cabled`;
   if (link.state === "down") return `Link ${label} down`;
   if (link.state === "partial") {
+    // Partial always has a dark plane next to one that is up; a plane nobody can see makes the link unknown instead.
     const dark = planes.filter((plane) => link[plane]?.up === false);
-    if (dark.length) return `Link ${label} ${dark.map((plane) => PLANE_NAMES[plane]).join("/")} down`;
-    const unseen = planes.filter((plane) => !link[plane]?.available);
-    return `Link ${label} ${unseen.map((plane) => PLANE_NAMES[plane]).join("/")} not visible`;
+    return `Link ${label} ${dark.map((plane) => PLANE_NAMES[plane]).join("/")} down`;
   }
   if (link.state === "up" && link.slow) {
     const speeds = planes.map((plane) => link[plane]?.speedGbps).filter(finite);
@@ -107,7 +106,7 @@ const GPU_PROBLEMS = {
 };
 
 // Reasons are ordered by severity so the bay header can show the most important one.
-export function nodeView(meta, node, { vllmOk = false, lastOkAt = null, nowMs = Date.now(), links = [], clock = {} } = {}) {
+export function nodeView(meta, node, { inferenceOk = false, lastOkAt = null, nowMs = Date.now(), links = [], clock = {} } = {}) {
   const id = meta?.id ?? node?.id ?? "?";
   const base = {
     id,
@@ -152,7 +151,7 @@ export function nodeView(meta, node, { vllmOk = false, lastOkAt = null, nowMs = 
   if (node.systemState && node.systemState !== "running") warn.push(`system ${node.systemState}`);
   if (node.failedUnits > 0) warn.push(`${node.failedUnits} failed ${node.failedUnits === 1 ? "unit" : "units"}`);
   // Nodes marked "inference": false in topology.json may idle while the API serves.
-  if (vllmOk && meta?.inference !== false && !node.inferenceProcessUp) warn.push("no inference process");
+  if (inferenceOk && meta?.inference !== false && !node.inferenceProcessUp) warn.push("no inference process");
   if (restarts > 0 && recent(node.container?.startedAt)) warn.push(`restarted ×${restarts}`);
   if (diskPct !== null && diskPct >= DISK_WARN_PERCENT) warn.push(`disk ${diskPct}%`);
   if (memFreeGiB !== null && memFreeGiB < MEMORY_WARN_GIB) warn.push(`${memFreeGiB.toFixed(1)} GiB memory free`);
@@ -178,9 +177,9 @@ export function reasonText(view) {
 
 // Model and engine as reported by the API and the nodes; nothing is assumed about the engine or the node count.
 function servingLine(state) {
-  const vllm = state?.vllm;
-  const model = vllm?.modelName ?? state?.usage?.modelName ?? null;
-  const engine = state?.serving?.label ?? (vllm?.ok ? vllm.engine : null) ?? null;
+  const inference = state?.inference;
+  const model = inference?.modelName ?? state?.usage?.modelName ?? null;
+  const engine = state?.serving?.label ?? (inference?.ok ? inference.engine : null) ?? null;
   return [model ?? "model unknown", engine].filter(Boolean).join(" | ");
 }
 
@@ -216,13 +215,13 @@ function bandNotes(state) {
 }
 
 export function clusterView(state, { fetchFailed = false, lastReceivedAt = null, clock = {} } = {}) {
-  const vllm = state?.vllm;
-  const running = finite(vllm?.runningRequests) ? vllm.runningRequests : null;
-  const waiting = finite(vllm?.waitingRequests) ? vllm.waitingRequests : null;
+  const inference = state?.inference;
+  const running = finite(inference?.runningRequests) ? inference.runningRequests : null;
+  const waiting = finite(inference?.waitingRequests) ? inference.waitingRequests : null;
   const base = {
     running,
     waiting,
-    out: vllm?.ok && finite(vllm.outputTokensPerSecond) ? vllm.outputTokensPerSecond : null,
+    out: inference?.ok && finite(inference.outputTokensPerSecond) ? inference.outputTokensPerSecond : null,
     todayTotal: state?.usage?.today?.total ?? null,
     todayRequests: state?.usage?.today?.requests ?? null,
   };
@@ -235,7 +234,7 @@ export function clusterView(state, { fetchFailed = false, lastReceivedAt = null,
   const counts = (...middle) => countLine(state, [...urgent, ...middle, ...standing], { power: !urgent.length });
   if (state.status === "offline") return { ...base, level: "crit", title: "Nodes unreachable", lines: [state.message, counts()] };
   if (state.inferenceState === "stopped") return { ...base, level: "idle", title: "Inference stopped", lines: ["No model serving", counts()] };
-  if (!vllm?.ok) return { ...base, level: "crit", title: "Inference down", lines: [`${servingLine(state)} | API not responding`, counts()] };
+  if (!inference?.ok) return { ...base, level: "crit", title: "Inference down", lines: [`${servingLine(state)} | API not responding`, counts()] };
   const title = running > 0 ? "Serving" : "Ready";
   const queue = running === null ? null : `running ${running} | waiting ${waiting ?? 0}`;
   if (state.status !== "healthy") {

@@ -106,7 +106,7 @@ function renderState(state) {
   latest=state;lastTopology=state.topology??lastTopology;
   if(state.usage?.timeZone&&state.usage.timeZone!==ledgerTimeZone){ledgerTimeZone=state.usage.timeZone;if(!monthPicked&&selectedMonth!==ledgerToday().slice(0,7)){selectedMonth=ledgerToday().slice(0,7);monthLoadedAt=0;rebuildMonths();if(!$('#tokens').hidden)void refreshMonth(true)}}
   syncNodes(nodeOrder(state));$('#shell').classList.remove('stale');
-  const v=state.vllm,stopped=state.inferenceState==='stopped',nodes=state.nodes||{};
+  const v=state.inference,stopped=state.inferenceState==='stopped',nodes=state.nodes||{};
   const online=metas.filter(m=>nodes[m.id]?.ok).length,serving=metas.filter(m=>nodes[m.id]?.ok&&nodes[m.id]?.inferenceProcessReady).length,count=metas.length;
   $('.status').className='status '+(state.status==='healthy'?'':stopped?'stopped':'error');text('#status-title',state.message||'Checking status');
   const watts=metas.map(m=>nodes[m.id]).filter(n=>n?.ok&&finite(n.gpu?.powerWatts)).map(n=>n.gpu.powerWatts);

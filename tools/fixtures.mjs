@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeTopology, publicTopology, nodeInterfaces } from "../lib/topology.mjs";
 import { buildRingLinks, clusterStatus, servingSummary } from "../lib/cluster.mjs";
+import { publicState } from "../lib/public-state.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const GIB = 2 ** 30;
@@ -124,28 +125,29 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
   const nodes = Object.fromEntries(topology.nodes.map((meta, index) => [meta.id,
     nodeSample(topology, meta, index, { nowMs, ok: !unreachable.has(meta.id), proc, darkNics, hot: (fault.hot ?? []).map(nodeId).includes(meta.id) })]));
   const apiUp = proc && !fault.apiDown;
-  const vllm = apiUp
+  const inference = apiUp
     ? {
-      ok: true, engine: "vLLM", modelName: longNames ? "example-org/Example-Reasoning-Model-70B-Instruct-FP8-Dynamic" : "example-model", baseUrl: "http://127.0.0.1:8000", latencyMs: 3,
+      ok: true, engine: "vLLM", modelName: longNames ? "example-org/Example-Reasoning-Model-70B-Instruct-FP8-Dynamic" : "example-model", latencyMs: 3,
       outputTokensPerSecond: 61.3, promptTokensPerSecond: 2950, promptComputeTokensPerSecond: 2104, promptCacheTokensPerSecond: 846,
       prefixCacheHitPercent: 41.2, speculativeAcceptancePercent: 0, kvCachePercent: 12.5, tpotP95Seconds: 0.028, ttftP95Seconds: 0.42,
       runningRequests: 2, waitingRequests: 0, updatedAt: new Date(nowMs).toISOString(), error: null,
     }
-    : { ok: false, readiness: { ready: false, api: false, metrics: false }, baseUrl: "http://127.0.0.1:8000", updatedAt: new Date(nowMs).toISOString(), error: "fetch failed" };
+    : { ok: false, updatedAt: new Date(nowMs).toISOString(), error: "fetch failed" };
   const ringLinks = buildRingLinks(nodes, topology);
   const month = usageMonth(new Date(nowMs).toISOString().slice(0, 7), nowMs);
   const today = month.days.find((day) => day.day === month.day) ?? { input: 0, compute: 0, cache: 0, output: 0, requests: 0, total: 0 };
-  return {
-    ...clusterStatus(nodes, vllm, ringLinks, topology),
-    vllm,
+  // Shaped by the server's own publicState(), so the pages see exactly what /api/state would send.
+  return publicState({
+    ...clusterStatus(nodes, inference, ringLinks, topology),
+    inference,
     topology: publicTopology(topology),
     nodes,
     ringLinks,
-    serving: servingSummary(nodes, vllm, topology),
+    serving: servingSummary(nodes, inference, topology),
     history: history(topology, nowMs, { serving: apiUp, unreachable }),
     historyStats: { activeOutputTokensPerSecond: apiUp ? 54.8 : null, activeSamples: apiUp ? 280 : 0, windowMinutes: 60 },
     usage: { persistent: true, timeZone: "UTC", day: month.day, modelName: "example-model", today, error: null },
     startedAt: new Date(nowMs - 3 * 3600_000).toISOString(),
     updatedAt: new Date(nowMs).toISOString(),
-  };
+  });
 }

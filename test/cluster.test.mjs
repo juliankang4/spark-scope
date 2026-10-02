@@ -226,3 +226,14 @@ test('a reachable node without GPU readings degrades the cluster instead of read
   const legacy = { 1: node('1') };
   assert.equal(clusterStatus(legacy, { ok: true }, buildRingLinks(legacy, t), t).status, 'healthy');
 });
+
+test('a plane neither end can see (a wrong interface name) reads unknown instead of a broken link', async () => {
+  const { linkState } = await import('../lib/cluster.mjs');
+  const link = { planes: ['a', 'b'] };
+  assert.equal(linkState(link, { a: { available: true, up: true }, b: { available: false, up: null } }), 'unknown');
+  assert.equal(linkState(link, { a: { available: true, up: true }, b: { available: true, up: false } }), 'partial');
+  assert.equal(linkState(link, { a: { available: true, up: false }, b: { available: false, up: null } }), 'down');
+  assert.equal(linkState({ ...link, cabled: false }, { a: { available: true, up: false }, b: { available: false, up: null } }), 'pending');
+  assert.equal(linkState(link, { a: { available: true, up: true }, b: { available: true, up: true } }), 'up');
+  assert.equal(linkState({ planes: ['a'] }, { a: { available: true, up: true }, b: { available: false, up: null } }), 'up');
+});

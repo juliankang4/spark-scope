@@ -61,11 +61,11 @@ test("a single node has no link dots and the band counts only the node", () => {
   assert.deepEqual(view.reasons, ["OK"]);
   const serving = {
     ...state, status: "healthy", inferenceState: "serving", nodes: { 1: { ok: true } },
-    vllm: { ok: true, engine: "vLLM", modelName: "example-model", outputTokensPerSecond: 41.2, runningRequests: 1, waitingRequests: 0 },
+    inference: { ok: true, engine: "vLLM", modelName: "example-model", outputTokensPerSecond: 41.2, runningRequests: 1, waitingRequests: 0 },
     serving: { label: "vLLM" }, usage: { today: { total: 1000, requests: 3 } },
   };
   assert.deepEqual(clusterView(serving).lines, ["example-model | vLLM", "Node up | running 1 | waiting 0"]);
-  const down = { ...serving, status: "offline", message: "Cannot reach the node", nodes: { 1: { ok: false, collected: true } }, vllm: { ok: false } };
+  const down = { ...serving, status: "offline", message: "Cannot reach the node", nodes: { 1: { ok: false, collected: true } }, inference: { ok: false } };
   assert.deepEqual(clusterView(down).lines, ["Cannot reach the node", "Node down | spark-1 not responding"]);
 });
 
@@ -79,7 +79,7 @@ test("two cables to the one peer get numbered dots, reasons and band notes", () 
   assert.deepEqual(view.links.map((l) => [l.tag, l.level]), [["1 #1", "good"], ["1 #2", "crit"]]);
   const band = clusterView({
     ...state, status: "degraded", inferenceState: "serving", message: "QSFP link needs attention", nodes: { 1: { ok: true }, 2: { ok: true } },
-    vllm: { ok: true, modelName: "example-model", runningRequests: 0, waitingRequests: 0 }, serving: { label: "vLLM | 2 nodes" },
+    inference: { ok: true, modelName: "example-model", runningRequests: 0, waitingRequests: 0 }, serving: { label: "vLLM | 2 nodes" },
   });
   assert.equal(band.level, "warn");
   assert.deepEqual(band.lines, ["example-model | vLLM | 2 nodes", "Nodes 2/2 | Links 1/2 | link 1–2 #2 down | running 0 | waiting 0"]);
@@ -92,10 +92,11 @@ test("a cable that is not installed yet reads 'not cabled' on both ends; a dark 
   assert.deepEqual(spark2.reasons, ["Link 1–2 not cabled"]);
   assert.deepEqual(spark2.links, [{ peer: "1", tag: "1", level: "warn" }, { peer: "3", tag: "3", level: "good" }]);
   const broken = ringState({ "2-3": "down" });
-  assert.equal(reasonText(nodeView(META["2"], healthy({ inferenceProcessUp: false }), { vllmOk: true, links: nodeLinks(broken, "2") })), "Link 2–3 down +1");
+  assert.equal(reasonText(nodeView(META["2"], healthy({ inferenceProcessUp: false }), { inferenceOk: true, links: nodeLinks(broken, "2") })), "Link 2–3 down +1");
   assert.deepEqual(nodeView(META["2"], healthy(), { links: nodeLinks(broken, "2") }).links[1], { peer: "3", tag: "3", level: "crit" });
   assert.equal(linkReason(link("2-3", "partial", { a: { available: true, up: true }, b: { available: true, up: false } })), "Link 2–3 B down");
-  assert.equal(linkReason(link("2-3", "partial", { a: { available: true, up: true }, b: { available: false, up: null } })), "Link 2–3 B not visible");
+  // A plane nobody can see next to one that is up is a setup question (unknown), not a fault to report.
+  assert.equal(linkReason(link("2-3", "unknown", { a: { available: true, up: true }, b: { available: false, up: null } })), null);
   assert.equal(linkReason(link("2-3", "up", { slow: true, a: { available: true, up: true, speedGbps: 100 }, b: { available: true, up: true, speedGbps: 200 } })), "Link 2–3 slow 100G");
   assert.equal(linkReason(link("2-3", "unknown")), null);
 });
@@ -163,9 +164,9 @@ test("an unreachable node is critical and never shows zeros for unknown values",
 });
 
 test("a missing inference process warns while the API serves, unless the node may idle", () => {
-  assert.ok(nodeView(META["4"], healthy({ inferenceProcessUp: false }), { vllmOk: true }).reasons.includes("no inference process"));
-  assert.equal(nodeView({ ...META["4"], inference: false }, healthy({ inferenceProcessUp: false }), { vllmOk: true }).level, "good");
-  assert.equal(nodeView(META["4"], healthy({ inferenceProcessUp: false }), { vllmOk: false }).level, "good");
+  assert.ok(nodeView(META["4"], healthy({ inferenceProcessUp: false }), { inferenceOk: true }).reasons.includes("no inference process"));
+  assert.equal(nodeView({ ...META["4"], inference: false }, healthy({ inferenceProcessUp: false }), { inferenceOk: true }).level, "good");
+  assert.equal(nodeView(META["4"], healthy({ inferenceProcessUp: false }), { inferenceOk: false }).level, "good");
 });
 
 const nodesAll = (fn = () => ({ ok: true })) => Object.fromEntries(TOPOLOGY.nodes.map((meta) => [meta.id, fn(meta)]));
@@ -174,7 +175,7 @@ test("the band says what is serving from data, with node and link counts", () =>
   const serving = {
     ...ringState(), status: "healthy", inferenceState: "serving", message: "Nodes and inference API healthy",
     nodes: nodesAll(),
-    vllm: { ok: true, engine: "SGLang", modelName: "example-model", outputTokensPerSecond: 75.4, runningRequests: 2, waitingRequests: 0 },
+    inference: { ok: true, engine: "SGLang", modelName: "example-model", outputTokensPerSecond: 75.4, runningRequests: 2, waitingRequests: 0 },
     serving: { label: "SGLang | 4 nodes" },
     usage: { today: { total: 3418250, requests: 412 } },
   };
@@ -184,7 +185,7 @@ test("the band says what is serving from data, with node and link counts", () =>
   assert.deepEqual(view.lines, ["example-model | SGLang | 4 nodes", "Nodes 4/4 | Links 4/4 | running 2 | waiting 0"]);
   assert.equal(view.out, 75.4);
   // No engine information: no engine label, and nothing names an engine by default.
-  const bare = clusterView({ ...serving, serving: null, vllm: { ...serving.vllm, engine: null, runningRequests: 0 } });
+  const bare = clusterView({ ...serving, serving: null, inference: { ...serving.inference, engine: null, runningRequests: 0 } });
   assert.equal(bare.title, "Ready");
   assert.equal(bare.lines[0], "example-model");
   assert.ok(!/vLLM|SGLang/.test(JSON.stringify(bare)));
@@ -193,7 +194,7 @@ test("the band says what is serving from data, with node and link counts", () =>
 test("idle: stopped inference, a pending cable and a node that is not collected", () => {
   const nodes = nodesAll((meta) => (meta.id === "1" ? { ok: false, collected: false } : { ok: true }));
   const topology = { ...TOPOLOGY, nodes: TOPOLOGY.nodes.map((meta) => ({ ...meta, collect: meta.id !== "1" })) };
-  const idle = { ...ringState({ "1-2": "pending" }), topology, status: "degraded", inferenceState: "stopped", message: "3 nodes connected, no inference process", nodes, vllm: { ok: false }, usage: { today: { total: 194495, requests: 97 } } };
+  const idle = { ...ringState({ "1-2": "pending" }), topology, status: "degraded", inferenceState: "stopped", message: "3 nodes connected, no inference process", nodes, inference: { ok: false }, usage: { today: { total: 194495, requests: 97 } } };
   const view = clusterView(idle);
   assert.equal(view.title, "Inference stopped");
   assert.equal(view.level, "idle");
@@ -206,7 +207,7 @@ test("a fault names the unreachable node and keeps the last model while the API 
   const fault = {
     ...ringState({ "2-3": "down", "3-4": "down" }),
     status: "degraded", inferenceState: "unknown", message: "Node connection needs attention (3/4 reachable)", nodes,
-    vllm: { ok: false, outputTokensPerSecond: 12 }, usage: { modelName: "example-model", today: { total: 1, requests: 1 } },
+    inference: { ok: false, outputTokensPerSecond: 12 }, usage: { modelName: "example-model", today: { total: 1, requests: 1 } },
   };
   const view = clusterView(fault);
   assert.equal(view.level, "crit");
@@ -290,7 +291,7 @@ test("a node without GPU readings says why: a hung or failing query is critical,
 test("the band adds up GPU power over the nodes that report it, and gives way to urgent notes", () => {
   const state = (nodes, status, message) => ({
     ...ringState(), status, inferenceState: "serving", message, nodes,
-    vllm: { ok: true, engine: "SGLang", modelName: "example-model", outputTokensPerSecond: 0, runningRequests: 0, waitingRequests: 0 },
+    inference: { ok: true, engine: "SGLang", modelName: "example-model", outputTokensPerSecond: 0, runningRequests: 0, waitingRequests: 0 },
     serving: { label: "SGLang" }, usage: { today: { total: 0, requests: 0 } },
   });
   const reporting = { 1: healthy({ gpu: { powerWatts: 9.2 } }), 2: healthy({ gpu: { powerWatts: 8.4 } }), 3: healthy({ gpu: { powerWatts: null } }), 4: healthy({ gpu: {} }) };

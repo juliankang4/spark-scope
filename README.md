@@ -177,7 +177,7 @@ Link fields:
 
 On a DGX Spark-class machine each QSFP port of the ConnectX-7 appears as two network interfaces on different PCIe domains. Port 0 is `enp1s0f0np0` (plane A) and `enP2p1s0f0np0` (plane B); port 1 is `enp1s0f1np1` and `enP2p1s0f1np1`. Check yours with `ip -br link` or `ibdev2netdev`, and find which port a cable uses with `cat /sys/class/net/<interface>/carrier` while plugging it in. Traffic is read from the matching RoCE counters (`rocep1s0f0` and so on) when RDMA devices exist, otherwise from the interface statistics. Links run at 200 Gb/s per plane on these machines; a lower negotiated speed is flagged as slow (see `SPARK_SCOPE_LINK_MIN_GBPS`).
 
-A plane is up when every end that could be observed has carrier. One observed end is enough, because a direct-attach cable only has carrier while its peer is up. A link that no collected node can see is `unknown`, not down.
+A plane is up when every end that could be observed has carrier. One observed end is enough, because a direct-attach cable only has carrier while its peer is up. A link that no collected node can see is `unknown`, not down, and so is a link with a plane neither end can see while nothing is dark: that usually means a mistyped interface name, so check the names if a link stays `unknown`. Each interface can appear only once in the whole topology; naming it for two planes or two links is rejected at startup.
 
 ## Configuration
 
@@ -194,6 +194,7 @@ All settings are optional environment variables.
 | `SPARK_SCOPE_NODE_INTERVAL_MS` | `5000` | Node polling interval in milliseconds, at least 1000. Each poll is limited to 4.5 seconds, and each `nvidia-smi` or `docker` call in it to 1.5 seconds. |
 | `SPARK_SCOPE_API_INTERVAL_MS` | `2000` | Inference metrics polling interval in milliseconds, at least 500. |
 | `SPARK_SCOPE_LINK_MIN_GBPS` | `200` | Per-plane speed below which an up link counts as slow. |
+| `SPARK_SCOPE_ALLOWED_HOSTS` | none | Extra host names the pages may be opened under, comma-separated (`dash.example.org`); an entry starting with `.` allows a whole domain (`.lab.example`), `*` turns the check off. localhost, IP addresses and this machine's hostname (also `<hostname>.local` and `<hostname>.<tailnet>.ts.net`) always work; see Security. |
 
 Example for a two-node cluster whose head serves SGLang, viewed from the LAN:
 
@@ -252,13 +253,15 @@ The script waits until `/api/health` answers before it opens Chromium, uses its 
 ## HTTP API
 
 - `GET /` and `GET /rack/`: the web dashboard and the rack panel.
-- `GET /api/state?minutes=15|60|360[&history=0]`: the full dashboard state as JSON (gzip-compressed when the client accepts it; `history=0` leaves out the samples, which the pages request every 2 seconds while fetching the full history every 30 seconds): `topology` (nodes and links, without interface names), `nodes` keyed by node id, `ringLinks` keyed by link id (`state` is `up`, `partial`, `down`, `pending` or `unknown`), `vllm` (inference metrics, also used for SGLang), `serving`, `usage`, `history`, `historyStats`, plus `status`, `message`, `inferenceState`, `startedAt`, `updatedAt` and `pollIntervals` (the node and API poll intervals, which the page uses to decide when data is stale).
+- `GET /api/state?minutes=15|60|360[&history=0]`: the full dashboard state as JSON (gzip-compressed when the client accepts it; `history=0` leaves out the samples, which the pages request every 2 seconds while fetching the full history every 30 seconds): `topology` (nodes and links, without interface names), `nodes` keyed by node id, `ringLinks` keyed by link id (`state` is `up`, `partial`, `down`, `pending` or `unknown`), `inference` (the inference metrics the pages show, for vLLM and SGLang; also sent under its earlier name `vllm` for scripts written against earlier versions; that alias will be removed in a later release), `serving`, `usage`, `history`, `historyStats`, plus `status`, `message`, `inferenceState`, `startedAt`, `updatedAt` and `pollIntervals` (the node and API poll intervals, which the page uses to decide when data is stale). It leaves out what the pages do not show: the engine URL and local model path, interface names and raw SSH error text (a failed node carries a short `error` such as `timed out` or `SSH authentication failed`; the full message is in the server log).
 - `GET /api/health`: `status`, `message` and `updatedAt`; HTTP 503 when nothing can be reached.
 - `GET /api/usage?month=YYYY-MM`: one month of the token ledger.
 
 ## Security
 
 - **No authentication and no TLS.** Anyone who can reach the port can see node names, SSH aliases, model names, kernel error messages and token counts.
+- **Only its own host names.** Requests whose `Host` header names another site are refused (HTTP 403, logged once per name), so a web page elsewhere cannot point its own domain at this machine (DNS rebinding) and read the API through a visitor's browser. localhost, IP addresses and this machine's hostname work out of the box; add other names, such as a reverse proxy's, with `SPARK_SCOPE_ALLOWED_HOSTS`.
+- **No outside resources.** Every response carries a Content-Security-Policy that allows only the server's own scripts, styles, fonts and requests, and forbids framing.
 - **Localhost by default.** The server binds to `127.0.0.1`. Use SSH port forwarding, or expose it on a LAN or a private overlay network such as Tailscale only if you trust everyone on it. Do not expose it to the internet; if you need remote access with authentication, put it behind a reverse proxy that provides it.
 - **Read-only.** The node script only reads system state (`nvidia-smi` queries, `/proc`, `/sys`, `df`, `systemctl` status, `journalctl -k`, `docker ps`/`inspect`); it never starts, stops or changes anything. The inference server is only read through `GET` requests. The pages load nothing from other hosts.
 - **The SSH key can run commands** as the account it logs in to (see the multi-node setup). Use a dedicated key, the `authorized_keys` options above and an account you are comfortable with.
@@ -270,7 +273,7 @@ The script waits until `/api/health` answers before it opens Chromium, uses its 
 - TSOC/TS1P temperatures and the A/B plane layout are specific to DGX Spark-class hardware. Other Linux machines with an NVIDIA GPU mostly work, but those parts read `unknown` or need a matching topology.
 - One inference server per dashboard.
 - Charts are kept in memory for six hours and reset when the server restarts or the served model changes.
-- The token ledger adds up counter increases. Tokens served while the dashboard is down are counted when it returns. After an engine restart the new run counts from its own start: vLLM reports its start time, and for SGLang, which does not, a restart is recognised when its counters fall below the last values seen. If an SGLang run restarted while the dashboard was down and has already passed those values, the part of the previous run the dashboard never saw is lost. Latency p95 values are since engine start, not a rolling window.
+- The token ledger adds up counter increases. Tokens served while the dashboard is down are counted when it returns. After an engine restart the new run counts from its own start: vLLM reports its start time, and for SGLang, which does not, a restart is recognised when its counters fall below the last values seen. If an SGLang run restarted while the dashboard was down and has already passed those values, the part of the previous run the dashboard never saw is lost. Latency p95 values are since engine start, not a rolling window, and are interpolated inside the engine's histogram buckets (as Prometheus' `histogram_quantile` does), so their precision depends on the bucket bounds.
 - A node whose `nvidia-smi` hangs, fails or is missing is shown as such (and degrades the cluster status) rather than as healthy with blank readings. A poll that hits its 4.5-second limit keeps the readings that arrived and is marked incomplete.
 - The page treats data older than three poll intervals (at least 20 seconds) as stale by comparing the server's timestamp with the viewer's clock, so a viewer clock that is far off shows the server as not responding.
 - Numbers use one fixed format (`1,234.5`) whatever the viewer's locale; token counts use three significant digits (`1.5K`, `9.55M`, `1.06B`) on both pages. Times and dates follow the viewer's locale and time zone.

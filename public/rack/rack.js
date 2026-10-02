@@ -79,7 +79,7 @@ const meter = (label, value, pct, warn = false, detail = "") => `<div class="met
 
 function renderBay(meta, toMs) {
   const links = nodeLinks(latest, meta.id);
-  const view = nodeView(meta, latest.nodes?.[meta.id], { vllmOk: Boolean(latest?.vllm?.ok), lastOkAt: lastOkAt[meta.id], nowMs: toMs, links });
+  const view = nodeView(meta, latest.nodes?.[meta.id], { inferenceOk: Boolean(latest?.inference?.ok), lastOkAt: lastOkAt[meta.id], nowMs: toMs, links });
   const target = view.local ? "local" : view.host ? `SSH ${view.host}` : "no host";
   const el = bays.querySelector(`[data-node="${CSS.escape(meta.id)}"]`);
   el.className = `bay ${view.level}`;
@@ -185,9 +185,9 @@ async function poll() {
       latest = state;
       lastReceivedAt = new Date();
       for (const [id, node] of Object.entries(state.nodes ?? {})) if (node?.ok) lastOkAt[id] = node.updatedAt ?? state.updatedAt;
-      const at = Date.parse(state.vllm?.updatedAt ?? state.updatedAt);
+      const at = Date.parse(state.inference?.updatedAt ?? state.updatedAt);
       if (Number.isFinite(at) && at !== liveOut[liveOut.length - 1]?.at) {
-        liveOut.push({ at, value: state.vllm?.ok && Number.isFinite(state.vllm.outputTokensPerSecond) ? state.vllm.outputTokensPerSecond : null });
+        liveOut.push({ at, value: state.inference?.ok && Number.isFinite(state.inference.outputTokensPerSecond) ? state.inference.outputTokensPerSecond : null });
         liveOut = liveOut.filter((point) => point.at >= at - BAND_WINDOW_MS - BAND_GAP_MS);
       }
       bandAnchor = { serverMs: Date.parse(state.updatedAt) || Date.now(), clientMs: performance.now() };
