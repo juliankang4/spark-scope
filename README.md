@@ -1,57 +1,39 @@
-# Spark Scope
+<h1 align="center">Spark Scope</h1>
 
-[![CI](https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml/badge.svg)](https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml)
+<p align="center">A read-only dashboard and rack panel for NVIDIA DGX Spark-class machines<br>and the vLLM or SGLang server running on them.</p>
 
-A read-only dashboard for NVIDIA DGX Spark-class machines (DGX Spark, ASUS Ascent GX10, MSI EdgeXpert and other GB10 boxes) and the vLLM or SGLang server running on them. It works with a single node or a small cluster.
+<p align="center">
+  <a href="https://github.com/juliankang4/spark-scope/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/juliankang4/spark-scope"></a>
+  <a href="https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/juliankang4/spark-scope"></a>
+  <img alt="Node.js 22.13 or later" src="https://img.shields.io/badge/node-%E2%89%A5%2022.13-339933?logo=nodedotjs&amp;logoColor=white">
+  <img alt="No npm dependencies" src="https://img.shields.io/badge/dependencies-none-brightgreen">
+  <img alt="Engines: vLLM and SGLang" src="https://img.shields.io/badge/engines-vLLM%20%7C%20SGLang-76b900">
+  <img alt="Runs on arm64 and x64" src="https://img.shields.io/badge/arch-arm64%20%7C%20x64-blue">
+</p>
+
+<p align="center"><img src="docs/screenshots/dashboard-4-nodes.png" alt="Web dashboard with four nodes"></p>
+
+## About
+
+Spark Scope watches NVIDIA DGX Spark-class machines (DGX Spark, ASUS Ascent GX10, MSI EdgeXpert and other GB10 boxes) and the vLLM or SGLang server running on them. It works with a single node or a small cluster.
 
 I wrote it for my own four-node ring (three ASUS GX10s and an MSI EdgeXpert) in a 10-inch rack. This repository is that dashboard with my hostnames taken out and the layout reworked for one and two nodes. The 2U rack modules for the GX10 are on [MakerWorld](https://makerworld.com/en/models/3380382).
 
-It is one Node.js process with no npm dependencies. It polls each node (locally or over SSH), reads the inference server's Prometheus metrics, keeps a token ledger in SQLite and serves two pages: the web dashboard at `/` and a 1920 x 480 rack panel at `/rack/`.
-
-## Screenshots
-
-The screenshots use synthetic data from `tools/fixtures.mjs`.
-
-Web dashboard, four nodes:
-
-![Web dashboard with four nodes](docs/screenshots/dashboard-4-nodes.png)
-
-Rack panel, four nodes while serving, then with one node not responding and its two links down:
+It is one Node.js process with no npm dependencies. It polls each node (locally or over SSH), reads the inference server's Prometheus metrics, keeps a token ledger in SQLite and serves two pages: the web dashboard at `/` (above) and a 1920 x 480 rack panel at `/rack/` for a bar display or a Raspberry Pi kiosk:
 
 ![Rack panel with four nodes](docs/screenshots/rack-4-nodes.png)
 
-![Rack panel showing a node that stopped responding](docs/screenshots/rack-4-nodes-fault.png)
+- **No agent on the nodes.** Each poll sends a read-only shell script over SSH (or runs it locally) and parses the output.
+- **Read-only.** It never starts, stops or changes anything on a node or the inference server.
+- **Unknown stays unknown.** A value that was not observed reads `unknown`, not zero.
+- **Nothing from other hosts.** The pages work on a desktop, a phone and a rack display without loading anything from elsewhere.
 
-Rack panel with a single node:
+The screenshots use synthetic data from `tools/fixtures.mjs`.
 
-![Rack panel with one node](docs/screenshots/rack-1-node.png)
+## Installation
 
-Phone, dark theme, two nodes joined by two cables:
-
-<img src="docs/screenshots/dashboard-phone-2-nodes.png" alt="Web dashboard on a phone with two nodes" width="300">
-
-## What it shows
-
-**Scope tab**
-
-- **Node cards.** GPU load, temperature, power, SM clock and free unified memory. A details panel adds free disk, inference process memory, CPU load (1-minute load average and core count), NVMe and ConnectX NIC chip temperatures, every ACPI thermal zone by its firmware name (on GB10 boards TSOC, TS0E, TS0P, TS1E, TS1P, TGPU and TUNC), system state and failed units, the inference container, the TP rank and NVIDIA kernel errors (Xid, `NV_ERR_NO_MEMORY`) from the last 24 hours. Sensors, the container and the TP rank only appear when the node reports them. The badge colour follows the node's state: serving (green), idle, no GPU data (orange), no response (red) or not collected. The status line adds up the GPU power of all nodes. GB10 systems expose no fan speed and no whole-system power, so neither is shown.
-- **Node interconnect** (two or more nodes). A diagram and a table of every QSFP cable: the state of each logical plane (A/B), measured traffic in Gb/s, and whether the link is up, partially up, down, slow or not cabled yet. Slow and partial links are drawn orange, down links red. Node ids longer than ten characters are shortened in the diagram (the full id shows on hover). A single node has no such panel.
-- **Inference.** Output tok/s over 15 minutes, 1 hour or 6 hours, with the active average and the queue. Below it: prefill, cache-read and decode rates, TTFT and TPOT p95, prefix-cache hit rate, KV-cache use, speculative-decoding acceptance and running/waiting requests.
-- **Trends.** GPU temperature and available memory per node, and today's token totals.
-
-**Token ledger tab**
-
-Daily and monthly totals of logical input, new (computed) input, cache-read input, output and requests, the last seven days of output, and a month picker. The ledger is stored on disk. Everything else resets when the server restarts.
-
-A new ledger starts from what the engine reports at that moment: tokens served before the dashboard first ran are not booked. A counter the engine does not export (vLLM without per-source prompt counters, for example) reads as `unknown` in the ledger rather than 0. If the ledger file cannot be opened, token counting is switched off and the rest of the dashboard keeps working.
-
-The page follows the viewer's light or dark setting. The header button cycles through the other theme, the system's theme picked by hand, and back to following the system. It works on phones and shows times in the viewer's time zone. A value that was not observed shows as `unknown`, never as zero.
-
-**Rack panel (`/rack/`)**
-
-A dark 1920 x 480 panel for a bar display or a Raspberry Pi kiosk. Each node gets a bay with its GPU temperature (with the last hour drawn behind it), GPU load, memory and disk use, power, TSOC and a coloured dot per link. The bottom band shows the cluster state, the model and engine, node and link counts with the total GPU power, output tok/s over the last five minutes and today's tokens. See [Rack panel and kiosk](#rack-panel-and-kiosk).
-
-## Requirements
+### Requirements
 
 - Node.js 22.13 or later (24 LTS recommended). The token ledger uses the built-in `node:sqlite`, and the server stops with a clear message on an older Node. The `nodejs` packages of Ubuntu 24.04 (DGX OS) and Raspberry Pi OS are too old. NodeSource has arm64 and x86 packages for both:
 
@@ -65,7 +47,7 @@ A dark 1920 x 480 panel for a bar display or a Raspberry Pi kiosk. Each node get
 - For remote nodes: an SSH client on the dashboard machine and key-based SSH access to each node.
 - Optionally an inference server with Prometheus metrics: vLLM (on by default) or SGLang (start it with `--enable-metrics`).
 
-## Quick start: one node, dashboard on the Spark itself
+### Quick start: one node, dashboard on the Spark itself
 
 The shipped `topology.json` describes a single node collected locally (`"host": "local"`), so no SSH is involved.
 
@@ -84,7 +66,7 @@ ssh -L 8787:127.0.0.1:8787 you@your-spark
 
 Use `SPARK_SCOPE_API_URL=http://127.0.0.1:30000` for SGLang's default port. If no inference server is running, the node card still works and the inference panels read `unknown` or `stopped`.
 
-## Multi-node setup (SSH)
+### Multi-node setup (SSH)
 
 The dashboard can run on one of the Sparks (that node uses `"host": "local"`, the others SSH) or on any other Linux or macOS machine that can reach them (every node uses SSH). Nothing is installed on the nodes: each poll sends a read-only shell script to `bash -s` over SSH and parses its output.
 
@@ -137,6 +119,41 @@ The dashboard can run on one of the Sparks (that node uses `"host": "local"`, th
    ```
 
 Optional permissions on the nodes: kernel error summaries need read access to the kernel journal (`journalctl -k`), which non-root accounts get through the `systemd-journal` or `adm` group. Without it the panel says "Kernel diagnostics unavailable". Container details need access to the Docker socket. Membership of the `docker` group is equivalent to root, so do not grant it just for this dashboard. Without it, container details are not shown.
+
+### Running as a service
+
+`systemd/spark-scope.service.example` is a systemd user unit with placeholders. Copy it to `~/.config/systemd/user/spark-scope.service`, adjust `WorkingDirectory`, `ExecStart` (the path from `command -v node`) and the `Environment=` lines, then:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now spark-scope
+journalctl --user -u spark-scope -f
+sudo loginctl enable-linger "$USER"   # keep it running without a login session
+```
+
+## What it shows
+
+<p align="center"><img src="docs/screenshots/dashboard-phone-2-nodes.png" alt="Web dashboard on a phone, dark theme, two nodes joined by two cables, shown in three parts"></p>
+<p align="center"><sub>The web dashboard on a phone (dark theme, two nodes joined by two cables), top to bottom in three parts.</sub></p>
+
+**Scope tab**
+
+- **Node cards.** GPU load, temperature, power, SM clock and free unified memory. A details panel adds free disk, inference process memory, CPU load (1-minute load average and core count), NVMe and ConnectX NIC chip temperatures, every ACPI thermal zone by its firmware name (on GB10 boards TSOC, TS0E, TS0P, TS1E, TS1P, TGPU and TUNC), system state and failed units, the inference container, the TP rank and NVIDIA kernel errors (Xid, `NV_ERR_NO_MEMORY`) from the last 24 hours. Sensors, the container and the TP rank only appear when the node reports them. The badge colour follows the node's state: serving (green), idle, no GPU data (orange), no response (red) or not collected. The status line adds up the GPU power of all nodes. GB10 systems expose no fan speed and no whole-system power, so neither is shown.
+- **Node interconnect** (two or more nodes). A diagram and a table of every QSFP cable: the state of each logical plane (A/B), measured traffic in Gb/s, and whether the link is up, partially up, down, slow or not cabled yet. Slow and partial links are drawn orange, down links red. Node ids longer than ten characters are shortened in the diagram (the full id shows on hover). A single node has no such panel.
+- **Inference.** Output tok/s over 15 minutes, 1 hour or 6 hours, with the active average and the queue. Below it: prefill, cache-read and decode rates, TTFT and TPOT p95, prefix-cache hit rate, KV-cache use, speculative-decoding acceptance and running/waiting requests.
+- **Trends.** GPU temperature and available memory per node, and today's token totals.
+
+**Token ledger tab**
+
+Daily and monthly totals of logical input, new (computed) input, cache-read input, output and requests, the last seven days of output, and a month picker. The ledger is stored on disk. Everything else resets when the server restarts.
+
+A new ledger starts from what the engine reports at that moment: tokens served before the dashboard first ran are not booked. A counter the engine does not export (vLLM without per-source prompt counters, for example) reads as `unknown` in the ledger rather than 0. If the ledger file cannot be opened, token counting is switched off and the rest of the dashboard keeps working.
+
+The page follows the viewer's light or dark setting. The header button cycles through the other theme, the system's theme picked by hand, and back to following the system. It works on phones and shows times in the viewer's time zone. A value that was not observed shows as `unknown`, never as zero.
+
+**Rack panel (`/rack/`)**
+
+A dark 1920 x 480 panel for a bar display or a Raspberry Pi kiosk. Each node gets a bay with its GPU temperature (with the last hour drawn behind it), GPU load, memory and disk use, power, TSOC and a coloured dot per link. The bottom band shows the cluster state, the model and engine, node and link counts with the total GPU power, output tok/s over the last five minutes and today's tokens. See [Rack panel and kiosk](#rack-panel-and-kiosk).
 
 ## Topology (`topology.json`)
 
@@ -204,17 +221,6 @@ Example for a two-node cluster whose head serves SGLang, viewed from the LAN:
 SPARK_SCOPE_HOST=0.0.0.0 SPARK_SCOPE_API_URL=http://127.0.0.1:30000 npm start
 ```
 
-## Running as a service
-
-`systemd/spark-scope.service.example` is a systemd user unit with placeholders. Copy it to `~/.config/systemd/user/spark-scope.service`, adjust `WorkingDirectory`, `ExecStart` (the path from `command -v node`) and the `Environment=` lines, then:
-
-```bash
-systemctl --user daemon-reload
-systemctl --user enable --now spark-scope
-journalctl --user -u spark-scope -f
-sudo loginctl enable-linger "$USER"   # keep it running without a login session
-```
-
 ## Inference engines
 
 - **vLLM**: read directly from its `vllm:*` metrics.
@@ -226,6 +232,12 @@ The engine label comes from the metric names or the GPU process name, and the nu
 ## Rack panel and kiosk
 
 Open `/rack/` (for example <http://127.0.0.1:8787/rack/>). The panel is laid out at 1920 x 480 and scales to fit the window, so it suits the common 1920 x 480 bar displays and works, letterboxed, on anything else. It polls `/api/state` every 2 seconds without the history and fetches the 60-minute history every 30 seconds for the temperature traces and the band's earlier samples. When the server stops answering, the bays and the band dim and the band stops moving. The page reloads itself every 12 hours, right after a successful health check, so it picks up updates without touching the kiosk.
+
+![Rack panel showing a node that stopped responding](docs/screenshots/rack-4-nodes-fault.png)
+<p align="center"><sub>One node not responding and its two links down: the bays name the cause, the band keeps the counts.</sub></p>
+
+![Rack panel with one node](docs/screenshots/rack-1-node.png)
+<p align="center"><sub>A single node gets one wide bay.</sub></p>
 
 - **Layout by node count.** Three or four nodes share the width. Two nodes get two centred bays. A single node gets one wide bay with its meters side by side and no link dots. With two cables between two nodes, each bay shows a numbered dot per cable (`2 #1`, `2 #2`). When a bay would be narrower than 460 logical pixels (five or more nodes at 1920, or a narrow `?width`), the bays switch to a compact layout: the name above the status, the temperature above the meters, smaller type, and link dots without peer names. A long node name is cut short with an ellipsis before the status is. Peer names next to the link dots are left out when an id is longer than six characters; give links a short `label` in `topology.json` if their default label (`<id>–<id>`) is long.
 - **What the bays and the band say.** Each bay header shows its most severe condition: no response, missing GPU readings (`nvidia-smi stuck`, `GPU query timed out`, `GPU query failed`, `no nvidia-smi`), thermal slowdown, a link problem (`Link 2–3 down`, `Link 1–2 #2 down`, `Link 1–2 not cabled`), system state or failed units, a missing inference process while the API serves, disk at 95% or more, less than 2 GiB of free memory, or (for ten minutes) a container restart or a kernel error. The band shows the cluster title (Serving, Ready, Inference stopped, Inference down, Nodes unreachable), the model with its engine, node and link counts and up to two notes.
@@ -281,10 +293,6 @@ The script waits until `/api/health` answers before it opens Chromium (printing 
 - Numbers use one fixed format (`1,234.5`) whatever the viewer's locale; token counts use three significant digits (`1.5K`, `9.55M`, `1.06B`) on both pages. Times and dates follow the viewer's locale and time zone.
 - The rack panel is designed for 1920 x 480; other sizes are scaled to fit or set with `?width=`. Bays narrower than 460 logical pixels use the compact layout, and below about 200 pixels per bay (five or more nodes on a small screen) labels are cut short.
 
-## Fonts
-
-`public/fonts/` bundles latin subsets of Archivo (text and numbers) and Bebas Neue (the rack panel's large figures), each under the SIL Open Font License 1.1 with its license text next to it. They keep that license whatever license applies to the rest of Spark Scope. Without them the pages fall back to the system UI font.
-
 ## Development
 
 ```bash
@@ -297,6 +305,10 @@ The tests use only `node:test` and cover topology parsing and validation (one-no
 `tools/render.mjs` serves the pages with synthetic data (`tools/fixtures.mjs`) and the server's security headers, and renders the rack panel and the web dashboard in headless Chrome through the DevTools protocol: one to six nodes, the longest ids and names, a 2560 x 480 bar, a 1024 x 600 screen and a phone. Chrome runs with its background services off, so nothing but the local fixture server is contacted. It writes PNGs to `$OUT` (default: a `spark-scope-renders` folder in the system temp directory) and reports clipped or overlapping text, overflow, script errors and Content-Security-Policy violations. Set `CHROME` if Chrome is not found, and `COUNTS=1,2` to limit the node counts. The screenshots in this README come from it.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, [SECURITY.md](SECURITY.md) for reporting a vulnerability and [CHANGELOG.md](CHANGELOG.md) for what changed between releases.
+
+## Fonts
+
+`public/fonts/` bundles latin subsets of Archivo (text and numbers) and Bebas Neue (the rack panel's large figures), each under the SIL Open Font License 1.1 with its license text next to it. They keep that license whatever license applies to the rest of Spark Scope. Without them the pages fall back to the system UI font.
 
 ## License
 
