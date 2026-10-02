@@ -215,7 +215,7 @@ sudo loginctl enable-linger "$USER"   # keep it running without a login session
 ## Inference engines
 
 - **vLLM**: read directly from its `vllm:*` metrics.
-- **SGLang**: its `sglang:*` metrics are mapped onto the same fields. Run SGLang with `--enable-metrics`. Differences: prefill time uses SGLang's time-to-first-token histogram (it includes queue time), TPOT uses its inter-token latency histogram, the cache hit rate is cached prompt tokens over all prompt tokens since start, and speculative acceptance is SGLang's recent-window gauge rather than a lifetime ratio.
+- **SGLang**: its `sglang:*` metrics are mapped onto the same fields. Run SGLang with `--enable-metrics`. Differences: decode and output speed come from SGLang's own throughput gauge while requests are running, because SGLang adds a request's output tokens to its counter only when the request finishes; prefill time uses SGLang's time-to-first-token histogram (it includes queue time), TPOT uses its inter-token latency histogram, the cache hit rate is cached prompt tokens over all prompt tokens since start, and speculative acceptance is SGLang's recent-window gauge rather than a lifetime ratio.
 - Other engines (llama.cpp, Ollama, TensorRT-LLM, Triton) are recognised by process or image name on the node cards, but their throughput and token metrics are not read.
 
 The engine label comes from the metric names or the GPU process name, and the number of serving nodes from how many nodes run a GPU process; neither is assumed. In multi-node serving point `SPARK_SCOPE_API_URL` at the node that hosts the API.

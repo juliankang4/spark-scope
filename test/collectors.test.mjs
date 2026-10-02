@@ -444,3 +444,31 @@ test("process memory nvidia-smi does not report stays unknown", () => {
   assert.equal(parseInferenceProcess("1234,python3,[N/A],S").memoryBytes, null);
   assert.equal(parseInferenceProcess("1234,python3,1024,S").memoryBytes, 1024 * 1024 * 1024);
 });
+
+test("SGLang's live decode rate comes from its throughput gauge while requests run, not from the finish-time counter", async () => {
+  const { sglangDecodeRate, VllmCollector } = await import("../lib/collectors.mjs");
+  const gauges = (throughput, running) => parsePrometheus(`sglang:gen_throughput{tp_rank="0"} ${throughput}\nsglang:num_running_reqs{tp_rank="0"} ${running}\n`);
+  assert.equal(sglangDecodeRate(gauges(84.3, 2), 0), 84.3);
+  // The gauge keeps its last value when idle; with nothing running there is no decode.
+  assert.equal(sglangDecodeRate(gauges(84.3, 0), 0), 0);
+  // Without the gauge (older SGLang) the counter's rate is all there is.
+  assert.equal(sglangDecodeRate(parsePrometheus("sglang:num_running_reqs 1\n"), 12.5), 12.5);
+
+  // While a request streams, generation_tokens_total does not move; the reading still shows the decode rate.
+  const engine = (generated) => [
+    `sglang:generation_tokens_total{is_streaming="true",model_name="example-model"} ${generated}`,
+    `sglang:prompt_tokens_total{is_streaming="true",model_name="example-model"} 5000`,
+    `sglang:num_requests_total{is_streaming="true",model_name="example-model"} 7`,
+    `sglang:num_running_reqs{model_name="example-model",tp_rank="0"} 1`,
+    `sglang:gen_throughput{model_name="example-model",tp_rank="0"} 79.8`,
+  ].join("\n");
+  await withFakeEngine(engine(1000), async (base) => {
+    const collector = new VllmCollector(base);
+    await collector.collect();
+    collector.previous.at -= 2000;
+    const streaming = await collector.collect();
+    assert.equal(streaming.engine, "SGLang");
+    assert.equal(streaming.generationTokensTotal, 1000);
+    assert.equal(streaming.outputTokensPerSecond, 79.8);
+  });
+});
