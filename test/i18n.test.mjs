@@ -49,8 +49,13 @@ test('a key the Korean table lacks falls back to English, and the current langua
   assert.equal(locale('en'), 'en-US');
 });
 
-test('both tables have the same keys, and each Korean text uses the same placeholders as its English one', () => {
-  assert.deepEqual(Object.keys(STRINGS.ko).sort(), Object.keys(STRINGS.en).sort());
+// Contributors only add English: a key the Korean table lacks falls back to English and is listed here, and fails the
+// test only with STRICT_I18N=1, which is how the Korean is checked before a merge.
+test('Korean has no key English lacks, missing Korean is listed, and each Korean text uses the same placeholders', (t) => {
+  assert.deepEqual(Object.keys(STRINGS.ko).filter((key) => !Object.hasOwn(STRINGS.en, key)), []);
+  const missing = Object.keys(STRINGS.en).filter((key) => !Object.hasOwn(STRINGS.ko, key));
+  if (missing.length) t.diagnostic(`Korean text missing for: ${missing.join(', ')}`);
+  if (process.env.STRICT_I18N === '1') assert.deepEqual(missing, []);
   // Calendar labels pick from the same date parts: English names the month, Korean numbers it.
   const dateParts = new Set(['year', 'month', 'day', 'monthName', 'monthShort']);
   for (const [key, text] of Object.entries(STRINGS.ko)) {
