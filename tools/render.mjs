@@ -1,6 +1,7 @@
 // Development check: renders the rack panel and the web dashboard with synthetic data (tools/fixtures.mjs) for
 // one to six nodes, the longest ids and names, a 1024 x 600 screen and a phone in headless Chrome, saves PNGs and
-// reports clipped or overlapping text on the rack panel and overflow or script errors on the web page.
+// reports clipped or overlapping text on the rack panel and overflow or script errors on the web page and in its
+// settings dialog.
 // Nothing is collected and no other machine is contacted.
 //
 //   node tools/render.mjs                 # PNGs go to $OUT or <tmp>/spark-scope-renders
@@ -222,6 +223,22 @@ const CHECK_WEB = `(() => {
   return issues;
 })()`;
 
+// Settings dialog: it stays inside the window, nothing in it is wider than its box, and the preview card fits.
+const CHECK_SETTINGS = `(() => {
+  const issues = [];
+  const dialog = document.querySelector("#settings");
+  if (!dialog.open) return ["settings dialog did not open"];
+  const box = dialog.getBoundingClientRect();
+  if (box.left < -1 || box.right > innerWidth + 1 || box.top < -1 || box.bottom > innerHeight + 1) issues.push("dialog outside the window: " + [box.left, box.top, box.width, box.height].map(Math.round).join(","));
+  for (const el of dialog.querySelectorAll(".settings-frame, .settings-body, .settings-preview, .settings-nav, .settings-foot")) {
+    if (el.getClientRects().length && el.scrollWidth > el.clientWidth + 1) issues.push("dialog part scrolls sideways: ." + el.className);
+  }
+  for (const el of dialog.querySelectorAll("h2, h3, legend, .pills span, .check span, .about dd, .settings-nav button, .settings-foot button, .settings-note, .reading small, .reading b, .memline span, .badge")) {
+    if (el.getClientRects().length && el.scrollWidth > el.clientWidth + 1) issues.push("text wider than its box: " + el.textContent.trim().slice(0, 40));
+  }
+  return issues;
+})()`;
+
 let failures = 0;
 const report = (name, lines, problems) => {
   console.log(`${problems.length ? "FAIL" : "ok  "} ${name}`);
@@ -316,6 +333,44 @@ try {
         report(name, [`status: ${info.status}`, `cards: ${info.cards}`, `links: ${info.fabric}`], [...issues, ...web.errors.splice(0)]);
       }
     }
+    await web.close();
+  }
+
+  // Settings dialog at desktop and phone widths, one PNG per section, then a settings link (°F, GB, 12-hour clock,
+  // 15-minute range) that the page applies and removes from the address.
+  for (const [label, width, height, scheme] of [["desktop", 1440, 1000, "light"], ["phone", 390, 844, "dark"]]) {
+    const web = await openPage({ width, height, colorScheme: scheme });
+    current = { count: 4, mode: "serving", longNames: false };
+    await web.go(`${base}/`);
+    await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && document.querySelector('#updated-at').textContent !== 'waiting'");
+    await web.evaluate("document.querySelector('#settings-open').click()");
+    for (const section of ["units", "dashboard", "about"]) {
+      await web.evaluate(`document.querySelector('[data-section="${section}"]').click()`);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const issues = await web.evaluate(CHECK_SETTINGS);
+      const name = `web-${label}-settings-${section}.png`;
+      await web.shoot(name);
+      report(name, [], [...issues, ...web.errors.splice(0)]);
+    }
+    await web.go(`${base}/?temp=f&mem=gb&clock=12&range=15`);
+    await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && document.querySelector('#updated-at').textContent !== 'waiting'");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const linked = await web.evaluate(`(() => ({
+      address: location.search,
+      units: [...document.querySelectorAll('#nodes .node:first-child .reading em')].map((em) => em.textContent).join(" "),
+      updated: document.querySelector('#updated-at').textContent,
+      range: document.querySelector('[data-range][aria-pressed=true]')?.textContent,
+      stored: localStorage.getItem('spark-scope-settings'),
+    }))()`);
+    const problems = [...await web.evaluate(CHECK_WEB), ...web.errors.splice(0)];
+    if (linked.address) problems.push("settings link left in the address: " + linked.address);
+    if (!/°F/.test(linked.units) || !/GB/.test(linked.units)) problems.push("units not applied: " + linked.units);
+    if (!/[AP]M/.test(linked.updated)) problems.push("12-hour clock not applied: " + linked.updated);
+    if (linked.range !== "15m") problems.push("chart range not applied: " + linked.range);
+    const name = `web-${label}-settings-link.png`;
+    await web.shoot(name, { fullPage: true });
+    report(name, [`units: ${linked.units}`, `updated: ${linked.updated}`, `stored: ${linked.stored}`], problems);
+    await web.evaluate("localStorage.clear()");
     await web.close();
   }
 } finally {

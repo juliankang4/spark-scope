@@ -46,20 +46,27 @@ export function tokenRate(value) {
   return finite(value) ? fixed(value, Math.abs(value) >= 99.95 ? 0 : 1, ' tok/s') : UNKNOWN;
 }
 export const gib = (bytes, digits = 1) => fixed(finite(bytes) ? bytes / 2 ** 30 : null, digits);
+// Display units chosen in the settings: memory and disk in GiB (2^30 bytes) or GB (10^9), temperatures in °C or °F.
+export const memoryUnit = unit => (unit === 'gb' ? 'GB' : 'GiB');
+export const memory = (bytes, unit, digits = 1) => fixed(finite(bytes) ? bytes / (unit === 'gb' ? 1e9 : 2 ** 30) : null, digits);
+export const temperatureUnit = unit => (unit === 'f' ? '°F' : '°C');
+export const temperature = (celsius, unit, digits = 0) => fixed(finite(celsius) ? (unit === 'f' ? celsius * 9 / 5 + 32 : celsius) : null, digits);
 export const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
-// Wall-clock times follow the viewer's own locale and time zone, on a 24-hour clock.
-export function clockTime(value, { seconds = true, timeZone } = {}) {
+// Wall-clock times follow the viewer's own time zone, on a 24-hour clock in the viewer's locale; the 12-hour clock
+// uses the page's language for AM and PM.
+export function clockTime(value, { seconds = true, timeZone, hour12 = false } = {}) {
   const date = new Date(value);
   if (value == null || !finite(date.getTime())) return UNKNOWN;
-  const options = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', ...(seconds ? { second: '2-digit' } : {}) };
-  try { return date.toLocaleTimeString(undefined, { ...options, timeZone }); } catch { return date.toLocaleTimeString(undefined, options); }
+  const options = { hour: hour12 ? 'numeric' : '2-digit', minute: '2-digit', hourCycle: hour12 ? 'h12' : 'h23', ...(seconds ? { second: '2-digit' } : {}) };
+  const locale = hour12 ? 'en-US' : undefined;
+  try { return date.toLocaleTimeString(locale, { ...options, timeZone }); } catch { return date.toLocaleTimeString(locale, options); }
 }
 // A past event's time, with its date when it was not today ("Oct 1 23:12:04").
-export function eventTime(value, nowMs = Date.now()) {
+export function eventTime(value, nowMs = Date.now(), { hour12 = false } = {}) {
   const at = new Date(value).getTime();
   if (value == null || !finite(at)) return UNKNOWN;
-  if (localDay(at) === localDay(nowMs)) return clockTime(value);
-  return `${new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${clockTime(value)}`;
+  if (localDay(at) === localDay(nowMs)) return clockTime(value, { hour12 });
+  return `${new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${clockTime(value, { hour12 })}`;
 }
 // YYYY-MM-DD in the given IANA time zone; without one (or with an invalid one), the viewer's time zone.
 export function localDay(at = Date.now(), timeZone) {

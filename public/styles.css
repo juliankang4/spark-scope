@@ -39,3 +39,63 @@ html,body{overflow-anchor:none}
 .brand span:empty{display:none}
 .badge[data-level="good"]{color:var(--green)}.badge[data-level="warn"]{color:var(--orange)}.badge[data-level="crit"]{color:var(--red)}
 .gauge strong.full{font-size:26px;padding-top:40px}
+
+/* The unit inside a trend heading ("Selected range (°C)") is not a legend entry. */
+.trend .section-head small span{margin:0}
+/* Settings: a modal dialog in three columns (sections, choices, a live preview); one column on phones. */
+.header-actions .settings-open[aria-expanded=true]{background:var(--ink);color:var(--paper)}
+.settings{width:min(1100px,calc(100vw - 40px));max-width:none;max-height:calc(100dvh - 40px);padding:0;border:2px solid var(--ink);background:var(--paper);color:var(--ink);box-shadow:0 20px 60px #0005}
+.settings::backdrop{background:#0008}
+.settings-frame{display:grid;grid-template-columns:170px minmax(0,1fr) 420px;grid-template-rows:auto minmax(0,1fr) auto;max-height:calc(100dvh - 44px)}
+.settings-head{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;padding:14px 18px 14px 20px;border-bottom:2px solid var(--ink)}
+.settings-head h2{margin:0;font:700 18px var(--num-font);letter-spacing:-.3px}
+.settings-close{display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid var(--line);background:transparent;color:var(--ink)}
+.settings-close svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.settings-nav{display:flex;flex-direction:column;border-right:1px solid var(--line);padding:10px 0;overflow:auto}
+.settings-nav button{border:0;background:transparent;color:var(--muted);text-align:left;padding:11px 18px;font:500 13px var(--num-font)}
+.settings-nav button[aria-current=true]{color:var(--ink);font-weight:700;box-shadow:inset 3px 0 0 var(--blue)}
+.settings-body{padding:18px 22px;overflow:auto;min-height:420px}
+.settings-body section{display:grid;gap:16px;align-content:start}
+.settings-body h3{margin:0;font:700 14px var(--num-font)}
+.choice{display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px;align-items:center;margin:0;padding:0;border:0;min-width:0}
+.choice legend{float:left;padding:0;font-size:12px;color:var(--muted)}
+.pills{display:inline-flex;flex-wrap:wrap;justify-self:start;border:1px solid var(--line)}
+.pills label{position:relative;display:block}
+.pills label+label{border-left:1px solid var(--line)}
+.pills input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
+.pills span{display:block;padding:6px 12px;font:500 12px var(--num-font);white-space:nowrap}
+.pills input:checked+span{background:var(--ink);color:var(--paper)}
+.pills input:focus-visible+span{outline:3px solid var(--blue);outline-offset:2px}
+.pills label:hover span{background:var(--hover)}.pills label:hover input:checked+span{background:var(--ink)}
+.check{display:flex;gap:8px;align-items:center;font-size:12px}
+.check input{width:16px;height:16px;margin:0;accent-color:var(--ink)}
+.settings-note{margin:0;font-size:12px;color:var(--muted);max-width:60ch}
+.about{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px 12px;margin:0;font-size:12px}
+.about dt{color:var(--muted)}.about dd{margin:0;font-family:var(--num-font);overflow-wrap:anywhere}
+.settings-preview{border-left:1px solid var(--line);background:var(--chassis);padding:16px 18px;overflow:auto;display:grid;gap:12px;align-content:start}
+.preview-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.preview-head p{margin:0;font:600 10px var(--num-font);letter-spacing:.8px;text-transform:uppercase;color:var(--muted)}
+.preview-head select{font:500 12px var(--num-font);color:var(--ink);background:var(--paper);border:1px solid var(--line);padding:4px 6px;max-width:60%}
+.settings-preview .nodes{display:block;border:1px solid var(--line)}
+.settings-preview .node{border:0}
+.preview-clock{margin:0;font-size:12px;color:var(--muted)}.preview-clock b{color:var(--ink);font-weight:600}
+.settings-foot{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 20px;border-top:1px solid var(--line)}
+.settings-foot button{border:1px solid var(--line);background:transparent;color:var(--ink);padding:8px 13px;font:500 12px var(--num-font)}
+.settings-foot .primary{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.settings-share{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;min-width:0}
+.settings-share input{font:500 11px var(--num-font);color:var(--ink);background:var(--screen);border:1px solid var(--line);padding:7px 8px;width:min(360px,100%)}
+@media(max-width:1050px){.settings-frame{grid-template-columns:150px minmax(0,1fr)}.settings-preview{grid-column:1/-1;border-left:0;border-top:1px solid var(--line)}.settings-preview .nodes{max-width:420px}}
+/* On a phone the dialog fills the screen and scrolls as one page, with the title and the buttons kept in view. */
+@media(max-width:760px){
+  .settings{width:100vw;height:100dvh;max-height:none;margin:0;border:0}
+  .settings-frame{display:block;height:100%;max-height:none;overflow:auto}
+  .settings-head{position:sticky;top:0;z-index:1;background:var(--paper)}
+  .settings-foot{position:sticky;bottom:0;z-index:1;background:var(--paper)}
+  .settings-nav{flex-direction:row;border-right:0;border-bottom:1px solid var(--line);padding:0}
+  .settings-nav button{flex:1;text-align:center;padding:12px 6px}
+  .settings-nav button[aria-current=true]{box-shadow:inset 0 -3px 0 var(--blue)}
+  .settings-body{min-height:0;padding:16px;overflow:visible}
+  .choice{grid-template-columns:minmax(0,1fr)}
+  .settings-preview{padding:14px 16px;overflow:visible}
+  .settings-foot{padding:10px 16px}
+}

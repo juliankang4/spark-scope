@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -70,6 +70,7 @@ test("the server serves the dashboard, the rack panel, the fonts and the JSON AP
     assert.equal(state.usage.timeZone, "UTC");
     assert.equal(state.historyStats.windowMinutes, 15);
     assert.deepEqual(state.pollIntervals, { nodeMs: 5000, apiMs: 2000 });
+    assert.equal(state.version, JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version);
     assert.ok(Array.isArray(state.history));
     const light = await (await fetch(`${base}/api/state?minutes=15&history=0`)).json();
     assert.equal(light.history, undefined);

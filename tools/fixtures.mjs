@@ -9,6 +9,7 @@ import { publicState } from "../lib/public-state.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const GIB = 2 ** 30;
+const VERSION = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
 export const MODES = ["serving", "fault", "idle"];
 
 // One to four nodes use the shipped examples; more nodes get a ring of the same shape.
@@ -151,5 +152,5 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
     usage: { persistent: true, timeZone: "UTC", day: month.day, modelName: "example-model", today, error: null },
     startedAt: new Date(nowMs - 3 * 3600_000).toISOString(),
     updatedAt: new Date(nowMs).toISOString(),
-  });
+  }, { pollIntervals: { nodeMs: 5000, apiMs: 2000 }, version: VERSION });
 }
