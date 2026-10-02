@@ -1,4 +1,5 @@
 // Pure view-model helpers for the Spark Scope rack panel (1920 x 480 by default). No DOM access, so node --test can import them.
+import { compact as compactCount } from "../view-data.js";
 
 export const BRAND = "SPARK SCOPE";
 const ROLE_LABELS = { HEAD: "Head", WORKER: "Worker", NODE: "Node" };
@@ -18,20 +19,14 @@ export function f1(value) {
   return finite(value) ? value.toFixed(1) : "—";
 }
 
-export function compact(value) {
-  if (!finite(value)) return "—";
-  if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
-  if (value >= 1e7) return `${(value / 1e6).toFixed(1)}M`;
-  if (value >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
-  if (value >= 1e3) return `${Math.round(value / 1e3)}K`;
-  return String(Math.round(value));
-}
+// Token counts in the web page's format (1.5K, 9.55M, 1.06B); a dash when unknown.
+export const compact = (value) => compactCount(value, "—");
 
-// Free space for a bar label: 2.5 TiB, 319 GiB, 7.7 GiB.
+// Free space for a bar label: 2.5 TiB, 319 GiB, 7.7 GiB. The unit is chosen after rounding (999.6 GiB reads 1.0 TiB).
 export function freeLabel(gib) {
   if (!finite(gib)) return "—";
-  if (gib >= 1000) return `${(gib / 1024).toFixed(1)} TiB`;
-  if (gib >= 10) return `${Math.round(gib)} GiB`;
+  if (Math.round(gib) >= 1000) return `${(gib / 1024).toFixed(1)} TiB`;
+  if (Number(gib.toFixed(1)) >= 10) return `${Math.round(gib)} GiB`;
   return `${gib.toFixed(1)} GiB`;
 }
 
@@ -302,10 +297,19 @@ export function tempRangeLabel(points) {
   return low === high ? `${low}°C` : `${low}–${high}°C`;
 }
 
-// Logical panel width from "?width=" (1440 to 3840, default 1920). The panel is laid out 480 px tall and
+// Logical panel width from "?width=" (800 to 3840, default 1920). The panel is laid out 480 px tall and
 // scaled to the window, so width = 480 x the display's aspect ratio fills a display edge to edge.
 export const DEFAULT_PANEL_WIDTH = 1920;
 export function panelWidth(search = "") {
   const value = Number.parseInt(new URLSearchParams(search).get("width") ?? "", 10);
-  return Number.isFinite(value) ? Math.min(3840, Math.max(1440, value)) : DEFAULT_PANEL_WIDTH;
+  return Number.isFinite(value) ? Math.min(3840, Math.max(800, value)) : DEFAULT_PANEL_WIDTH;
+}
+
+// Bays narrower than this switch to the compact layout (temperature above the meters, smaller type); four nodes at
+// 1920 (480 each) keep the regular one.
+export const COMPACT_BAY_PX = 460;
+// "wide" for one node with room for its meters side by side, "compact" when bays get narrow, otherwise "regular".
+export function bayLayout(count, width = DEFAULT_PANEL_WIDTH) {
+  if (count <= 1) return width >= 1400 ? "wide" : "regular";
+  return width / count >= COMPACT_BAY_PX ? "regular" : "compact";
 }

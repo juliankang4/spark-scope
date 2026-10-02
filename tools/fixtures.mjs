@@ -10,8 +10,28 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const GIB = 2 ** 30;
 export const MODES = ["serving", "fault", "idle"];
 
-function topologyFor(count) {
-  return normalizeTopology(JSON.parse(readFileSync(path.join(ROOT, "examples", `topology.${count}-node.json`), "utf8")));
+// One to four nodes use the shipped examples; more nodes get a ring of the same shape.
+function rawTopology(count) {
+  if (count <= 4) return JSON.parse(readFileSync(path.join(ROOT, "examples", `topology.${count}-node.json`), "utf8"));
+  const ids = Array.from({ length: count }, (_, i) => String(i + 1));
+  return {
+    nodes: ids.map((id, i) => ({ id, name: `spark-${id}`, host: `spark-${id}`, role: i ? "WORKER" : "HEAD", hardware: "DGX Spark" })),
+    links: ids.map((id, i) => {
+      const next = ids[(i + 1) % count];
+      return { id: `${id}-${next}`, ends: [{ node: id, a: "enp1s0f0np0", b: "enP2p1s0f0np0" }, { node: next, a: "enp1s0f1np1", b: "enP2p1s0f1np1" }] };
+    }),
+  };
+}
+
+// longNames: the longest ids (16 characters) and long display names, to check truncation in every view.
+const longId = (id) => `gb10-rack-node-${id}`.slice(0, 16);
+function topologyFor(count, { longNames = false } = {}) {
+  const raw = rawTopology(count);
+  if (longNames) {
+    for (const node of raw.nodes) Object.assign(node, { id: longId(node.id), name: `spark-cluster-node-${node.id}-tokyo` });
+    for (const link of raw.links) for (const end of link.ends) end.node = longId(end.node);
+  }
+  return normalizeTopology(raw);
 }
 
 // What goes wrong in "fault" for each node count.
@@ -20,6 +40,8 @@ const FAULTS = {
   2: { darkLinks: ["1-2b"] },
   3: { unreachable: ["3"], darkLinks: ["2-3", "3-1"], apiDown: true },
   4: { unreachable: ["3"], darkLinks: ["2-3", "3-4"], apiDown: true },
+  5: { unreachable: ["4"], darkLinks: ["3-4", "4-5"], apiDown: true },
+  6: { unreachable: ["4"], darkLinks: ["3-4", "4-5"], apiDown: true },
 };
 
 function nodeSample(topology, meta, index, { nowMs, ok, proc, darkNics, hot }) {
@@ -39,7 +61,7 @@ function nodeSample(topology, meta, index, { nowMs, ok, proc, darkNics, hot }) {
     inference: { up: proc, engine: proc ? "vLLM" : null, processName: proc ? `VLLM::Worker_TP${index}` : null },
     latencyMs: meta.local ? 38 : 22 + index * 3, uptimeSeconds: 86400 * 3, systemState: "running", failedUnits: 0,
     container: proc ? { detected: true, name: "vllm-node", image: "vllm/vllm-openai:latest", running: true, restarts: 0, startedAt: new Date(nowMs - 86400_000).toISOString() } : { detected: false, name: null, image: null, running: false, restarts: 0, startedAt: null },
-    gpu: { utilization: proc ? 88 + index * 3 : 0, temperature: hot ? 91 : (proc ? 57 : 41) + index * 2, powerWatts: proc ? 31.5 + index : 11.2, clockMHz: proc ? 2405 : 208, performanceState: "P0", thermalSlowdown: Boolean(hot) },
+    gpu: { utilization: proc ? Math.min(100, 88 + index * 3) : 0, temperature: hot ? 91 : (proc ? 57 : 41) + index * 2, powerWatts: proc ? 31.5 + index : 11.2, clockMHz: proc ? 2405 : 208, performanceState: "P0", thermalSlowdown: Boolean(hot) },
     thermals: {
       tsocCelsius: (proc ? 58.4 : 44.1) + index,
       ts1pCelsius: (proc ? 57.6 : 43.5) + index,
@@ -89,21 +111,22 @@ export function usageMonth(month, nowMs) {
   return { persistent: true, timeZone: "UTC", month, day: today, days, totals, firstMonth: month, lastMonth: month, updatedAt: new Date(nowMs).toISOString(), error: null };
 }
 
-export function fixtureState(count, mode, nowMs = Date.now()) {
-  const topology = topologyFor(count);
+export function fixtureState(count, mode, nowMs = Date.now(), { longNames = false } = {}) {
+  const topology = topologyFor(count, { longNames });
   const fault = mode === "fault" ? FAULTS[count] : {};
-  const unreachable = new Set(fault.unreachable ?? []);
+  const nodeId = (id) => (longNames ? longId(id) : id);
+  const unreachable = new Set((fault.unreachable ?? []).map(nodeId));
   const darkNics = new Set();
   for (const id of fault.darkLinks ?? []) {
     for (const end of topology.links.find((link) => link.id === id).ends) for (const plane of ["a", "b"]) if (end[plane]) darkNics.add(`${end.node}:${end[plane]}`);
   }
   const proc = mode !== "idle";
   const nodes = Object.fromEntries(topology.nodes.map((meta, index) => [meta.id,
-    nodeSample(topology, meta, index, { nowMs, ok: !unreachable.has(meta.id), proc, darkNics, hot: (fault.hot ?? []).includes(meta.id) })]));
+    nodeSample(topology, meta, index, { nowMs, ok: !unreachable.has(meta.id), proc, darkNics, hot: (fault.hot ?? []).map(nodeId).includes(meta.id) })]));
   const apiUp = proc && !fault.apiDown;
   const vllm = apiUp
     ? {
-      ok: true, engine: "vLLM", modelName: "example-model", baseUrl: "http://127.0.0.1:8000", latencyMs: 3,
+      ok: true, engine: "vLLM", modelName: longNames ? "example-org/Example-Reasoning-Model-70B-Instruct-FP8-Dynamic" : "example-model", baseUrl: "http://127.0.0.1:8000", latencyMs: 3,
       outputTokensPerSecond: 61.3, promptTokensPerSecond: 2950, promptComputeTokensPerSecond: 2104, promptCacheTokensPerSecond: 846,
       prefixCacheHitPercent: 41.2, speculativeAcceptancePercent: 0, kvCachePercent: 12.5, tpotP95Seconds: 0.028, ttftP95Seconds: 0.42,
       runningRequests: 2, waitingRequests: 0, updatedAt: new Date(nowMs).toISOString(), error: null,

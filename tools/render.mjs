@@ -1,6 +1,7 @@
 // Development check: renders the rack panel and the web dashboard with synthetic data (tools/fixtures.mjs) for
-// one to four nodes in headless Chrome, saves PNGs and reports clipped or overlapping text on the rack panel and
-// horizontal overflow or script errors on the web page. Nothing is collected and no other machine is contacted.
+// one to six nodes, the longest ids and names, a 1024 x 600 screen and a phone in headless Chrome, saves PNGs and
+// reports clipped or overlapping text on the rack panel and overflow or script errors on the web page.
+// Nothing is collected and no other machine is contacted.
 //
 //   node tools/render.mjs                 # PNGs go to $OUT or <tmp>/spark-scope-renders
 //   CHROME=/path/to/chrome node tools/render.mjs
@@ -17,7 +18,7 @@ import { fixtureState, usageMonth, MODES } from "./fixtures.mjs";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC = path.join(ROOT, "public");
 const OUT = process.env.OUT || path.join(os.tmpdir(), "spark-scope-renders");
-const COUNTS = (process.env.COUNTS || "1,2,3,4").split(",").map(Number);
+const COUNTS = (process.env.COUNTS || "1,2,3,4,5,6").split(",").map(Number);
 mkdirSync(OUT, { recursive: true });
 
 function findChrome() {
@@ -32,13 +33,13 @@ function findChrome() {
 }
 
 // ---- fixture server: the real public/ files, /api/state from fixtures ----
-let current = { count: 4, mode: "serving" };
+let current = { count: 4, mode: "serving", longNames: false };
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".woff2": "font/woff2" };
 const server = createServer((request, response) => {
   const url = new URL(request.url, "http://localhost");
   if (url.pathname === "/api/state") {
     if (current.mode === "lost") { response.writeHead(503).end("{}"); return; }
-    const state = fixtureState(current.count, current.mode);
+    const state = fixtureState(current.count, current.mode, Date.now(), { longNames: current.longNames });
     const minutes = Number(url.searchParams.get("minutes") || 60);
     state.history = state.history.filter((point) => point.at >= Date.now() - minutes * 60_000);
     response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(state));
@@ -126,10 +127,11 @@ async function openPage({ width, height, colorScheme = "dark" }) {
 }
 
 // Text that leaves the panel, overflows its box or overlaps other text (big figures are trimmed to their glyph band).
+// Text cut off on purpose (overflow hidden with an ellipsis) is clipped to its box and listed as truncated.
 const CHECK_RACK = `(() => {
   const screen = document.querySelector(".screen");
   const S = screen.getBoundingClientRect();
-  const issues = [], texts = [];
+  const issues = [], texts = [], truncated = [];
   const walker = document.createTreeWalker(screen, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     if (!node.textContent.trim()) continue;
@@ -138,13 +140,20 @@ const CHECK_RACK = `(() => {
     const el = node.parentElement, fig = Boolean(el.closest(".num"));
     const box = fig ? { left: r.left, right: r.right, top: r.top + r.height * 0.18, bottom: r.bottom - r.height * 0.22 } : { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
     const text = node.textContent.trim().slice(0, 40);
+    const clip = el.closest("*") && [...(function* () { for (let a = el; a && a !== screen; a = a.parentElement) yield a; })()].find((a) => { const cs = getComputedStyle(a); return cs.textOverflow === "ellipsis" && cs.overflowX !== "visible"; });
+    if (clip) {
+      const cr = clip.getBoundingClientRect();
+      if (r.right > cr.right + 1) truncated.push(text);
+      box.left = Math.max(box.left, cr.left); box.right = Math.min(box.right, cr.right);
+    }
     texts.push({ el, text, box });
-    if (r.left < S.left - 1 || r.right > S.right + 1 || box.top < S.top - 1 || box.bottom > S.bottom + 1) issues.push("outside panel: " + text);
+    if (box.left < S.left - 1 || box.right > S.right + 1 || box.top < S.top - 1 || box.bottom > S.bottom + 1) issues.push("outside panel: " + text);
     for (let a = el; a && a !== screen; a = a.parentElement) {
+      if (clip && (a === clip || clip.contains(a))) continue;
       const cs = getComputedStyle(a);
       if (cs.display.startsWith("inline") && cs.display !== "inline-flex" && cs.display !== "inline-block") continue;
       const ar = a.getBoundingClientRect();
-      if (r.left < ar.left - 1 || r.right > ar.right + 1) { issues.push("overflow: " + text + " exceeds ." + a.className); break; }
+      if (box.left < ar.left - 1 || box.right > ar.right + 1) { issues.push("overflow: " + text + " exceeds ." + a.className); break; }
     }
   }
   for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) {
@@ -156,7 +165,35 @@ const CHECK_RACK = `(() => {
   const fonts = { archivo: document.fonts.check('20px "Archivo"'), bebas: document.fonts.check('100px "Bebas Neue"') };
   const bays = [...document.querySelectorAll(".bay")].map((bay) => bay.querySelector(".name")?.textContent + " [" + bay.className + "] " + bay.querySelector(".reason")?.textContent + " | " + (bay.querySelector(".lk")?.textContent ?? "no link dots"));
   const band = [...document.querySelectorAll(".cl > *")].map((el) => el.textContent).join(" / ");
-  return { issues, fonts, bays, band, texts: texts.length };
+  for (const bay of document.querySelectorAll(".bay")) {
+    const body = bay.querySelector(".main, .down"), foot = bay.querySelector(".foot");
+    if (body && body.scrollHeight > body.clientHeight + 1) issues.push("bay content taller than its space: " + bay.querySelector(".name")?.textContent);
+    if (foot && foot.getBoundingClientRect().bottom > bay.getBoundingClientRect().bottom + 1) issues.push("bay footer below the bay: " + bay.querySelector(".name")?.textContent);
+  }
+  const W = innerWidth, H = innerHeight;
+  if (Math.abs(S.left - (W - S.width) / 2) > 2 || Math.abs(S.top - (H - S.height) / 2) > 2) issues.push("panel not centred: " + [S.left, S.top, S.width, S.height].map(Math.round).join(","));
+  return { issues, fonts, bays, band, truncated, texts: texts.length };
+})()`;
+
+// Web page: page overflow, text wider than its own box (unless cut off on purpose) and diagram labels outside their shape.
+const CHECK_WEB = `(() => {
+  const issues = [];
+  const overflow = document.documentElement.scrollWidth - window.innerWidth;
+  if (overflow > 0) issues.push("horizontal overflow " + overflow + "px");
+  for (const el of document.querySelectorAll("#scope h1, #scope h2, .identity h1, .badge, .role span, .reading b, .extra span, .links td, .trend p span, .legend div, .status .sub span")) {
+    if (!el.getClientRects().length) continue;
+    if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).textOverflow !== "ellipsis") issues.push("text wider than its box: " + el.textContent.trim().slice(0, 40));
+  }
+  for (const group of document.querySelectorAll("#fabric-nodes g")) {
+    const text = group.querySelector("text").getBBox(), shape = group.querySelector("circle, rect").getBBox();
+    if (text.x < shape.x - 1 || text.x + text.width > shape.x + shape.width + 1) issues.push("diagram label outside its node: " + group.querySelector("text").textContent);
+  }
+  const svg = document.querySelector(".fabric");
+  if (svg && !document.querySelector("#fabric-panel").hidden) {
+    const box = svg.getBBox(), view = svg.viewBox.baseVal;
+    if (box.x < -1 || box.y < -1 || box.x + box.width > view.width + 1 || box.y + box.height > view.height + 1) issues.push("diagram drawn outside its view box");
+  }
+  return issues;
 })()`;
 
 let failures = 0;
@@ -193,6 +230,18 @@ try {
     report(`rack-${count}-node-lost.png`, [`band: ${lost.band}`], lost.issues);
     rack.errors.splice(0);
   }
+  // The longest ids and names: names give way to the status with an ellipsis.
+  for (const mode of ["serving", "fault"]) {
+    current = { count: 4, mode, longNames: true };
+    await rack.go(`${base}/rack/`);
+    await rack.waitFor("document.querySelectorAll('.bay').length > 0 && !document.querySelector('.bay:empty')");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const result = await rack.evaluate(CHECK_RACK);
+    const name = `rack-4-node-${mode}-long-names.png`;
+    await rack.shoot(name);
+    report(name, [...result.bays, `truncated: ${result.truncated.join(" / ") || "none"}`], [...result.issues, ...rack.errors.splice(0)]);
+  }
+  current = { count: 4, mode: "serving", longNames: false };
   // A wider bar display (2560 x 480) with the width parameter.
   const wide = await openPage({ width: 2560, height: 480 });
   current = { count: 4, mode: "serving" };
@@ -202,26 +251,43 @@ try {
   await wide.shoot("rack-4-node-serving-2560.png");
   report("rack-4-node-serving-2560.png", [], [...wideResult.issues, ...wide.errors]);
   await wide.close();
+  // A 1024 x 600 screen: the default panel letterboxed in the middle, and ?width=819 filling it.
+  const small = await openPage({ width: 1024, height: 600 });
+  for (const [query, counts] of [["", [4]], ["?width=819", [1, 2, 3, 4]]]) {
+    for (const count of counts) {
+      for (const mode of ["serving", "fault"]) {
+        current = { count, mode, longNames: false };
+        await small.go(`${base}/rack/${query}`);
+        await small.waitFor("document.querySelectorAll('.bay').length > 0 && !document.querySelector('.bay:empty')");
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const result = await small.evaluate(CHECK_RACK);
+        const name = `rack-${count}-node-${mode}-1024x600${query ? "-width-819" : ""}.png`;
+        await small.shoot(name);
+        report(name, [`band: ${result.band}`, `truncated: ${result.truncated.join(" / ") || "none"}`], [...result.issues, ...small.errors.splice(0)]);
+      }
+    }
+  }
+  await small.close();
   await rack.close();
 
   // Web dashboard at desktop and phone widths.
   for (const [label, width, height, scheme] of [["desktop", 1440, 1000, "light"], ["phone", 390, 844, "dark"]]) {
     const web = await openPage({ width, height, colorScheme: scheme });
-    for (const count of COUNTS) {
+    for (const [count, longNames] of [...COUNTS.map((count) => [count, false]), [4, true]]) {
       for (const mode of ["serving", "fault"]) {
-        current = { count, mode };
+        current = { count, mode, longNames };
         await web.go(`${base}/`);
         await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && document.querySelector('#updated-at').textContent !== 'waiting'");
         await new Promise((resolve) => setTimeout(resolve, 300));
+        const issues = await web.evaluate(CHECK_WEB);
         const info = await web.evaluate(`(() => ({
-          overflow: document.documentElement.scrollWidth - window.innerWidth,
           cards: [...document.querySelectorAll('.node')].map((n) => n.querySelector('h2').textContent + ' ' + n.querySelector('.badge').textContent).join(' / '),
           fabric: document.querySelector('#fabric-panel').hidden ? 'interconnect hidden' : [...document.querySelectorAll('#link-rows tr')].map((r) => r.innerText.replace(/\\t/g, ' ')).join(' / '),
           status: document.querySelector('#status-title').textContent,
         }))()`);
-        const name = `web-${label}-${count}-node-${mode}.png`;
+        const name = `web-${label}-${count}-node-${mode}${longNames ? "-long-names" : ""}.png`;
         await web.shoot(name, { fullPage: true });
-        report(name, [`status: ${info.status}`, `cards: ${info.cards}`, `links: ${info.fabric}`], [...(info.overflow > 0 ? [`horizontal overflow ${info.overflow}px`] : []), ...web.errors.splice(0)]);
+        report(name, [`status: ${info.status}`, `cards: ${info.cards}`, `links: ${info.fabric}`], [...issues, ...web.errors.splice(0)]);
       }
     }
     await web.close();

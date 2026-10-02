@@ -1,4 +1,5 @@
-export const COLORS = ['var(--blue)', 'var(--orange)', 'var(--green)', 'var(--ink)'];
+// One colour per node in topology order (cards, cable diagram, trend lines); a ninth node starts over.
+export const COLORS = ['var(--blue)', 'var(--orange)', 'var(--green)', 'var(--ink)', 'var(--purple)', 'var(--gold)', 'var(--magenta)', 'var(--umber)'];
 // Shown wherever a value was not observed; never replaced by a made-up zero.
 export const UNKNOWN = 'unknown';
 // Nodes in the order of the server's topology (topology.json); a payload without topology falls back to its node keys.
@@ -21,15 +22,28 @@ export const finite = value => Number.isFinite(value);
 export function fixed(value, digits = 1, suffix = '') {
   return finite(value) ? value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits }) + suffix : UNKNOWN;
 }
-export function compact(value) {
-  if (!finite(value)) return UNKNOWN;
-  if (value >= 1e9) return (value / 1e9).toFixed(2).replace(/\.?0+$/, '') + 'B';
-  if (value >= 1e6) return (value / 1e6).toFixed(1) + 'M';
-  if (value >= 1e3) return (value / 1e3).toFixed(value % 1000 ? 1 : 0) + 'K';
-  return String(Math.round(value));
+// Token counts with three significant digits (1.5K, 9.55M, 1.06B), shared by the web page and the rack panel.
+// The unit is chosen after rounding, so 999,950 reads 1M rather than 1000.0K.
+const UNITS = ['K', 'M', 'B', 'T'];
+export function compact(value, missing = UNKNOWN) {
+  if (!finite(value)) return missing;
+  if (Math.abs(Math.round(value)) < 1000) return String(Math.round(value) || 0);
+  let scaled = value;
+  for (const [index, unit] of UNITS.entries()) {
+    scaled /= 1000;
+    const size = Math.abs(scaled);
+    const text = scaled.toFixed(size < 10 ? 2 : size < 100 ? 1 : 0);
+    if (Math.abs(Number(text)) < 1000 || index === UNITS.length - 1) return (text.includes('.') ? text.replace(/0+$/, '').replace(/\.$/, '') : text) + unit;
+  }
 }
+// Below a second in milliseconds, otherwise seconds; 0.9996 s reads 1.00 s, not 1,000 ms.
 export function duration(seconds) {
-  return !finite(seconds) ? UNKNOWN : seconds < 1 ? fixed(seconds * 1000, 0, ' ms') : fixed(seconds, 2, ' s');
+  if (!finite(seconds)) return UNKNOWN;
+  return Math.round(seconds * 1000) < 1000 ? fixed(seconds * 1000, 0, ' ms') : fixed(seconds, 2, ' s');
+}
+// Token rates: one decimal below 100 tok/s, none from there (99.96 reads 100 tok/s, not 100.0).
+export function tokenRate(value) {
+  return finite(value) ? fixed(value, Math.abs(value) >= 99.95 ? 0 : 1, ' tok/s') : UNKNOWN;
 }
 export const gib = (bytes, digits = 1) => fixed(finite(bytes) ? bytes / 2 ** 30 : null, digits);
 export const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
@@ -39,6 +53,13 @@ export function clockTime(value, { seconds = true, timeZone } = {}) {
   if (value == null || !finite(date.getTime())) return UNKNOWN;
   const options = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', ...(seconds ? { second: '2-digit' } : {}) };
   try { return date.toLocaleTimeString(undefined, { ...options, timeZone }); } catch { return date.toLocaleTimeString(undefined, options); }
+}
+// A past event's time, with its date when it was not today ("Oct 1 23:12:04").
+export function eventTime(value, nowMs = Date.now()) {
+  const at = new Date(value).getTime();
+  if (value == null || !finite(at)) return UNKNOWN;
+  if (localDay(at) === localDay(nowMs)) return clockTime(value);
+  return `${new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${clockTime(value)}`;
 }
 // YYYY-MM-DD in the given IANA time zone; without one (or with an invalid one), the viewer's time zone.
 export function localDay(at = Date.now(), timeZone) {
@@ -70,11 +91,13 @@ export function monthOptions(first, current) {
   }
   return options.length ? options : [current];
 }
+// key is a field name or a function that picks the value from a point, so values never share a key with the time.
 export function chartPath(points, key, { start, end, width = 800, height = 140, min = 0, max = 1, top = 4, bottom = 4 }) {
+  const pick = typeof key === 'function' ? key : point => point[key];
   let connected = false;
   const commands = [];
   for (const point of points) {
-    const value = point[key];
+    const value = pick(point);
     if (!finite(value) || !finite(point.at)) { connected = false; continue; }
     const x = Math.min(width, Math.max(0, (point.at - start) / Math.max(1, end - start) * width));
     const y = top + (1 - Math.min(1, Math.max(0, (value - min) / Math.max(.001, max - min)))) * (height - top - bottom);
@@ -127,11 +150,29 @@ export function fabricLayout(topology, { width = 380, height = 190, rx = 120, ry
     return { id: link.id, x1: a[0] + nx, y1: a[1] + ny, x2: b[0] + nx, y2: b[1] + ny };
   });
   return {
-    nodes: nodes.map((node, i) => ({ id: node.id, x: at[node.id][0], y: at[node.id][1], color: COLORS[i % COLORS.length] })),
+    nodes: nodes.map((node, i) => ({ id: node.id, label: nodeLabel(node.id), x: at[node.id][0], y: at[node.id][1], color: COLORS[i % COLORS.length] })),
     links: lines,
     // Two nodes leave the centre on the cable, so the caption moves below them.
     caption: { x: cx, y: count === 2 ? cy + 50 : cy + 4 },
   };
+}
+
+// A node id as drawn in the cable diagram: up to ten characters, longer ids shortened with an ellipsis.
+export function nodeLabel(id) {
+  const text = String(id ?? '');
+  return text.length > 10 ? `${text.slice(0, 9)}…` : text;
+}
+// The diagram draws short labels in a circle and longer ones in a pill sized to the text (12 px semibold).
+export function labelWidth(label) {
+  return label.length <= 3 ? 38 : Math.max(38, Math.ceil(label.length * 7.6 + 18));
+}
+
+// The theme button cycles from the system look to the other look, then the system's look picked by hand, then back
+// to following the system. choice is the saved 'light' or 'dark' (null follows the system); system is the current one.
+export function nextTheme(choice, system) {
+  const other = system === 'dark' ? 'light' : 'dark';
+  if (choice !== 'light' && choice !== 'dark') return other;
+  return choice === other ? system : null;
 }
 
 // Everything the cards show from topology.json; a change rebuilds them (the ids alone can stay the same).

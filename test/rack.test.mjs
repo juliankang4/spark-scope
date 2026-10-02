@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { nodeView, clusterView, timePaths, compact, freeLabel, orderedNodes, nodeLinks, linkReason, reasonText, seriesPoints, panelWidth } from "../public/rack/rack-view.js";
+import { nodeView, clusterView, timePaths, compact, freeLabel, orderedNodes, nodeLinks, linkReason, reasonText, seriesPoints, panelWidth, bayLayout } from "../public/rack/rack-view.js";
+import { compact as webCompact } from "../public/view-data.js";
 import { loadTopology, publicTopology } from "../lib/topology.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -124,6 +125,8 @@ test("a healthy node reads OK with usage-based memory and disk figures", () => {
   assert.equal(freeLabel(3610), "3.5 TiB");
   assert.equal(freeLabel(319.3), "319 GiB");
   assert.equal(freeLabel(7.74), "7.7 GiB");
+  assert.equal(freeLabel(999.6), "1.0 TiB");
+  assert.equal(freeLabel(9.97), "10 GiB");
 });
 
 test("the bay header names the actual reasons, most severe first", () => {
@@ -229,19 +232,34 @@ test("temperature traces read the per-node history and break at gaps and missing
   assert.equal(line.match(/M/g).length, 3);
 });
 
-test("token totals use compact units", () => {
+test("token totals use compact units, the same as the web page", () => {
   assert.equal(compact(15943405), "15.9M");
   assert.equal(compact(155347), "155K");
   assert.equal(compact(1061000000), "1.06B");
   assert.equal(compact(null), "—");
+  for (const value of [1500, 999_950, 9_552_810, 42, 3.2e9]) assert.equal(compact(value), webCompact(value));
 });
 
 test("the panel width defaults to 1920 and can be set from the URL within limits", () => {
   assert.equal(panelWidth(""), 1920);
   assert.equal(panelWidth("?width=2560"), 2560);
-  assert.equal(panelWidth("?width=100"), 1440);
+  assert.equal(panelWidth("?width=819"), 819);
+  assert.equal(panelWidth("?width=100"), 800);
   assert.equal(panelWidth("?width=99999"), 3840);
   assert.equal(panelWidth("?width=wide"), 1920);
+});
+
+test("bays switch to the compact layout below 460 logical pixels each; one node spreads out when there is room", () => {
+  assert.equal(bayLayout(1, 1920), "wide");
+  assert.equal(bayLayout(1, 819), "regular");
+  assert.equal(bayLayout(4, 1920), "regular");
+  assert.equal(bayLayout(5, 1920), "compact");
+  assert.equal(bayLayout(4, 819), "compact");
+  assert.equal(bayLayout(2, 819), "compact");
+  assert.equal(bayLayout(3, 1440), "regular");
+  assert.equal(bayLayout(4, 1800), "compact");
+  const css = read("public/rack/rack.css");
+  for (const layout of ["wide", "compact"]) assert.match(css, new RegExp(`\\.bays\\[data-layout="${layout}"\\]`));
 });
 
 test("the rack page uses only local files, and every font it names is bundled with its license", () => {

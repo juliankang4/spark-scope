@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compact, chartPath, validateMonth, monthOptions, monthLabel, dayLabel, localDay, nodeOrder, linkText, fabricLayout } from '../public/view-data.js';
+import { compact, duration, tokenRate, chartPath, eventTime, validateMonth, monthOptions, monthLabel, dayLabel, localDay, nodeOrder, linkText, fabricLayout, nodeLabel, labelWidth, nextTheme, COLORS } from '../public/view-data.js';
 import { loadTopology, publicTopology } from '../lib/topology.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -12,9 +12,39 @@ const example = (count) => publicTopology(loadTopology(path.join(ROOT, 'examples
 test('token units promote to billions without hiding meaningful precision', () => {
   assert.equal(compact(1_061_000_000), '1.06B');
   assert.equal(compact(1_000_000_000), '1B');
-  assert.equal(compact(999_000_000), '999.0M');
+  assert.equal(compact(999_000_000), '999M');
+  assert.equal(compact(9_552_810), '9.55M');
+  assert.equal(compact(1_500), '1.5K');
   assert.equal(compact(0), '0');
   assert.equal(compact(null), 'unknown');
+});
+
+test('numbers pick their unit after rounding, so a boundary never reads 1000 of the smaller unit', () => {
+  assert.equal(compact(999_950), '1M');
+  assert.equal(compact(999.6), '1K');
+  assert.equal(compact(999_499), '999K');
+  assert.equal(duration(0.9996), '1.00 s');
+  assert.equal(duration(0.9994), '999 ms');
+  assert.equal(tokenRate(99.96), '100 tok/s');
+  assert.equal(tokenRate(99.94), '99.9 tok/s');
+  assert.equal(tokenRate(null), 'unknown');
+});
+
+test('a kernel event from an earlier day carries its date', () => {
+  const now = Date.parse('2026-10-02T12:00:00');
+  assert.match(eventTime('2026-10-02T09:15:00', now), /^\d\d:\d\d:\d\d$/);
+  assert.match(eventTime('2026-10-01T23:12:04', now), /^Oct 1 \d\d:\d\d:\d\d$/);
+  assert.equal(eventTime(null, now), 'unknown');
+});
+
+test('the theme button cycles from the system look to the other one, the system one picked by hand, then system', () => {
+  assert.equal(nextTheme(null, 'light'), 'dark');
+  assert.equal(nextTheme('dark', 'light'), 'light');
+  assert.equal(nextTheme('light', 'light'), null);
+  assert.equal(nextTheme(null, 'dark'), 'light');
+  assert.equal(nextTheme('light', 'dark'), 'dark');
+  assert.equal(nextTheme('dark', 'dark'), null);
+  assert.equal(nextTheme('purple', 'dark'), 'light');
 });
 
 test('monthly totals count cached input once and reject inconsistent responses', () => {
@@ -31,6 +61,32 @@ test('monthly totals count cached input once and reject inconsistent responses',
 test('charts leave missing observations as gaps and use elapsed time on the x axis', () => {
   const d = chartPath([{at:0,v:0},{at:1000,v:1},{at:2000,v:null},{at:4000,v:2}], 'v', {start:0,end:4000,width:100,height:100,max:2,top:0,bottom:0});
   assert.equal(d,'M0.00 100.00 L25.00 50.00 M100.00 0.00');
+});
+
+test('a node whose id is "at" still gets its own trend line, because values are picked per node', () => {
+  const history = [{ at: 0, nodes: { at: { temperature: 40 } } }, { at: 1000, nodes: { at: { temperature: 60 } } }];
+  const d = chartPath(history, (point) => point.nodes.at.temperature, { start: 0, end: 1000, width: 100, height: 100, min: 40, max: 60, top: 0, bottom: 0 });
+  assert.equal(d, 'M0.00 100.00 L100.00 0.00');
+});
+
+test('long node ids are shortened in the cable diagram and get a pill wide enough for the label', () => {
+  assert.equal(nodeLabel('00'), '00');
+  assert.equal(nodeLabel('gb10-rack-node-1'), 'gb10-rack…');
+  assert.equal(labelWidth('00'), 38);
+  assert.ok(labelWidth('gb10-rack…') >= 10 * 7.2 + 12);
+  const layout = fabricLayout(example(4));
+  assert.deepEqual(layout.nodes.map((node) => node.label), ['1', '2', '3', '4']);
+});
+
+test('eight nodes get eight different colours, and every colour is defined for both themes', () => {
+  assert.equal(new Set(COLORS).size, 8);
+  const css = readFileSync(path.join(ROOT, 'public', 'styles.css'), 'utf8');
+  const light = css.match(/:root\{[^}]*\}/)[0], dark = css.match(/html\[data-theme="dark"\]\{[^}]*\}/)[0];
+  for (const color of COLORS) {
+    const token = color.match(/var\((--[a-z]+)\)/)[1];
+    assert.ok(light.includes(token + ':'), `${token} missing from the light theme`);
+    if (token !== '--ink') assert.ok(dark.includes(token + ':'), `${token} missing from the dark theme`);
+  }
 });
 
 test('month selection crosses years; calendar days follow the given time zone', () => {

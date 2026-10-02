@@ -1,5 +1,5 @@
 import {
-  orderedNodes, nodeLinks, nodeView, reasonText, clusterView, seriesPoints, timePaths, valueRange, tempRangeLabel, f1, compact, freeLabel, panelWidth,
+  orderedNodes, nodeLinks, nodeView, reasonText, clusterView, seriesPoints, timePaths, valueRange, tempRangeLabel, f1, compact, freeLabel, panelWidth, bayLayout,
 } from "./rack-view.js";
 
 const POLL_MS = 2000;
@@ -21,6 +21,8 @@ const BAND_BOTTOM = 122;
 
 const screen = document.getElementById("screen");
 screen.style.setProperty("--w", `${BW}px`);
+// Below 1440 logical pixels (small 16:9 or 16:10 screens) the bottom band uses smaller type.
+screen.classList.toggle("narrow", BW < 1440);
 const bays = document.getElementById("bays");
 const bandPlot = document.getElementById("band-plot");
 const bandSvg = document.getElementById("band-svg");
@@ -56,7 +58,7 @@ function tempTrace(id, toMs) {
   const [min, max] = valueRange(points, 38, 64);
   const { line, area } = timePaths(points, { fromMs: toMs - TEMP_WINDOW_MS, toMs, width: TRACE_W, height: TRACE_H, min, max, gapMs: TEMP_GAP_MS });
   return {
-    svg: `<svg width="${TRACE_W}" height="${TRACE_H}" viewBox="0 0 ${TRACE_W} ${TRACE_H}" aria-hidden="true"><path d="${area}" fill="var(--trace-fill)"/><path d="${line}" fill="none" stroke="var(--trace)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/></svg>`,
+    svg: `<svg width="${TRACE_W}" height="${TRACE_H}" viewBox="0 0 ${TRACE_W} ${TRACE_H}" preserveAspectRatio="none" aria-hidden="true"><path d="${area}" fill="var(--trace-fill)"/><path d="${line}" fill="none" stroke="var(--trace)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/></svg>`,
     range: tempRangeLabel(points),
   };
 }
@@ -67,11 +69,13 @@ function syncBays(metas) {
   if (bays.dataset.ids === ids) return;
   bays.dataset.ids = ids;
   bays.dataset.count = metas.length <= 4 ? String(metas.length) : "many";
+  bays.dataset.layout = bayLayout(metas.length, BW);
   bays.style.setProperty("--bays", String(metas.length));
   bays.innerHTML = metas.map((meta) => `<div class="bay" data-node="${escapeHtml(meta.id)}"></div>`).join("");
 }
 
-const meter = (label, value, pct, warn = false) => `<div class="meter"><div><span>${label}</span><b>${value}</b></div><div class="bar"><i class="${warn ? "warn" : ""}" style="width:${pct === null ? 0 : Math.max(0, Math.min(100, pct))}%"></i></div></div>`;
+// detail is the part of the label that may be cut short with an ellipsis in a very narrow bay.
+const meter = (label, value, pct, warn = false, detail = "") => `<div class="meter"><div><span>${label}${detail ? `<em> ${detail}</em>` : ""}</span><b>${value}</b></div><div class="bar"><i class="${warn ? "warn" : ""}" style="width:${pct === null ? 0 : Math.max(0, Math.min(100, pct))}%"></i></div></div>`;
 
 function renderBay(meta, toMs) {
   const links = nodeLinks(latest, meta.id);
@@ -80,8 +84,10 @@ function renderBay(meta, toMs) {
   const el = bays.querySelector(`[data-node="${CSS.escape(meta.id)}"]`);
   el.className = `bay ${view.level}`;
   const head = `<span class="stripe"></span><header><div class="name">${escapeHtml(view.name)}<small>${escapeHtml(view.role)}</small></div><div class="reason" title="${escapeHtml(view.reasons.join(", "))}"><span class="lamp ${view.level}"></span><span>${escapeHtml(reasonText(view))}</span></div></header>`;
+  // Peer names next to the dots only while they are short; long ids leave just the coloured dots.
+  const named = view.links.every((link) => link.tag.length <= 6);
   const dots = view.links.length
-    ? `<span class="lk">Links${view.links.map((link) => `<em><i class="${link.level}"></i>${escapeHtml(link.tag)}</em>`).join("")}</span>`
+    ? `<span class="lk${named ? "" : " dots"}">Links${view.links.map((link) => `<em><i class="${link.level}"></i>${escapeHtml(link.tag)}</em>`).join("")}</span>`
     : "";
   if (!view.ok) {
     const body = view.pending
@@ -97,12 +103,12 @@ function renderBay(meta, toMs) {
       <div class="temp">${trace.svg}<b class="num halo">${view.temp === null ? "—" : Math.round(view.temp)}<sup>°C</sup></b></div>
       <div class="meters">
         ${meter("GPU load", `${view.load ?? "—"}%`, view.load)}
-        ${meter(`RAM (${freeLabel(view.memFreeGiB)} free)`, `${view.memUsedPct ?? "—"}%`, view.memUsedPct)}
-        ${meter(`Disk (${freeLabel(view.diskFreeGiB)} free)`, `${view.diskPct ?? "—"}%`, view.diskPct, view.diskWarn)}
+        ${meter("RAM", `${view.memUsedPct ?? "—"}%`, view.memUsedPct, false, `(${freeLabel(view.memFreeGiB)} free)`)}
+        ${meter("Disk", `${view.diskPct ?? "—"}%`, view.diskPct, view.diskWarn, `(${freeLabel(view.diskFreeGiB)} free)`)}
       </div>
-      <div class="cap">GPU temp 60 min: ${trace.range}</div>
+      <div class="cap"><span class="cap-label">GPU temp </span>60 min: ${trace.range}</div>
     </div>
-    <div class="foot"><span>Power ${f1(view.power)} W</span>${view.tsoc === null ? "" : `<span>TSOC ${f1(view.tsoc)}°C</span>`}${dots}</div>`;
+    <div class="foot"><span>Power ${f1(view.power)} W</span>${view.tsoc === null ? "" : `<span class="tsoc">TSOC ${f1(view.tsoc)}°C</span>`}${dots}</div>`;
 }
 
 // The band glides left between polls with one CSS transition per poll (composited), instead of a script that moves
@@ -206,9 +212,12 @@ async function pollTemps() {
   }
 }
 
+// Scales the panel to the window and centres it, so a display of another shape gets even borders.
 function fit() {
   const scale = Math.min(innerWidth / BW, innerHeight / PANEL_H);
-  screen.style.transform = `scale(${scale})`;
+  const left = Math.max(0, (innerWidth - BW * scale) / 2);
+  const top = Math.max(0, (innerHeight - PANEL_H * scale) / 2);
+  screen.style.transform = `translate(${left.toFixed(1)}px, ${top.toFixed(1)}px) scale(${scale})`;
 }
 
 addEventListener("resize", fit);

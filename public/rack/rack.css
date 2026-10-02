@@ -2,7 +2,7 @@
 @font-face{font-family:Archivo;src:url('../fonts/Archivo-latin.woff2') format('woff2');font-weight:100 900;font-display:swap}
 @font-face{font-family:"Bebas Neue";src:url('../fonts/BebasNeue-latin.woff2') format('woff2');font-weight:400;font-display:swap}
 
-:root{--bg:#000000;--hair:#262626;--track:#1c1c1c;--ink:#f2f2f2;--ink2:#a3a3a3;--ink3:#6f6f6f;--data:#7cbbeb;--data-fill:rgba(124,187,235,.17);--trace:rgba(124,187,235,.55);--trace-fill:rgba(124,187,235,.10);--good:#75cbae;--warn:#f5ac7c;--crit:#f29791;color-scheme:dark}
+:root{--bg:#000000;--hair:#262626;--track:#1c1c1c;--ink:#f2f2f2;--ink2:#a3a3a3;--ink3:#7c7c7c;--data:#7cbbeb;--data-fill:rgba(124,187,235,.17);--trace:rgba(124,187,235,.55);--trace-fill:rgba(124,187,235,.10);--good:#75cbae;--warn:#f5ac7c;--crit:#f29791;color-scheme:dark}
 *{box-sizing:border-box}
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);cursor:none}
 body{color:var(--ink);font-family:Archivo,system-ui,sans-serif;font-size:20px;line-height:1.2;-webkit-font-smoothing:antialiased}
@@ -15,7 +15,8 @@ body{color:var(--ink);font-family:Archivo,system-ui,sans-serif;font-size:20px;li
 .lamp{display:inline-block;width:14px;height:14px;border-radius:50%;flex:none;background:var(--ink3)}
 .lamp.good{background:var(--good)}.lamp.warn{background:var(--warn)}.lamp.crit{background:var(--crit)}
 
-/* One bay per node in topology order. Three or four share the width; two are capped and centred; one gets a wide layout. */
+/* One bay per node in topology order. Three or four share the width; two are capped and centred; one gets a wide
+   layout; bays narrower than 460 px (five or more nodes, or a narrow ?width) get the compact layout at the end. */
 .bays{position:absolute;left:0;top:0;width:var(--w,1920px);height:350px;display:grid;grid-template-columns:repeat(var(--bays,4),minmax(0,var(--bay-max,1fr)));justify-content:center;transition:opacity .4s}
 .bays[data-count="2"]{--bay-max:820px}
 .screen.stale .bays{opacity:.45}
@@ -24,9 +25,10 @@ body{color:var(--ink);font-family:Archivo,system-ui,sans-serif;font-size:20px;li
 .bay .stripe{position:absolute;left:20px;right:20px;top:0;height:4px;border-radius:0 0 3px 3px}
 .bay.warn .stripe{background:var(--warn)}.bay.crit .stripe{background:var(--crit)}
 .bay header{display:flex;justify-content:space-between;align-items:center;gap:14px;min-width:0}
-.name{font-size:30px;font-weight:700;letter-spacing:.01em;flex:none}
+.name{font-size:30px;font-weight:700;letter-spacing:.01em;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .name small{font-size:19px;font-weight:400;color:var(--ink2);margin-left:10px}
-.reason{display:flex;align-items:center;gap:9px;font-size:21px;color:var(--ink2);min-width:0;overflow:hidden}
+/* A long node name gives way (ellipsis) before the status; the status keeps up to 60% of the header. */
+.reason{display:flex;align-items:center;gap:9px;font-size:21px;color:var(--ink2);flex:0 0 auto;max-width:60%;min-width:0;overflow:hidden}
 .reason span:last-child{overflow:hidden;text-overflow:ellipsis}
 .bay.warn .reason,.bay.crit .reason{color:var(--ink);font-weight:500}
 .main{display:grid;grid-template-columns:176px minmax(0,1fr);grid-template-rows:minmax(0,1fr) 24px;column-gap:18px;row-gap:6px;min-height:0}
@@ -34,19 +36,22 @@ body{color:var(--ink);font-family:Archivo,system-ui,sans-serif;font-size:20px;li
 .temp svg{position:absolute;left:-6px;top:20px}
 .temp b{position:relative;display:flex;align-items:flex-start;font-size:172px;line-height:.8;padding-top:2px}
 .temp b sup{font-family:Archivo,sans-serif;font-size:28px;font-weight:500;color:var(--ink2);margin:8px 0 0 4px;letter-spacing:0}
-.meters{display:grid;align-content:start;gap:16px;padding-top:2px;min-width:0}
-.meter{display:grid;gap:7px}
+.meters{display:grid;grid-template-columns:minmax(0,1fr);align-content:start;gap:16px;padding-top:2px;min-width:0}
+.meter{display:grid;grid-template-columns:minmax(0,1fr);gap:7px}
 .meter div{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
-.meter span{font-size:19px;color:var(--ink2)}
+.meter span{font-size:19px;color:var(--ink2);display:flex;min-width:0}
+.meter span em{font-style:normal;white-space:pre;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .meter b{font-size:27px;font-weight:600;font-variant-numeric:tabular-nums}
 .bar{height:9px;border-radius:5px;background:var(--track);overflow:hidden}
 .bar i{display:block;height:100%;border-radius:5px;background:var(--data)}
 .bar i.warn{background:var(--warn)}
 .cap{grid-column:1/-1;font-size:19px;color:var(--ink2)}
 .foot{display:flex;gap:22px;align-items:center;font-size:19px;color:var(--ink3);overflow:hidden}
+.foot>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .lk{display:flex;align-items:center;gap:12px;margin-left:auto;flex:none}
 .lk em{font-style:normal;display:inline-flex;align-items:center;gap:6px;color:var(--ink2)}
 .lk i{width:10px;height:10px;border-radius:50%;background:var(--ink3)}
+.lk.dots em{font-size:0;gap:0}
 .lk i.good{background:var(--good)}.lk i.warn{background:var(--warn)}.lk i.crit{background:var(--crit)}
 .down{display:grid;align-content:start;gap:10px;color:var(--ink2);font-size:21px}
 .down b{font-size:150px;color:var(--ink3);line-height:.9}
@@ -66,10 +71,49 @@ body{color:var(--ink);font-family:Archivo,system-ui,sans-serif;font-size:20px;li
 .tok span{font-size:20px;color:var(--ink2)}
 
 /* A single node: the meters sit side by side across the panel instead of stacking. */
-.bays[data-count="1"] .bay{padding:22px 40px 12px}
-.bays[data-count="1"] .bay .stripe{left:38px;right:38px}
-.bays[data-count="1"] .main{grid-template-columns:200px minmax(0,1fr);column-gap:48px}
-.bays[data-count="1"] .meters{grid-template-columns:repeat(3,minmax(0,1fr));column-gap:56px;align-content:center;padding-top:0}
-.bays[data-count="1"] .meter{gap:12px}
-.bays[data-count="1"] .meter b{font-size:34px}
-.bays[data-count="1"] .bar{height:12px;border-radius:6px}
+.bays[data-layout="wide"] .bay{padding:22px 40px 12px}
+.bays[data-layout="wide"] .bay .stripe{left:38px;right:38px}
+.bays[data-layout="wide"] .main{grid-template-columns:200px minmax(0,1fr);column-gap:48px}
+.bays[data-layout="wide"] .meters{grid-template-columns:repeat(3,minmax(0,1fr));column-gap:56px;align-content:center;padding-top:0}
+.bays[data-layout="wide"] .meter{gap:12px}
+.bays[data-layout="wide"] .meter b{font-size:34px}
+.bays[data-layout="wide"] .bar{height:12px;border-radius:6px}
+
+/* Narrow bays: the temperature (with its trace behind it) above the meters, smaller type, link dots without names. */
+.bays[data-layout="compact"] .bay{padding:16px 12px 8px;grid-template-rows:50px minmax(0,1fr) 22px;gap:8px;container-type:inline-size}
+.bays[data-layout="compact"] .bay .stripe{left:12px;right:12px}
+.bays[data-layout="compact"] .bay+.bay::before{top:20px;bottom:14px}
+.bays[data-layout="compact"] header{flex-direction:column;align-items:flex-start;justify-content:center;gap:3px}
+.bays[data-layout="compact"] .name{font-size:24px;max-width:100%}
+.bays[data-layout="compact"] .name small{display:none}
+.bays[data-layout="compact"] .reason{font-size:17px;gap:7px;max-width:100%}
+.bays[data-layout="compact"] .lamp{width:12px;height:12px}
+.bays[data-layout="compact"] .main{grid-template-columns:minmax(0,1fr);grid-template-rows:80px auto auto;row-gap:8px}
+.bays[data-layout="compact"] .temp svg{left:0;top:0;width:100%;height:100%}
+.bays[data-layout="compact"] .temp b{font-size:98px}
+.bays[data-layout="compact"] .temp b sup{font-size:22px;margin-top:6px}
+.bays[data-layout="compact"] .meters{gap:7px;padding-top:0}
+.bays[data-layout="compact"] .meter{gap:5px}
+.bays[data-layout="compact"] .meter span{font-size:16px}
+.bays[data-layout="compact"] .meter b{font-size:21px}
+.bays[data-layout="compact"] .bar{height:7px}
+.bays[data-layout="compact"] .cap{font-size:16px}
+.bays[data-layout="compact"] .foot{font-size:16px;gap:12px}
+.bays[data-layout="compact"] .foot .tsoc{display:none}
+.bays[data-layout="compact"] .lk{gap:7px}
+.bays[data-layout="compact"] .lk em{font-size:0;gap:0}
+.bays[data-layout="compact"] .down{font-size:17px}
+.bays[data-layout="compact"] .down b{font-size:100px}
+.bays[data-layout="compact"] .down span{white-space:normal}
+/* The narrowest bays (four nodes on a 1024 x 600 screen): the trace caption drops "GPU temp", the meters step down again. */
+@container (max-width:250px){.cap-label{display:none}.meter span{font-size:15px}.meter b{font-size:19px}.meter div{gap:6px}}
+
+/* Narrow panels (?width below 1440): the band's columns size to their content and the type steps down. */
+.screen.narrow .band .over{grid-template-columns:minmax(0,1fr) auto auto;padding:0 20px;gap:18px}
+.screen.narrow .cl div{font-size:28px;gap:10px}
+.screen.narrow .cl>span{font-size:17px}
+.screen.narrow .out b{font-size:80px}
+.screen.narrow .out span{font-size:22px}
+.screen.narrow .out small{display:none}
+.screen.narrow .tok b{font-size:46px}
+.screen.narrow .tok span{font-size:17px}
