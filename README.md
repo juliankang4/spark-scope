@@ -149,7 +149,7 @@ Daily and monthly totals of logical input, new (computed) input, cache-read inpu
 
 A new ledger starts from what the engine reports at that moment: tokens served before the dashboard first ran are not booked. A counter the engine does not export (vLLM without per-source prompt counters, for example) reads as `unknown` in the ledger rather than 0. If the ledger file cannot be opened, token counting is switched off and the rest of the dashboard keeps working.
 
-The page follows the viewer's light or dark setting. The header button cycles through the other theme, the system's theme picked by hand, and back to following the system. It works on phones and shows times in the viewer's time zone. A value that was not observed shows as `unknown`, never as zero.
+The page follows the viewer's light or dark setting. The header button cycles through the other theme, the system's theme picked by hand, and back to following the system. It works on phones and shows times in the viewer's time zone. A tab in the background stops polling and catches up, chart history included, as soon as it is shown again. A value that was not observed shows as `unknown`, never as zero.
 
 **Rack panel (`/rack/`)**
 
@@ -260,7 +260,7 @@ The `kiosk/` folder has the three pieces. The Pi can run the dashboard itself or
 
 4. Set the screen resolution and rotation in Raspberry Pi OS's Screen Configuration. If the panel does not fill the display, add `?width=N` to the URL as described above.
 
-The script waits until `/api/health` answers before it opens Chromium (printing a line once a minute while it waits), uses its own Chromium profile under `~/.local/share/spark-scope-kiosk`, and takes `SPARK_SCOPE_RACK_URL` and `CHROMIUM` from the environment.
+The script waits until `/api/health` answers before it opens Chromium (printing a line once a minute while it waits), uses its own Chromium profile under `~/.local/share/spark-scope-kiosk`, and takes `SPARK_SCOPE_RACK_URL` and `CHROMIUM` from the environment. It turns off the renderer accessibility that Raspberry Pi OS switches on for every Chromium (`--force-renderer-accessibility` in `/etc/chromium.d`): the panel has no screen reader or input, and the accessibility tree is rebuilt on every redraw.
 
 **Showing a dashboard that runs on another machine.** Point `SPARK_SCOPE_RACK_URL` at it, for example `http://dashboard-host:8787/rack/` on the LAN or the machine's Tailscale name or address on a tailnet. The dashboard must then listen beyond localhost (`SPARK_SCOPE_HOST=0.0.0.0` or that interface's address), which exposes it to everyone on that network; see Security. To keep the dashboard on localhost instead, forward the port from the Pi with SSH (for example a user service running `ssh -N -L 8787:127.0.0.1:8787 dashboard-host`) and keep the default URL.
 
