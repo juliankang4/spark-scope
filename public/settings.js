@@ -1,5 +1,7 @@
 // Display preferences for the web page, kept per browser in localStorage. Nothing here reaches the server: the engine
 // address, poll intervals and topology stay in the server's environment and topology.json.
+import { PALETTE } from './view-data.js';
+
 export const SETTINGS_KEY = 'spark-scope-settings';
 export const THEME_KEY = 'spark-scope-theme';
 
@@ -20,6 +22,18 @@ const list = (fallback, ids, size) => ({
   read: (raw) => (raw ? raw.split(',') : []),
   write: (value) => value.join(','),
 });
+// Node colours by position in the topology: palette names or #rrggbb (stored in lower case, written without # in a
+// link). An empty list keeps the default order; up to 32 nodes.
+const colorList = {
+  fallback: [],
+  check: (value) => {
+    if (!Array.isArray(value) || value.length > 32) return undefined;
+    const clean = value.map((color) => (typeof color !== 'string' ? null : PALETTE.includes(color) ? color : /^#?[0-9a-f]{6}$/i.test(color) ? `#${color.replace('#', '').toLowerCase()}` : null));
+    return clean.every(Boolean) ? clean : undefined;
+  },
+  read: (raw) => (raw ? raw.split(',') : []),
+  write: (value) => value.map((color) => color.replace('#', '')).join(','),
+};
 const FIELDS = {
   temp: choice('c', ['c', 'f']),
   mem: choice('gib', ['gib', 'gb']),
@@ -36,6 +50,7 @@ const FIELDS = {
   tempWarn: level(85, 40, 110),
   diskWarn: level(95, 50, 100),
   memWarn: level(2, 0, 64),
+  colors: colorList,
 };
 export const DEFAULTS = Object.freeze(Object.fromEntries(Object.entries(FIELDS).map(([key, field]) => [key, field.fallback])));
 const same = (a, b) => (Array.isArray(a) ? Array.isArray(b) && a.join(',') === b.join(',') : a === b);
