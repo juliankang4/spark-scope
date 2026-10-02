@@ -10,6 +10,9 @@ import {
   metricsEngine,
   parseNetworkLines,
   histogramQuantile,
+  bucketsQuantile,
+  bucketsSince,
+  RecentHistograms,
   holdPrefillRates,
   metricSum,
   metricValue,
@@ -535,4 +538,43 @@ test("a missing ssh binary is reported instead of crashing the poll", async () =
   const node = await withFakeCommand("unrelated", "exit 0", () => collectNode({ id: "9", name: "spark-9", host: "spark-9" }), { onlyFake: true });
   assert.equal(node.ok, false);
   assert.match(node.error, /ENOENT/);
+});
+
+test("recent latency comes from histogram differences over the last 5 minutes and restarts with the engine", () => {
+  const buckets = (counts) => [0.1, 0.5, 1, Infinity].map((le, index) => ({ le, count: counts[index] }));
+  const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} is not ${expected}`);
+  assert.deepEqual(bucketsSince(buckets([3, 8, 10, 10]), buckets([1, 2, 2, 2])).map((b) => b.count), [2, 6, 8, 8]);
+  assert.equal(bucketsSince(buckets([0, 1, 1, 1]), buckets([1, 2, 2, 2])), null, "a count went down: the engine restarted");
+  assert.equal(bucketsSince(buckets([1, 1, 1, 1]), buckets([1, 1, 1, 1]).slice(0, 3)), null, "different bounds");
+
+  const MIN = 60_000;
+  const recent = new RecentHistograms(5 * MIN);
+  recent.add(0, { ttft: buckets([1000, 1000, 1000, 1000]) });
+  assert.equal(recent.quantile("ttft", 0.95), null, "one snapshot is not a window");
+  assert.equal(recent.windowSeconds, 0);
+  // Two minutes later 10 more requests finished, all slow (0.5 to 1 s), while the engine's own p95 still says fast.
+  recent.add(2 * MIN, { ttft: buckets([1000, 1000, 1010, 1010]) });
+  assert.equal(recent.windowSeconds, 120);
+  near(recent.quantile("ttft", 0.95), 0.975);
+  near(bucketsQuantile(buckets([1000, 1000, 1010, 1010]), 0.95), 0.09595);
+  // Snapshots older than the window drop out, keeping the newest one at or before its start (minute 4).
+  for (let minute = 3; minute <= 9; minute++) recent.add(minute * MIN, { ttft: buckets([1000 + minute, 1000 + minute, 1010 + minute, 1010 + minute]) });
+  assert.equal(recent.windowSeconds, 300);
+  near(recent.quantile("ttft", 0.95), 0.095);
+  // Nothing finished in the window: no value, not zero.
+  recent.add(10 * MIN, { ttft: buckets([1009, 1009, 1019, 1019]) });
+  recent.add(15 * MIN, { ttft: buckets([1009, 1009, 1019, 1019]) });
+  assert.equal(recent.quantile("ttft", 0.95), null);
+  // An engine restart starts over from the new counts.
+  recent.add(16 * MIN, { ttft: buckets([2, 2, 2, 2]) });
+  assert.equal(recent.windowSeconds, 0);
+  assert.equal(recent.quantile("ttft", 0.95), null);
+  recent.add(17 * MIN, { ttft: buckets([2, 3, 4, 4]) });
+  near(recent.quantile("ttft", 0.95), 0.95);
+  // A gap longer than the window (the server could not reach the engine) starts over as well.
+  recent.add(30 * MIN, { ttft: buckets([2, 3, 9, 9]) });
+  assert.equal(recent.windowSeconds, 0);
+  // So does a histogram that appears or disappears.
+  recent.add(31 * MIN, { ttft: buckets([2, 3, 9, 9]), tpot: buckets([1, 1, 1, 1]) });
+  assert.equal(recent.windowSeconds, 0);
 });

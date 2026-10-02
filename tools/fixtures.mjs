@@ -132,7 +132,7 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
     ? {
       ok: true, engine: "vLLM", modelName: longNames ? "example-org/Example-Reasoning-Model-70B-Instruct-FP8-Dynamic" : "example-model", latencyMs: 3,
       outputTokensPerSecond: 61.3, promptTokensPerSecond: 2950, promptComputeTokensPerSecond: 2104, promptCacheTokensPerSecond: 846,
-      prefixCacheHitPercent: 41.2, speculativeAcceptancePercent: 0, kvCachePercent: 12.5, tpotP95Seconds: 0.028, ttftP95Seconds: 0.42,
+      prefixCacheHitPercent: 41.2, speculativeAcceptancePercent: 0, kvCachePercent: 12.5, tpotP95Seconds: 0.028, ttftP95Seconds: 0.42, tpotP95RecentSeconds: 0.031, ttftP95RecentSeconds: 0.51, latencyWindowSeconds: 300,
       runningRequests: 2, waitingRequests: 0, updatedAt: new Date(nowMs).toISOString(), error: null,
     }
     : { ok: false, updatedAt: new Date(nowMs).toISOString(), error: "fetch failed" };
