@@ -101,3 +101,9 @@ html,body{overflow-anchor:none}
 }
 /* Korean lines break between words, not between the syllables of a word. */
 html:lang(ko){word-break:keep-all}
+
+/* A "?" next to an item opens its explanation (help.js); the hit area is larger than the drawn circle for touch. */
+.help{position:relative;display:inline-grid;place-items:center;width:15px;height:15px;margin:0 0 0 5px;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:var(--muted);font:700 9px/1 var(--num-font);vertical-align:1px;cursor:help;flex:none}
+.help::before{content:"";position:absolute;inset:-8px}
+.help:hover,.help[aria-expanded=true]{background:transparent;color:var(--ink)}
+.help-tip{position:fixed;z-index:30;max-width:min(320px,calc(100vw - 24px));margin:0;padding:9px 11px;background:var(--ink);color:var(--paper);font:400 12px/1.5 var(--text-font);text-align:left;text-transform:none;letter-spacing:0;white-space:normal;box-shadow:0 6px 20px #0004;pointer-events:auto}

@@ -139,7 +139,9 @@ async function openPage({ width, height, colorScheme = "dark" }) {
     throw new Error(`timed out waiting for ${expression}`);
   };
   const shoot = async (file, { fullPage = false } = {}) => {
-    let clip = { x: 0, y: 0, width, height, scale: 1 };
+    // The visible part of the page, wherever it is scrolled to.
+    const [scrollX, scrollY] = await evaluate("[scrollX, scrollY]");
+    let clip = { x: scrollX, y: scrollY, width, height, scale: 1 };
     if (fullPage) {
       const fullHeight = await evaluate("document.documentElement.scrollHeight");
       await call("Emulation.setDeviceMetricsOverride", { width, height: fullHeight, deviceScaleFactor: 1, mobile: width < 600 });
@@ -258,6 +260,35 @@ const englishLeft = async (page, state) => {
   const words = await page.evaluate(CHECK_ENGLISH(dataWords(state)));
   return words.length ? [`untranslated: ${words.join(" ")}`] : [];
 };
+
+// A "?" explanation opened with a click: it shows text, stays inside the window and leaves its own button uncovered.
+const CHECK_HELP = (selector) => `(async () => {
+  const button = document.querySelector(${JSON.stringify(selector)});
+  if (!button) return { issues: ["no help button " + ${JSON.stringify(selector)}], text: "" };
+  button.scrollIntoView({ block: "center" });
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  button.click();
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const tip = document.querySelector("#help-tip"), issues = [];
+  if (!tip || tip.hidden || !tip.textContent.trim()) return { issues: ["help did not open: " + ${JSON.stringify(selector)}], text: "" };
+  const box = tip.getBoundingClientRect(), own = button.getBoundingClientRect();
+  if (box.left < 0 || box.top < 0 || box.right > innerWidth || box.bottom > innerHeight) issues.push("help outside the window");
+  if (!(box.bottom <= own.top + 1 || box.top >= own.bottom - 1)) issues.push("help covers its button");
+  if (button.getAttribute("aria-expanded") !== "true") issues.push("help button not marked expanded");
+  return { issues, text: tip.textContent };
+})()`;
+async function checkHelp(web, label, suffix, extra = async () => []) {
+  await web.evaluate("document.querySelector('[data-section=\"units\"]').click()");
+  for (const [where, selector] of [["settings", '[data-help="help.memUnits"]'], ["page", '[data-help="help.ttft"]']]) {
+    // Closing the dialog returns focus to the gear button a moment later, which scrolls the page back to the top.
+    if (where === "page") { await web.evaluate("document.querySelector('#settings').close()"); await new Promise((resolve) => setTimeout(resolve, 300)); }
+    const result = await web.evaluate(CHECK_HELP(selector));
+    const name = `web-${label}-help-${where}${suffix}.png`;
+    await web.shoot(name);
+    report(name, [`help: ${result.text}`], [...result.issues, ...await extra(), ...web.errors.splice(0)]);
+    await web.evaluate("document.body.click()");
+  }
+}
 
 let failures = 0;
 const report = (name, lines, problems) => {
@@ -410,6 +441,7 @@ try {
       await web.shoot(name);
       report(name, [], [...issues, ...web.errors.splice(0)]);
     }
+    await checkHelp(web, label, "");
     await web.go(`${base}/?temp=f&mem=gb&clock=12&range=15`);
     await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && /\\d/.test(document.querySelector('#updated-at').textContent)");
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -496,6 +528,7 @@ try {
       await web.shoot(name);
       report(name, section === "dashboard" ? [`before: ${before.join(" / ")}`, `after: ${after.join(" / ")}`] : [], [...issues, ...(section === "dashboard" ? switched : []), ...await englishLeft(web, fixtureState(4, "serving")), ...web.errors.splice(0)]);
     }
+    await checkHelp(web, label, "-ko", () => englishLeft(web, fixtureState(4, "serving")));
     await web.evaluate("localStorage.clear()");
     await web.close();
   }

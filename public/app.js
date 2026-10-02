@@ -1,6 +1,7 @@
 import { COLORS, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange } from './view-data.js';
 import { parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 import { t, setLanguage, translatePage, serverText, LANGUAGE_NAMES } from './i18n.js';
+import { hide as hideHelp, helpButton } from './help.js';
 const $ = selector => document.querySelector(selector);
 // Display settings (units, clock, chart range, refresh, language) from this browser; a settings link replaces them
 // and is then taken out of the address, so a reload does not apply it again.
@@ -137,10 +138,10 @@ function drawState(state) {
   if(dialog.open)renderPreview();
 }
 // p95 over the requests that finished in the last 5 minutes; with none it says so instead of a value. The value
-// since the engine started is in the tooltip.
+// since the engine started is added to the explanation behind the row's "?" button.
 function recentLatency(v,key) {
   const el=document.querySelector(`[data-field="${key}"]`),overall=v[key.replace('Recent','')];
-  el.title=finite(overall)?t('engine.sinceStart',{value:duration(overall)}):'';
+  const help=el.previousElementSibling?.querySelector('.help');if(help)help.dataset.helpNote=finite(overall)?t('engine.sinceStart',{value:duration(overall)}):'';
   return finite(v[key])?duration(v[key]):v.latencyWindowSeconds>0?t('engine.noRequests'):unknown();
 }
 function failedState() {
@@ -183,7 +184,7 @@ function renderMonth(usage) {
   text('#month-title',t(current?'ledger.monthToDate':'ledger.monthTotal',{month}));text('#month-period',current?`${dayLabel(selectedMonth+'-01')} – ${dayLabel(usage.day)}`:monthLabel(selectedMonth));
   $('#month-period').classList.remove('month-load-error');$('#today-tokens').hidden=!current;
   const metrics=[['ledger.totalTokens','total'],['ledger.cacheRead','cache'],['ledger.newInput','compute'],['ledger.output','output'],['ledger.logicalInput','input'],['ledger.requests','requests']];
-  const metricsHtml=metrics.map(([label,key])=>`<div class="${key==='total'?'total-tokens':''}"><small>${t(label)}</small>${metricCell(key,usage.totals[key],'b')}</div>`).join('');
+  const metricsHtml=metrics.map(([label,key])=>`<div class="${key==='total'?'total-tokens':''}"><small>${t(label)}${key==='total'?helpButton('help.totalTokens'):''}</small>${metricCell(key,usage.totals[key],'b')}</div>`).join('');
   if($('#month-metrics').innerHTML!==metricsHtml)$('#month-metrics').innerHTML=metricsHtml;
   const days=[...usage.days].sort((a,b)=>b.day.localeCompare(a.day));const fields=['cache','compute','output','input','requests'];
   $('#token-days').innerHTML=days.length?days.map(day=>`<tr><th scope="row">${esc(dayLabel(day.day))}</th>${fields.map(k=>metricCell(k,day[k])).join('')}</tr>`).join(''):`<tr><td colspan="6">${t('ledger.noUsage')}</td></tr>`;
@@ -259,7 +260,7 @@ function showSection(name){
 }
 dialog.querySelectorAll('[data-section]').forEach(button=>button.addEventListener('click',()=>showSection(button.dataset.section)));
 opener.addEventListener('click',()=>{syncForm();renderPreview();$('#settings-link').hidden=true;dialog.showModal();opener.setAttribute('aria-expanded','true')});
-dialog.addEventListener('close',()=>{opener.setAttribute('aria-expanded','false');opener.focus()});
+dialog.addEventListener('close',()=>{hideHelp();opener.setAttribute('aria-expanded','false');opener.focus()});
 // Clicking the dimmed page outside the dialog closes it.
 dialog.addEventListener('click',event=>{if(event.target===dialog)dialog.close()});
 $('#settings-reset').addEventListener('click',()=>{const before=settings;settings=parseSettings(null);themeChoice=null;saveTheme(store,null);applyTheme();applySettings(changes(before))});
