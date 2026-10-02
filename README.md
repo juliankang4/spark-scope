@@ -1,5 +1,7 @@
 # Spark Scope
 
+[![CI](https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml/badge.svg)](https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml)
+
 A read-only dashboard for NVIDIA DGX Spark-class machines (DGX Spark, ASUS Ascent GX10, MSI EdgeXpert and other GB10 boxes) and the vLLM or SGLang server running on them. It works with a single node or a small cluster.
 
 I wrote it for my own four-node ring (three ASUS GX10s and an MSI EdgeXpert) in a 10-inch rack. This repository is that dashboard with my hostnames taken out and the layout reworked for one and two nodes. The 2U rack modules for the GX10 are on [MakerWorld](https://makerworld.com/en/models/3380382).
@@ -242,11 +244,11 @@ The `kiosk/` folder has the three pieces. The Pi can run the dashboard itself or
 
 2. Autostart it with the desktop session: copy `kiosk/spark-scope-kiosk.desktop` to `~/.config/autostart/`, replace `YOUR_USER` with your account name and set the URL. `lwrespawn` (part of Raspberry Pi OS) restarts the kiosk if Chromium exits. The desktop must log in automatically (`sudo raspi-config`, System Options, Boot / Auto Login, Desktop Autologin).
 
-3. Hide the mouse pointer: copy `kiosk/labwc-rc.xml` to `~/.config/labwc/rc.xml` (or merge its `<windowRules>` block into yours) and reload labwc with `kill -HUP $(pgrep -x labwc)`, or log out and in. The page hides the cursor itself, but on Wayland that only takes effect once the pointer enters the window; the labwc rule moves the pointer into the kiosk window and hides it.
+3. Hide the mouse pointer: merge the `<windowRule>` from `kiosk/labwc-rc.xml` into the `<windowRules>` of `~/.config/labwc/rc.xml` (if you have no such file, copy `kiosk/labwc-rc.xml` there) and reload labwc with `kill -HUP $(pgrep -x labwc)`, or log out and in. The page hides the cursor itself, but on Wayland that only takes effect once the pointer enters the window; the labwc rule moves the pointer into the kiosk window and hides it. It matches only the kiosk (the script starts Chromium with `--class=spark-scope-kiosk`), so other Chromium windows keep their pointer. If you used the earlier `identifier="chromium*"` rule, change it to `spark-scope-kiosk`.
 
 4. Set the screen resolution and rotation in Raspberry Pi OS's Screen Configuration. If the panel does not fill the display, add `?width=N` to the URL as described above.
 
-The script waits until `/api/health` answers before it opens Chromium, uses its own Chromium profile under `~/.local/share/spark-scope-kiosk`, and takes `SPARK_SCOPE_RACK_URL` and `CHROMIUM` from the environment.
+The script waits until `/api/health` answers before it opens Chromium (printing a line once a minute while it waits), uses its own Chromium profile under `~/.local/share/spark-scope-kiosk`, and takes `SPARK_SCOPE_RACK_URL` and `CHROMIUM` from the environment.
 
 **Showing a dashboard that runs on another machine.** Point `SPARK_SCOPE_RACK_URL` at it, for example `http://dashboard-host:8787/rack/` on the LAN or the machine's Tailscale name or address on a tailnet. The dashboard must then listen beyond localhost (`SPARK_SCOPE_HOST=0.0.0.0` or that interface's address), which exposes it to everyone on that network; see Security. To keep the dashboard on localhost instead, forward the port from the Pi with SSH (for example a user service running `ssh -N -L 8787:127.0.0.1:8787 dashboard-host`) and keep the default URL.
 
@@ -290,9 +292,11 @@ npm test
 node tools/render.mjs        # optional: needs Chrome or Chromium
 ```
 
-The tests use only `node:test` and cover topology parsing (including one-node, two-cable and ring layouts), link and cluster status, the collector script and local-mode dispatch, metric parsing for vLLM and SGLang, the token ledger, the browser-side formatting and diagram layout, the rack panel's view logic for one to four nodes, and the HTTP routes of a running server. They do not contact any other machine.
+The tests use only `node:test` and cover topology parsing and validation (one-node, two-cable and ring layouts), link and cluster status, the collector script with fake `nvidia-smi` and `ssh` commands (hangs, failures, missing binaries), metric parsing for vLLM and SGLang against a fake engine, the token ledger, the chart history, the browser-side formatting and layout helpers, the rack panel's view logic, the kiosk script, and a running server (routes, host checks, security headers, path tricks sent over a raw socket, what the browser payload leaves out). They do not contact any other machine. CI runs them on Node 22.13 and 24, on x64 and arm64, and runs `shellcheck` on the kiosk script.
 
-`tools/render.mjs` serves the pages with synthetic data (`tools/fixtures.mjs`) for one to four nodes and renders the rack panel and the web dashboard (desktop and phone) in headless Chrome through the DevTools protocol. It writes PNGs to `$OUT` (default: a `spark-scope-renders` folder in the system temp directory) and reports clipped or overlapping text, horizontal overflow and script errors. Set `CHROME` if Chrome is not found, and `COUNTS=1,2` to limit the node counts. The screenshots in this README come from it.
+`tools/render.mjs` serves the pages with synthetic data (`tools/fixtures.mjs`) and the server's security headers, and renders the rack panel and the web dashboard in headless Chrome through the DevTools protocol: one to six nodes, the longest ids and names, a 2560 x 480 bar, a 1024 x 600 screen and a phone. Chrome runs with its background services off, so nothing but the local fixture server is contacted. It writes PNGs to `$OUT` (default: a `spark-scope-renders` folder in the system temp directory) and reports clipped or overlapping text, overflow, script errors and Content-Security-Policy violations. Set `CHROME` if Chrome is not found, and `COUNTS=1,2` to limit the node counts. The screenshots in this README come from it.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, [SECURITY.md](SECURITY.md) for reporting a vulnerability and [CHANGELOG.md](CHANGELOG.md) for what changed between releases.
 
 ## License
 

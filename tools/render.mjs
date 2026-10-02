@@ -60,16 +60,36 @@ await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
 
 // ---- minimal DevTools protocol client ----
+// Chrome runs with its background services off (updates, sync, safe browsing, metrics), so the check contacts
+// nothing but the local fixture server. If anything below fails, the finally block at the end (or the exit hook
+// here, for a failure before it) stops Chrome and removes its profile.
 const profile = mkdtempSync(path.join(os.tmpdir(), "spark-scope-chrome-"));
 const chrome = spawn(findChrome(), [
   "--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check",
-  "--hide-scrollbars", "--force-color-profile=srgb", "--disable-extensions", "about:blank",
+  "--hide-scrollbars", "--force-color-profile=srgb", "--disable-extensions",
+  "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps",
+  "--disable-domain-reliability", "--disable-client-side-phishing-detection", "--metrics-recording-only", "--no-pings",
+  "about:blank",
 ], { stdio: "ignore" });
+const cleanUp = () => {
+  chrome.kill();
+  rmSync(profile, { recursive: true, force: true });
+};
+process.once("exit", cleanUp);
 const portFile = path.join(profile, "DevToolsActivePort");
 for (let i = 0; i < 100 && !existsSync(portFile); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+if (!existsSync(portFile)) {
+  console.error("Chrome did not open its DevTools port within 10 seconds");
+  server.close();
+  process.exit(1);
+}
 const [debugPort, browserPath] = readFileSync(portFile, "utf8").trim().split("\n");
 const socket = new WebSocket(`ws://127.0.0.1:${debugPort}${browserPath}`);
-await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
+await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = () => reject(new Error("could not connect to Chrome's DevTools port")); }).catch((error) => {
+  console.error(error.message);
+  server.close();
+  process.exit(1);
+});
 let nextId = 0;
 const pending = new Map();
 const listeners = [];
@@ -303,7 +323,7 @@ try {
   chrome.kill();
   server.close();
   await new Promise((resolve) => setTimeout(resolve, 300));
-  rmSync(profile, { recursive: true, force: true });
+  cleanUp();
 }
 console.log(`\nPNGs in ${OUT}`);
 process.exit(failures ? 1 : 0);

@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: npm test (Node ${{ matrix.node }}, ${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest supported Node (node:sqlite without a flag) and the current LTS, on x64 and on arm64 like the
+        # Sparks and a Raspberry Pi.
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+        node: ["22.13", "24"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm test
+
+  shellcheck:
+    name: shellcheck (kiosk script)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck kiosk/spark-scope-kiosk

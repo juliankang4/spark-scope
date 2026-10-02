@@ -14,8 +14,11 @@ if [ -z "$CHROMIUM" ]; then
   echo "spark-scope-kiosk: Chromium not found; set CHROMIUM=/path/to/chromium" >&2
   exit 1
 fi
-# Wait until the dashboard answers (any HTTP status) so Chromium never opens on an error page.
+# Wait until the dashboard answers (any HTTP status) so Chromium never opens on an error page; say so once a minute.
+tries=0
 until curl -s -o /dev/null --max-time 3 "$BASE/api/health"; do
+  [ $((tries % 12)) -eq 0 ] && echo "spark-scope-kiosk: waiting for $BASE/api/health" >&2
+  tries=$((tries + 1))
   sleep 5
 done
 # Wayland when a Wayland display is there (Raspberry Pi OS with labwc), even if XDG_SESSION_TYPE is not set,
@@ -25,7 +28,8 @@ if [ -n "${WAYLAND_DISPLAY:-}" ]; then
 else
   PLATFORM="--ozone-platform-hint=auto"
 fi
-exec "$CHROMIUM" "$PLATFORM" \
+# --class sets the window's app_id (WM_CLASS on X11), so the labwc rule in labwc-rc.xml matches only this window.
+exec "$CHROMIUM" "$PLATFORM" --class=spark-scope-kiosk \
   --kiosk --noerrdialogs --disable-infobars --no-first-run \
   --disable-session-crashed-bubble --hide-crash-restore-bubble \
   --disable-features=Translate --password-store=basic \

@@ -26,8 +26,8 @@ async function startServer(directory, extraEnv = {}) {
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  let output = "";
   const port = await new Promise((resolve, reject) => {
-    let output = "";
     const timer = setTimeout(() => reject(new Error(`server did not start: ${output}`)), 10_000);
     child.stdout.on("data", (chunk) => {
       output += chunk;
@@ -37,7 +37,8 @@ async function startServer(directory, extraEnv = {}) {
     child.stderr.on("data", (chunk) => { output += chunk; });
     child.on("exit", (code) => { clearTimeout(timer); reject(new Error(`server exited with ${code}: ${output}`)); });
   });
-  return { child, base: `http://127.0.0.1:${port}` };
+  // Everything the server printed so far, including what it logged before listening.
+  return { child, base: `http://127.0.0.1:${port}`, output: () => output };
 }
 
 test("the server serves the dashboard, the rack panel, the fonts and the JSON API", async () => {
@@ -124,12 +125,14 @@ test("a ledger file that cannot be opened turns off token counting, not the dash
   }
 });
 
-// One raw HTTP request, so the Host header and the request target are sent exactly as written.
+// One raw HTTP request, so the Host header and the request target are sent exactly as written. The socket stays open
+// for writing until the server answers and closes it ("Connection: close"); a half-closed socket can be dropped
+// before a slower (file) response is written.
 async function rawRequest(base, lines) {
   const net = await import("node:net");
   const { port } = new URL(base);
   return new Promise((resolve, reject) => {
-    const socket = net.connect(Number(port), "127.0.0.1", () => socket.end(`${lines.join("\r\n")}\r\n\r\n`));
+    const socket = net.connect(Number(port), "127.0.0.1", () => socket.write(`${lines.join("\r\n")}\r\n\r\n`));
     let data = "";
     socket.on("data", (chunk) => { data += chunk; });
     socket.on("end", () => resolve({ status: Number(/^HTTP\/1\.1 (\d+)/.exec(data)?.[1]), text: data }));
@@ -159,6 +162,37 @@ test("requests for another site's host name are refused, every response carries 
     assert.equal(state.inference.baseUrl, undefined);
     assert.equal(state.vllm.ok, state.inference.ok);
     assert.match(log, /Refused a request for host "attacker\.example:8787"/);
+    // Path tricks sent byte for byte (fetch() would normalise them first) never reach files outside public/.
+    for (const target of ["/../server.mjs", "/%2e%2e/server.mjs", "/..%2fserver.mjs", "/%2e%2e%2f%2e%2e%2fetc%2fpasswd", "/..\\server.mjs", "/%00"]) {
+      const response = await rawRequest(base, [`GET ${target} HTTP/1.1`, "Host: localhost", "Connection: close"]);
+      assert.equal(response.status, 404, target);
+      assert.doesNotMatch(response.text, /createServer|root:/, target);
+    }
+    assert.equal((await rawRequest(base, ["GET /%E0%A4%A HTTP/1.1", "Host: localhost", "Connection: close"])).status, 400);
+  } finally {
+    const exited = new Promise((resolve) => child.on("exit", resolve));
+    child.kill("SIGTERM");
+    await exited;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a node whose SSH login fails is logged in full on the server and summarised in the API", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-server-ssh-"));
+  const bin = path.join(directory, "bin");
+  const { mkdirSync, chmodSync } = await import("node:fs");
+  mkdirSync(bin);
+  writeFileSync(path.join(bin, "ssh"), `#!/bin/sh\ncat >/dev/null\necho "admin@10.0.0.6: Permission denied (publickey)." >&2\nexit 255\n`);
+  chmodSync(path.join(bin, "ssh"), 0o755);
+  const topology = path.join(directory, "collected.json");
+  writeFileSync(topology, JSON.stringify({ nodes: [{ id: "1", name: "spark-9", host: "spark-9" }], links: [] }));
+  const { child, base, output } = await startServer(directory, { PATH: `${bin}:${process.env.PATH}`, SPARK_SCOPE_TOPOLOGY: topology });
+  try {
+    const state = await (await fetch(`${base}/api/state?history=0`)).json();
+    assert.equal(state.nodes["1"].ok, false);
+    assert.equal(state.nodes["1"].error, "SSH authentication failed");
+    assert.doesNotMatch(JSON.stringify(state), /10\.0\.0\.6|admin@/);
+    assert.match(output(), /Node spark-9: admin@10\.0\.0\.6: Permission denied \(publickey\)\./);
   } finally {
     const exited = new Promise((resolve) => child.on("exit", resolve));
     child.kill("SIGTERM");

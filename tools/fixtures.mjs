@@ -101,10 +101,12 @@ function history(topology, nowMs, { serving, unreachable }) {
 export function usageMonth(month, nowMs) {
   const days = [];
   const today = new Date(nowMs).toISOString().slice(0, 10);
-  for (let d = 1; d <= 28; d++) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  for (let d = 1; d <= lastDay; d++) {
     const day = `${month}-${String(d).padStart(2, "0")}`;
     if (day > today) break;
-    if (d % 6 === 0) continue; // a few days without use stay empty rather than zero
+    if (d % 6 === 0 && day !== today) continue; // a few days without use stay empty rather than zero; today always has a row
     const cache = 400_000 + d * 31_000, compute = 900_000 + d * 52_000, output = 160_000 + d * 9_500, requests = 120 + d * 7;
     days.push({ day, input: cache + compute, compute, cache, output, requests, total: cache + compute + output });
   }

@@ -119,6 +119,16 @@ test("the browser gets names, roles and links but no interface names", () => {
   assert.equal(publicTopology(example(1)).nodes[0].local, true);
 });
 
+test("the whole browser payload, not just the topology, carries no interface names", async () => {
+  // The render fixtures are built the way the server builds /api/state (node readings with interfaces included).
+  const { fixtureState } = await import("../tools/fixtures.mjs");
+  for (const count of [2, 4]) {
+    const payload = JSON.stringify(fixtureState(count, "serving"));
+    assert.doesNotMatch(payload, /enp1s0|enP2p|rocep/, `${count} nodes`);
+    assert.match(payload, /"ringLinks"/);
+  }
+});
+
 test("without SPARK_SCOPE_TOPOLOGY the user's own topology is preferred over the shipped one", async () => {
   const { defaultTopologyPath, userTopologyPath } = await import("../lib/topology.mjs");
   const { mkdirSync, writeFileSync, rmSync, mkdtempSync } = await import("node:fs");

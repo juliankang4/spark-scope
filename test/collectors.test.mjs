@@ -318,16 +318,17 @@ test("local collection runs on this machine and leaves what it cannot read unkno
   assert.equal(node.network.spkmissing0.available, false);
 });
 
-// A fake nvidia-smi on PATH, so the collector's handling of a hung or failing GPU query runs on any machine.
-async function withFakeNvidiaSmi(body, run) {
+// A fake command on PATH (nvidia-smi, ssh), so the collector's handling of hung or failing commands runs on any
+// machine. With onlyFake, PATH holds nothing else, so a command that is not faked cannot be found at all.
+async function withFakeCommand(name, body, run, { onlyFake = false } = {}) {
   const { mkdtempSync, writeFileSync, chmodSync, rmSync } = await import("node:fs");
   const os = await import("node:os");
   const path = await import("node:path");
-  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-fake-smi-"));
-  writeFileSync(path.join(directory, "nvidia-smi"), `#!/bin/sh\n${body}\n`);
-  chmodSync(path.join(directory, "nvidia-smi"), 0o755);
+  const directory = mkdtempSync(path.join(os.tmpdir(), `spark-scope-fake-${name}-`));
+  writeFileSync(path.join(directory, name), `#!/bin/sh\n${body}\n`);
+  chmodSync(path.join(directory, name), 0o755);
   const savedPath = process.env.PATH;
-  process.env.PATH = `${directory}:${savedPath}`;
+  process.env.PATH = onlyFake ? directory : `${directory}:${savedPath}`;
   try {
     return await run();
   } finally {
@@ -335,6 +336,7 @@ async function withFakeNvidiaSmi(body, run) {
     rmSync(directory, { recursive: true, force: true });
   }
 }
+const withFakeNvidiaSmi = (body, run) => withFakeCommand("nvidia-smi", body, run);
 
 // A sleep duration unique to this run, so a parallel test run cannot be mistaken for a leftover of this one.
 const uniqueSleep = () => `sleep 27.${process.pid}${Math.floor(Math.random() * 1e6)}`;
@@ -510,4 +512,27 @@ test("response bodies the collector does not read are released, so connections a
     for (const socket of sockets) socket.destroy();
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+test("an SSH login that fails reports the node as unreachable, and the browser only gets a short reason", async () => {
+  const { publicNode } = await import("../lib/public-state.mjs");
+  const node = await withFakeCommand("ssh", `cat >/dev/null\necho "admin@10.0.0.6: Permission denied (publickey)." >&2\nexit 255`, () => collectNode({ id: "9", name: "spark-9", host: "spark-9" }));
+  assert.equal(node.ok, false);
+  assert.equal(node.collected, true);
+  assert.match(node.error, /Permission denied/);
+  assert.equal(publicNode(node).error, "SSH authentication failed");
+});
+
+test("an SSH session that hangs is cut off at the poll limit and leaves no process behind", async () => {
+  const hung = uniqueSleep();
+  const node = await withFakeCommand("ssh", `exec ${hung}`, () => collectNode({ id: "9", name: "spark-9", host: "spark-9" }, { timeoutMs: 600 }));
+  assert.equal(node.ok, false);
+  assert.match(node.error, /spark-9: timed out after 600 ms/);
+  assert.equal(await leftover(hung.slice(6)), "");
+});
+
+test("a missing ssh binary is reported instead of crashing the poll", async () => {
+  const node = await withFakeCommand("unrelated", "exit 0", () => collectNode({ id: "9", name: "spark-9", host: "spark-9" }), { onlyFake: true });
+  assert.equal(node.ok, false);
+  assert.match(node.error, /ENOENT/);
 });

@@ -151,13 +151,28 @@ test('three and four nodes are drawn as a ring with one line per cable', () => {
   }
 });
 
+// The server's Content-Security-Policy enforces this at run time (tools/render.mjs fails on a violation); this
+// catches it in the source: every src, href, url(), import and fetch target is a path on this server.
 test('the web page and the rack panel load nothing from other hosts', () => {
   const files = readdirSync(path.join(ROOT, 'public'), { recursive: true }).filter(file => /\.(html|css|js)$/.test(file));
   assert.ok(files.includes('index.html') && files.some(file => file.endsWith('rack.js')));
+  const local = (target) => !/^[a-z][a-z0-9+.-]*:/i.test(target) && !target.startsWith('//');
   for (const file of files) {
     const content = readFileSync(path.join(ROOT, 'public', file), 'utf8');
     assert.ok(!/https?:\/\//.test(content), `${file} references a remote URL`);
+    assert.ok(!/@import/.test(content), `${file} imports a stylesheet`);
+    const targets = [
+      ...content.matchAll(/\b(?:src|href)="([^"]*)"/g),
+      ...content.matchAll(/url\(\s*['"]?([^'")]+)/g),
+      ...content.matchAll(/\bfrom\s+['"]([^'"]+)['"]/g),
+      ...content.matchAll(/\b(?:fetch|getJson)\(\s*[`'"]([^`'"]+)/g),
+    ].map((match) => match[1].trim());
+    for (const target of targets) assert.ok(local(target), `${file} loads ${target} from another host`);
   }
+  // The checks themselves catch the forms a plain "http" search would miss.
+  assert.equal(local('//cdn.example/x.js'), false);
+  assert.equal(local('data:text/css,x'), false);
+  assert.equal(local('/api/state'), true);
 });
 
 test("shipped pages and server strings separate items with bars, not middle dots", async () => {

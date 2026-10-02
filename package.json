@@ -1,7 +1,27 @@
 {
   "name": "spark-scope",
   "version": "0.1.0",
-  "description": "Read-only monitoring dashboard for one to four (or more) NVIDIA DGX Spark-class nodes and their inference server",
+  "description": "Read-only dashboard and rack panel for NVIDIA DGX Spark-class nodes (DGX Spark, ASUS Ascent GX10, MSI EdgeXpert) and their vLLM or SGLang server",
+  "keywords": [
+    "dgx-spark",
+    "gb10",
+    "nvidia",
+    "vllm",
+    "sglang",
+    "dashboard",
+    "monitoring",
+    "raspberry-pi",
+    "homelab"
+  ],
+  "homepage": "https://github.com/juliankang4/spark-scope#readme",
+  "bugs": {
+    "url": "https://github.com/juliankang4/spark-scope/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/juliankang4/spark-scope.git"
+  },
+  "author": "juliankang4",
   "private": true,
   "type": "module",
   "scripts": {

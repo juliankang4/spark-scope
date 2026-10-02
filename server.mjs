@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { collectNode, uncollectedNode, InferenceCollector, applyNetworkRates } from "./lib/collectors.mjs";
 import { buildRingLinks, clusterStatus, servingSummary, DEFAULT_LINK_MIN_GBPS } from "./lib/cluster.mjs";
+import { downsampleHistory, summarizeHistory } from "./lib/history.mjs";
 import { hostAllowed, hostRules, SECURITY_HEADERS } from "./lib/http-guard.mjs";
 import { publicState } from "./lib/public-state.mjs";
 import { loadTopology, nodeInterfaces, publicTopology } from "./lib/topology.mjs";
@@ -112,9 +113,6 @@ function refreshClusterStatus() {
   state.updatedAt = new Date().toISOString();
 }
 
-const HISTORY_FIELDS = ["outputTokensPerSecond", "promptTokensPerSecond", "runningRequests", "queue"];
-const HISTORY_NODE_FIELDS = ["temperature", "memoryAvailableBytes"];
-
 function addHistoryPoint() {
   const inference = state.inference;
   if (!inference) return;
@@ -194,39 +192,6 @@ async function collectInference() {
   } finally {
     collectingInference = false;
   }
-}
-
-function downsampleHistory(points, targetCount = 360) {
-  if (points.length <= targetCount) return points;
-  const bucketSize = Math.ceil(points.length / targetCount);
-  const output = [];
-  for (let index = 0; index < points.length; index += bucketSize) {
-    const bucket = points.slice(index, index + bucketSize);
-    const last = bucket.at(-1);
-    const averaged = { ...last };
-    const mean = (values) => {
-      const finite = values.filter(Number.isFinite);
-      return finite.length ? finite.reduce((sum, value) => sum + value, 0) / finite.length : null;
-    };
-    for (const key of HISTORY_FIELDS) averaged[key] = mean(bucket.map((point) => point[key]));
-    averaged.nodes = Object.fromEntries(Object.keys(last.nodes ?? {}).map((id) => [id,
-      Object.fromEntries(HISTORY_NODE_FIELDS.map((field) => [field, mean(bucket.map((point) => point.nodes?.[id]?.[field]))]))]));
-    output.push(averaged);
-  }
-  return output;
-}
-
-function summarizeHistory(points, minutes = 60) {
-  const activeOutputRates = points
-    .filter((point) => point.runningRequests > 0 && Number.isFinite(point.outputTokensPerSecond))
-    .map((point) => point.outputTokensPerSecond);
-  return {
-    activeOutputTokensPerSecond: activeOutputRates.length
-      ? activeOutputRates.reduce((sum, value) => sum + value, 0) / activeOutputRates.length
-      : null,
-    activeSamples: activeOutputRates.length,
-    windowMinutes: minutes,
-  };
 }
 
 const contentTypes = new Map([

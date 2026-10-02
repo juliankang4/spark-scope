@@ -1,17 +1,19 @@
 <?xml version="1.0"?>
 <!--
   labwc snippet for a kiosk without a mouse: hides the pointer over the Spark Scope panel.
-  Install as ~/.config/labwc/rc.xml, or merge the <windowRules> block into the one you already have.
+  Merge the <windowRule> below into the <windowRules> of your ~/.config/labwc/rc.xml; if you have no such file,
+  install this one as ~/.config/labwc/rc.xml.
   Raspberry Pi OS starts labwc with -m, so this file merges with /etc/xdg/labwc/rc.xml instead of
   replacing it. Reload with: kill -HUP $(pgrep -x labwc)
 
   Why: on Wayland the page's own `cursor: none` only applies once the pointer enters the window, so
-  the compositor's cursor stays visible over the panel. When the Chromium window maps, this moves the
-  pointer into it and hides it until a real pointer moves.
+  the compositor's cursor stays visible over the panel. When the kiosk window maps, this moves the
+  pointer into it and hides it until a real pointer moves. The kiosk script starts Chromium with
+  class spark-scope-kiosk, so other Chromium windows keep their pointer.
 -->
 <labwc_config>
   <windowRules>
-    <windowRule identifier="chromium*">
+    <windowRule identifier="spark-scope-kiosk">
       <action name="WarpCursor" to="output" x="center" y="center" />
       <action name="HideCursor" />
     </windowRule>

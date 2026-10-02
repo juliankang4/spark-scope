@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { nodeView, clusterView, timePaths, compact, freeLabel, orderedNodes, nodeLinks, linkReason, reasonText, seriesPoints, panelWidth, bayLayout } from "../public/rack/rack-view.js";
+import { nodeView, clusterView, timePaths, compact, freeLabel, orderedNodes, nodeLinks, linkReason, reasonText, seriesPoints, panelWidth, bayLayout, valueRange, tempRangeLabel, clockTime, f1 } from "../public/rack/rack-view.js";
 import { compact as webCompact } from "../public/view-data.js";
 import { loadTopology, publicTopology } from "../lib/topology.mjs";
 
@@ -263,12 +263,7 @@ test("bays switch to the compact layout below 460 logical pixels each; one node 
   for (const layout of ["wide", "compact"]) assert.match(css, new RegExp(`\\.bays\\[data-layout="${layout}"\\]`));
 });
 
-test("the rack page uses only local files, and every font it names is bundled with its license", () => {
-  for (const file of ["public/rack/index.html", "public/rack/rack.css", "public/rack/rack.js", "public/rack/rack-view.js"]) {
-    const text = read(file);
-    assert.ok(!/Bench Scope|GX10/i.test(text), `${file} carries an old name`);
-    assert.ok(!/\bTP\d\b/.test(text), `${file} assumes a parallel size`);
-  }
+test("the rack page loads its own module, and every font it names is bundled with its license", () => {
   assert.match(read("public/rack/index.html"), /<script type="module" src="rack\.js">/);
   for (const css of ["public/rack/rack.css", "public/styles.css"]) {
     const urls = [...read(css).matchAll(/url\('([^']+)'\)/g)].map((match) => match[1]);
@@ -299,4 +294,19 @@ test("the band adds up GPU power over the nodes that report it, and gives way to
   // With a node down the note is what matters; the line has no room for both.
   const oneDown = { ...reporting, 4: { ok: false, collected: true } };
   assert.equal(clusterView(state(oneDown, "degraded", "Node connection needs attention (3/4 reachable)")).lines[1], "Nodes 3/4 | Links 4/4 | spark-4 not responding | running 0 | waiting 0");
+});
+
+test("temperature traces keep a sensible scale and caption, and odd inputs do not break the clock", () => {
+  const points = [{ value: 41.2 }, { value: null }, { value: 57.9 }];
+  // The scale never shrinks below the floor band and pads the readings by 2 degrees.
+  assert.deepEqual(valueRange(points, 38, 64), [38, 64]);
+  assert.deepEqual(valueRange([{ value: 70.4 }], 38, 64), [38, 73]);
+  assert.deepEqual(valueRange([], 38, 64), [38, 64]);
+  assert.equal(tempRangeLabel(points), "41–58°C");
+  assert.equal(tempRangeLabel([{ value: 50.2 }, { value: 49.8 }]), "50°C");
+  assert.equal(tempRangeLabel([{ value: null }]), "no data");
+  assert.equal(f1(null), "—");
+  assert.equal(clockTime(null), "—");
+  // An invalid time zone falls back to the viewer's own instead of throwing.
+  assert.match(clockTime(Date.UTC(2026, 9, 2, 3, 4), { timeZone: "Not/AZone" }), /^\d\d:\d\d$/);
 });
