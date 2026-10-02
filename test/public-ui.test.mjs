@@ -103,3 +103,23 @@ test('the web page and the rack panel load nothing from other hosts', () => {
     assert.ok(!/https?:\/\//.test(content), `${file} references a remote URL`);
   }
 });
+
+test("shipped pages and server strings separate items with bars, not middle dots", async () => {
+  const { readdirSync } = await import('node:fs');
+  const files = (dir) => readdirSync(path.join(ROOT, dir), { withFileTypes: true }).flatMap((entry) =>
+    entry.isDirectory() ? files(path.join(dir, entry.name)) : /\.(m?js|html|css)$/.test(entry.name) ? [path.join(dir, entry.name)] : []);
+  const offenders = [...files('public'), ...files('lib'), 'server.mjs'].filter((file) => readFileSync(path.join(ROOT, file), 'utf8').includes('·'));
+  assert.deepEqual(offenders, []);
+});
+
+test("both pages link the favicon files that ship with them", async () => {
+  const { existsSync } = await import('node:fs');
+  for (const page of ['public/index.html', 'public/rack/index.html']) {
+    const html = readFileSync(path.join(ROOT, page), 'utf8');
+    for (const href of ['/favicon.svg', '/favicon-32.png', '/apple-touch-icon.png']) {
+      assert.match(html, new RegExp(`href="${href}"`), `${page} links ${href}`);
+      assert.ok(existsSync(path.join(ROOT, 'public', href)), `${href} exists`);
+    }
+  }
+  assert.ok(existsSync(path.join(ROOT, 'public', 'favicon.ico')));
+});

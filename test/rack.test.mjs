@@ -63,9 +63,9 @@ test("a single node has no link dots and the band counts only the node", () => {
     vllm: { ok: true, engine: "vLLM", modelName: "example-model", outputTokensPerSecond: 41.2, runningRequests: 1, waitingRequests: 0 },
     serving: { label: "vLLM" }, usage: { today: { total: 1000, requests: 3 } },
   };
-  assert.deepEqual(clusterView(serving).lines, ["example-model · vLLM", "Node up · running 1 · waiting 0"]);
+  assert.deepEqual(clusterView(serving).lines, ["example-model | vLLM", "Node up | running 1 | waiting 0"]);
   const down = { ...serving, status: "offline", message: "Cannot reach the node", nodes: { 1: { ok: false, collected: true } }, vllm: { ok: false } };
-  assert.deepEqual(clusterView(down).lines, ["Cannot reach the node", "Node down · spark-1 not responding"]);
+  assert.deepEqual(clusterView(down).lines, ["Cannot reach the node", "Node down | spark-1 not responding"]);
 });
 
 test("two cables to the one peer get numbered dots, reasons and band notes", () => {
@@ -78,10 +78,10 @@ test("two cables to the one peer get numbered dots, reasons and band notes", () 
   assert.deepEqual(view.links.map((l) => [l.tag, l.level]), [["1 #1", "good"], ["1 #2", "crit"]]);
   const band = clusterView({
     ...state, status: "degraded", inferenceState: "serving", message: "QSFP link needs attention", nodes: { 1: { ok: true }, 2: { ok: true } },
-    vllm: { ok: true, modelName: "example-model", runningRequests: 0, waitingRequests: 0 }, serving: { label: "vLLM · 2 nodes" },
+    vllm: { ok: true, modelName: "example-model", runningRequests: 0, waitingRequests: 0 }, serving: { label: "vLLM | 2 nodes" },
   });
   assert.equal(band.level, "warn");
-  assert.deepEqual(band.lines, ["example-model · vLLM · 2 nodes", "Nodes 2/2 · Links 1/2 · link 1–2 #2 down · running 0 · waiting 0"]);
+  assert.deepEqual(band.lines, ["example-model | vLLM | 2 nodes", "Nodes 2/2 | Links 1/2 | link 1–2 #2 down | running 0 | waiting 0"]);
 });
 
 test("a cable that is not installed yet reads 'not cabled' on both ends; a dark cable reads 'down'", () => {
@@ -172,13 +172,13 @@ test("the band says what is serving from data, with node and link counts", () =>
     ...ringState(), status: "healthy", inferenceState: "serving", message: "Nodes and inference API healthy",
     nodes: nodesAll(),
     vllm: { ok: true, engine: "SGLang", modelName: "example-model", outputTokensPerSecond: 75.4, runningRequests: 2, waitingRequests: 0 },
-    serving: { label: "SGLang · 4 nodes" },
+    serving: { label: "SGLang | 4 nodes" },
     usage: { today: { total: 3418250, requests: 412 } },
   };
   const view = clusterView(serving);
   assert.equal(view.title, "Serving");
   assert.equal(view.level, "good");
-  assert.deepEqual(view.lines, ["example-model · SGLang · 4 nodes", "Nodes 4/4 · Links 4/4 · running 2 · waiting 0"]);
+  assert.deepEqual(view.lines, ["example-model | SGLang | 4 nodes", "Nodes 4/4 | Links 4/4 | running 2 | waiting 0"]);
   assert.equal(view.out, 75.4);
   // No engine information: no engine label, and nothing names an engine by default.
   const bare = clusterView({ ...serving, serving: null, vllm: { ...serving.vllm, engine: null, runningRequests: 0 } });
@@ -194,7 +194,7 @@ test("idle: stopped inference, a pending cable and a node that is not collected"
   const view = clusterView(idle);
   assert.equal(view.title, "Inference stopped");
   assert.equal(view.level, "idle");
-  assert.deepEqual(view.lines, ["No model serving", "Nodes 3/4 · Links 3/4 · link 1–2 not cabled · spark-1 not collected"]);
+  assert.deepEqual(view.lines, ["No model serving", "Nodes 3/4 | Links 3/4 | link 1–2 not cabled | spark-1 not collected"]);
   assert.equal(view.out, null);
 });
 
@@ -208,7 +208,7 @@ test("a fault names the unreachable node and keeps the last model while the API 
   const view = clusterView(fault);
   assert.equal(view.level, "crit");
   assert.equal(view.title, "Inference down");
-  assert.deepEqual(view.lines, ["example-model · API not responding", "Nodes 3/4 · Links 2/4 · spark-3 not responding · link 2–3 down"]);
+  assert.deepEqual(view.lines, ["example-model | API not responding", "Nodes 3/4 | Links 2/4 | spark-3 not responding | link 2–3 down"]);
   assert.equal(view.out, null);
   const lost = clusterView(fault, { fetchFailed: true, lastReceivedAt: new Date("2026-09-26T06:46:32Z"), clock });
   assert.equal(lost.level, "crit");
@@ -269,12 +269,15 @@ test("a node without GPU readings says why: a hung or failing query is critical,
   assert.equal(nodeView(META["2"], noGpu("timeout")).temp, null);
 });
 
-test("the band adds up GPU power over the nodes that report it", () => {
-  const nodes = { 1: healthy({ gpu: { powerWatts: 9.2 } }), 2: healthy({ gpu: { powerWatts: 8.4 } }), 3: healthy({ gpu: { powerWatts: null } }), 4: { ok: false, collected: true } };
-  const view = clusterView({
-    ...ringState(), status: "degraded", inferenceState: "serving", message: "Node connection needs attention (3/4 reachable)", nodes,
+test("the band adds up GPU power over the nodes that report it, and gives way to urgent notes", () => {
+  const state = (nodes, status, message) => ({
+    ...ringState(), status, inferenceState: "serving", message, nodes,
     vllm: { ok: true, engine: "SGLang", modelName: "example-model", outputTokensPerSecond: 0, runningRequests: 0, waitingRequests: 0 },
     serving: { label: "SGLang" }, usage: { today: { total: 0, requests: 0 } },
   });
-  assert.match(view.lines[1], /^Nodes 3\/4 · Links 4\/4 · GPU 18 W/);
+  const reporting = { 1: healthy({ gpu: { powerWatts: 9.2 } }), 2: healthy({ gpu: { powerWatts: 8.4 } }), 3: healthy({ gpu: { powerWatts: null } }), 4: healthy({ gpu: {} }) };
+  assert.equal(clusterView(state(reporting, "healthy", "Nodes and inference API healthy")).lines[1], "Nodes 4/4 | Links 4/4 | GPU 18 W | running 0 | waiting 0");
+  // With a node down the note is what matters; the line has no room for both.
+  const oneDown = { ...reporting, 4: { ok: false, collected: true } };
+  assert.equal(clusterView(state(oneDown, "degraded", "Node connection needs attention (3/4 reachable)")).lines[1], "Nodes 3/4 | Links 4/4 | spark-4 not responding | running 0 | waiting 0");
 });

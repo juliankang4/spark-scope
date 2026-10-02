@@ -178,10 +178,10 @@ test('every node marked for inference must be ready while the API serves', () =>
 test('engine and serving node count come from the API and the nodes, never assumed', () => {
   const t = ring();
   const nodes = fourNodes();
-  assert.deepEqual(servingSummary(nodes, { ok: true, engine: 'SGLang' }, t), { engine: 'SGLang', ranks: 4, parallel: 4, complete: true, label: 'SGLang · 4 nodes' });
+  assert.deepEqual(servingSummary(nodes, { ok: true, engine: 'SGLang' }, t), { engine: 'SGLang', ranks: 4, parallel: 4, complete: true, label: 'SGLang | 4 nodes' });
   // The API's own metrics win over process names; with the API down, the nodes still tell the engine.
-  assert.equal(servingSummary(nodes, { ok: true, engine: 'vLLM' }, t).label, 'vLLM · 4 nodes');
-  assert.equal(servingSummary(nodes, { ok: false }, t).label, 'SGLang · 4 nodes');
+  assert.equal(servingSummary(nodes, { ok: true, engine: 'vLLM' }, t).label, 'vLLM | 4 nodes');
+  assert.equal(servingSummary(nodes, { ok: false }, t).label, 'SGLang | 4 nodes');
   // With a node not observed, the process count is not the serving node count.
   const partial = { ...nodes, 1: uncollected('1') };
   assert.deepEqual(servingSummary(partial, { ok: true, engine: 'SGLang' }, ring({ collect1: false })), { engine: 'SGLang', ranks: 3, parallel: null, complete: false, label: 'SGLang' });

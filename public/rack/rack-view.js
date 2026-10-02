@@ -186,11 +186,11 @@ function servingLine(state) {
   const vllm = state?.vllm;
   const model = vllm?.modelName ?? state?.usage?.modelName ?? null;
   const engine = state?.serving?.label ?? (vllm?.ok ? vllm.engine : null) ?? null;
-  return [model ?? "model unknown", engine].filter(Boolean).join(" · ");
+  return [model ?? "model unknown", engine].filter(Boolean).join(" | ");
 }
 
 // Second band line: counts first, then at most two things worth reading.
-function countLine(state, extras) {
+function countLine(state, extras, { power = true } = {}) {
   const metas = orderedNodes(state);
   const nodesUp = metas.filter((meta) => state?.nodes?.[meta.id]?.ok).length;
   const links = state?.topology?.links ?? [];
@@ -199,8 +199,8 @@ function countLine(state, extras) {
   if (links.length) parts.push(`Links ${linksUp}/${links.length}`);
   // GPU power summed over the nodes that report it (nvidia-smi power draw; the whole box draws more).
   const watts = metas.map((meta) => state?.nodes?.[meta.id]).filter((node) => node?.ok && finite(node.gpu?.powerWatts)).map((node) => node.gpu.powerWatts);
-  if (watts.length) parts.push(`GPU ${Math.round(watts.reduce((sum, value) => sum + value, 0))} W`);
-  return [...parts, ...extras.filter(Boolean).slice(0, 2)].join(" · ");
+  if (power && watts.length) parts.push(`GPU ${Math.round(watts.reduce((sum, value) => sum + value, 0))} W`);
+  return [...parts, ...extras.filter(Boolean).slice(0, 2)].join(" | ");
 }
 
 // Things worth a mention on the band: urgent ones before the queue counts, standing notes after them.
@@ -236,12 +236,13 @@ export function clusterView(state, { fetchFailed = false, lastReceivedAt = null,
   }
   if (!state || state.status === "starting") return { ...base, level: "idle", title: "Waiting for data", lines: [`Waiting for ${BRAND}`, state?.message ?? ""].filter(Boolean) };
   const { urgent, standing } = bandNotes(state);
-  const counts = (...middle) => countLine(state, [...urgent, ...middle, ...standing]);
+  // An urgent note (a node down, a broken link) matters more than the power total, so it takes its place.
+  const counts = (...middle) => countLine(state, [...urgent, ...middle, ...standing], { power: !urgent.length });
   if (state.status === "offline") return { ...base, level: "crit", title: "Nodes unreachable", lines: [state.message, counts()] };
   if (state.inferenceState === "stopped") return { ...base, level: "idle", title: "Inference stopped", lines: ["No model serving", counts()] };
-  if (!vllm?.ok) return { ...base, level: "crit", title: "Inference down", lines: [`${servingLine(state)} · API not responding`, counts()] };
+  if (!vllm?.ok) return { ...base, level: "crit", title: "Inference down", lines: [`${servingLine(state)} | API not responding`, counts()] };
   const title = running > 0 ? "Serving" : "Ready";
-  const queue = running === null ? null : `running ${running} · waiting ${waiting ?? 0}`;
+  const queue = running === null ? null : `running ${running} | waiting ${waiting ?? 0}`;
   if (state.status !== "healthy") {
     // A degradation the notes do not already explain (heat, failed services, a half-dark link) shows the server message.
     const message = urgent.length ? null : state.message;

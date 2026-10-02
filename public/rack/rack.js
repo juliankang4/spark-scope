@@ -83,8 +83,8 @@ function renderBay(meta, toMs) {
     : "";
   if (!view.ok) {
     const body = view.pending
-      ? `<div class="down"><b class="num">—</b><span>${view.waiting ? "Waiting for the first poll" : `Not collected · ${escapeHtml(target)}`}</span></div>`
-      : `<div class="down"><b class="num">—</b><span>${escapeHtml(target)} not responding${view.lastOk ? ` · last OK ${view.lastOk}` : ""}</span></div>`;
+      ? `<div class="down"><b class="num">—</b><span>${view.waiting ? "Waiting for the first poll" : `Not collected | ${escapeHtml(target)}`}</span></div>`
+      : `<div class="down"><b class="num">—</b><span>${escapeHtml(target)} not responding${view.lastOk ? ` | last OK ${view.lastOk}` : ""}</span></div>`;
     const note = view.pending ? "No readings yet" : "Readings unavailable";
     el.innerHTML = `${head}${body}<div class="foot"><span>${note}</span>${dots}</div>`;
     return;
@@ -95,10 +95,10 @@ function renderBay(meta, toMs) {
       <div class="temp">${trace.svg}<b class="num halo">${view.temp === null ? "—" : Math.round(view.temp)}<sup>°C</sup></b></div>
       <div class="meters">
         ${meter("GPU load", `${view.load ?? "—"}%`, view.load)}
-        ${meter(`RAM · ${freeLabel(view.memFreeGiB)} free`, `${view.memUsedPct ?? "—"}%`, view.memUsedPct)}
-        ${meter(`Disk · ${freeLabel(view.diskFreeGiB)} free`, `${view.diskPct ?? "—"}%`, view.diskPct, view.diskWarn)}
+        ${meter(`RAM (${freeLabel(view.memFreeGiB)} free)`, `${view.memUsedPct ?? "—"}%`, view.memUsedPct)}
+        ${meter(`Disk (${freeLabel(view.diskFreeGiB)} free)`, `${view.diskPct ?? "—"}%`, view.diskPct, view.diskWarn)}
       </div>
-      <div class="cap">GPU temp · 60 min ${trace.range}</div>
+      <div class="cap">GPU temp 60 min: ${trace.range}</div>
     </div>
     <div class="foot"><span>Power ${f1(view.power)} W</span>${view.tsoc === null ? "" : `<span>TSOC ${f1(view.tsoc)}°C</span>`}${dots}</div>`;
 }
@@ -131,7 +131,7 @@ function renderCluster(fetchFailed) {
   $("cl-line2").textContent = view.lines[1] ?? "";
   $("out-value").textContent = f1(view.out);
   $("tok-total").textContent = compact(view.todayTotal);
-  $("tok-sub").textContent = view.todayRequests === null ? "Tokens today" : `Tokens today · ${view.todayRequests.toLocaleString("en-US")} requests`;
+  $("tok-sub").textContent = view.todayRequests === null ? "Tokens today" : `Tokens today | ${view.todayRequests.toLocaleString("en-US")} requests`;
 }
 
 function render() {

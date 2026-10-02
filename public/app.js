@@ -29,9 +29,9 @@ function renderNode(meta,node) {
   const set=(name,value)=>{const field=el.querySelector(`[data-node="${name}"]`);field.textContent=value;field.classList.toggle('unknown-value',value===UNKNOWN);if(field.parentElement.hasAttribute('data-optional'))field.parentElement.hidden=value===UNKNOWN};
   const pending=meta.collect===false||node?.collected===false,ok=Boolean(node?.ok);el.classList.toggle('is-unknown',!ok);
   const target=meta.local?'local':meta.host??'no host';
-  set('title',meta.name);set('role',[ROLE_NAMES[meta.role]??meta.role,meta.hardware].filter(Boolean).join(' · '));
+  set('title',meta.name);set('role',[ROLE_NAMES[meta.role]??meta.role,meta.hardware].filter(Boolean).join(' | '));
   set('state',pending?'not collected':!ok?'no response':node.gpu?.available===false?'no GPU data':node.inferenceProcessReady?'serving':'idle');
-  set('connection',pending?`${target} · not collected`:ok?`${target} · ${fixed(node.latencyMs,0)} ms`:`${target} · status unknown`);
+  set('connection',pending?`${target} | not collected`:ok?`${target} | ${fixed(node.latencyMs,0)} ms`:`${target} | status unknown`);
   const gpu=ok?node.gpu:{};set('gpu',finite(gpu?.utilization)?fixed(gpu.utilization,0)+'%':UNKNOWN);
   set('temp',fixed(gpu?.temperature,0));set('power',fixed(gpu?.powerWatts));set('memory',gib(ok?node.memory?.availableBytes:null));set('clock',fixed(gpu?.clockMHz,0));
   const total=ok?node.memory?.totalBytes:null,used=ok?node.memory?.usedBytes:null;
@@ -41,11 +41,11 @@ function renderNode(meta,node) {
   set('disk',ok&&finite(node.disk?.availableBytes)?gib(node.disk.availableBytes,0)+' GiB':UNKNOWN);set('process-memory',ok&&finite(node.processMemoryBytes)?gib(node.processMemoryBytes)+' GiB':UNKNOWN);
   const cpu=ok?node.cpu:null;set('cpu',finite(cpu?.load1)?`${fixed(cpu.load1,2)}${finite(cpu.cores)?` / ${cpu.cores} cores`:''}`:UNKNOWN);
   set('nvme',ok?fixed(node.nvmeCelsius,1,' °C'):UNKNOWN);set('nic',ok?fixed(node.nicCelsius,1,' °C'):UNKNOWN);
-  const zones=ok?Object.entries(node.thermals?.zones??{}).filter(([,value])=>finite(value)):[];set('zones',zones.length?zones.map(([name,value])=>`${name} ${fixed(value,1)}`).join(' · ')+' °C':UNKNOWN);
+  const zones=ok?Object.entries(node.thermals?.zones??{}).filter(([,value])=>finite(value)):[];set('zones',zones.length?zones.map(([name,value])=>`${name} ${fixed(value,1)}`).join(' | ')+' °C':UNKNOWN);
   set('system',ok&&node.systemState?`${node.systemState} (failed ${node.failedUnits})`:UNKNOWN);set('rank',ok&&finite(node.rank)?String(node.rank):UNKNOWN);
   set('container',pending?'not collected':!ok?'container status unknown':node.container?.detected?`${node.container.name} ${node.container.running?'running':'stopped'} (restarts ${node.container.restarts})`:node.inferenceProcessUp?'GPU process running':'no inference process');
   const kernel=ok?node.kernelEvents:null;
-  set('kernel-summary',kernel?.available?`24 h: Xid ${kernel.capped?'≥':''}${kernel.xid}, NO MEMORY ${kernel.capped?'≥':''}${kernel.noMemory} · details`:'Kernel diagnostics unavailable · details');
+  set('kernel-summary',kernel?.available?`24 h: Xid ${kernel.capped?'≥':''}${kernel.xid}, NO MEMORY ${kernel.capped?'≥':''}${kernel.noMemory} | details`:'Kernel diagnostics unavailable | details');
   set('kernel-last',kernel?.available?(kernel.total?`${clockTime(kernel.lastAt)} ${kernel.lastMessage||'kernel error'}`:'No matching kernel errors in the last 24 h'):'Kernel journal summary unavailable');
   set('last-update',pending?'not collected':`Last poll ${clockTime(node?.updatedAt)}`);
 }
@@ -59,7 +59,7 @@ function renderLinks(state) {
   $('#fabric-links').innerHTML=layout.links.map(line=>{const live=state?.ringLinks?.[line.id],[stroke,dash]=LINK_STROKE[live?.state??'unknown']??LINK_STROKE.unknown;return `<line x1="${line.x1.toFixed(1)}" y1="${line.y1.toFixed(1)}" x2="${line.x2.toFixed(1)}" y2="${line.y2.toFixed(1)}" style="stroke:${stroke}${dash?`;stroke-dasharray:${dash}`:''}"><title>${esc(links.find(link=>link.id===line.id)?.label??line.id)}: ${esc(linkText(live))}</title></line>`}).join('');
   $('#fabric-nodes').innerHTML=layout.nodes.map(node=>`<circle cx="${node.x.toFixed(1)}" cy="${node.y.toFixed(1)}" r="19" style="stroke:${node.color}"/><text class="label" x="${node.x.toFixed(1)}" y="${(node.y+4).toFixed(1)}" text-anchor="middle">${esc(node.id)}</text>`).join('');
   const paths=links.reduce((sum,link)=>sum+(link.planes??['a','b']).length,0),count=$('#fabric-count');
-  count.setAttribute('x',layout.caption.x);count.setAttribute('y',layout.caption.y);count.textContent=`${plural(links.length,'cable')} · ${plural(paths,'logical path')}`;
+  count.setAttribute('x',layout.caption.x);count.setAttribute('y',layout.caption.y);count.textContent=`${plural(links.length,'cable')} | ${plural(paths,'logical path')}`;
 }
 function renderCharts(state) {
   const history=state.history||[],end=Date.now(),start=end-range*60_000;
@@ -91,8 +91,8 @@ function renderState(state) {
   $('.status').className='status '+(state.status==='healthy'?'':stopped?'stopped':'error');text('#status-title',state.message||'Checking status');
   const watts=metas.map(m=>nodes[m.id]).filter(n=>n?.ok&&finite(n.gpu?.powerWatts)).map(n=>n.gpu.powerWatts);
   $('#status-desc').innerHTML=`<span>Nodes ${online}/${count}</span><span>Inference processes ${serving}/${count}</span><span>API ${v?.ok?'up':'no response'}</span>${watts.length?`<span>GPU power ${fixed(watts.reduce((sum,w)=>sum+w,0),1)} W${watts.length<count?` (${watts.length}/${count} nodes)`:''}</span>`:''}`;
-  text('#updated-at',clockTime(state.updatedAt));text('#model-title',v?.modelName||(stopped?'Inference stopped':'Model unknown'));text('#model-meta',serving?`${state.serving?.engine??'Inference'} running on ${plural(serving,'node')}`:`Live monitor · ${plural(count,'node')}`);
-  document.title=v?.modelName?`${v.modelName} · Spark Scope`:'Spark Scope';
+  text('#updated-at',clockTime(state.updatedAt));text('#model-title',v?.modelName||(stopped?'Inference stopped':'Model unknown'));text('#model-meta',serving?`${state.serving?.engine??'Inference'} running on ${plural(serving,'node')}`:`Live monitor | ${plural(count,'node')}`);
+  document.title=v?.modelName?`${v.modelName} | Spark Scope`:'Spark Scope';
   const empty=stopped?'stopped':UNKNOWN,value=(number,formatter=fixed)=>v?.ok?formatter(number):empty;
   text('#speed',value(v?.outputTokensPerSecond));text('#legend-speed',value(v?.outputTokensPerSecond));text('#avg',fixed(state.historyStats?.activeOutputTokensPerSecond));text('#queue',value(v?.waitingRequests,n=>fixed(n,0)));
   document.querySelectorAll('[data-field]').forEach(el=>{const key=el.dataset.field;let result=empty;if(v?.ok){if(key==='requests')result=`${fixed(v.runningRequests,0)} / ${fixed(v.waitingRequests,0)}`;else if(key.endsWith('Seconds'))result=duration(v[key]);else if(key.endsWith('Percent'))result=fixed(v[key],1,'%');else result=finite(v[key])?fixed(v[key],v[key]>=100?0:1,' tok/s'):UNKNOWN}el.textContent=result});

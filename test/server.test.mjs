@@ -53,6 +53,10 @@ test("the server serves the dashboard, the rack panel, the fonts and the JSON AP
     const rack = await fetch(`${base}/rack/`);
     assert.equal(rack.status, 200);
     assert.match(await rack.text(), /rack\.js/);
+    const icon = await fetch(`${base}/favicon.ico`);
+    assert.equal(icon.status, 200);
+    assert.equal(icon.headers.get("content-type"), "image/x-icon");
+    assert.equal((await fetch(`${base}/favicon.svg`)).headers.get("content-type"), "image/svg+xml");
     const font = await fetch(`${base}/fonts/BebasNeue-latin.woff2`);
     assert.equal(font.status, 200);
     assert.equal(font.headers.get("content-type"), "font/woff2");
