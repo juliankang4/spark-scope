@@ -41,6 +41,8 @@ Phone, dark theme, two nodes joined by two cables:
 
 Daily and monthly totals of logical input, new (computed) input, cache-read input, output and requests, the last seven days of output, and a month picker. The ledger is stored on disk. Everything else resets when the server restarts.
 
+A new ledger starts from what the engine reports at that moment: tokens served before the dashboard first ran are not booked. A counter the engine does not export (vLLM without per-source prompt counters, for example) reads as `unknown` in the ledger rather than 0. If the ledger file cannot be opened, token counting is switched off and the rest of the dashboard keeps working.
+
 The page follows the viewer's light or dark setting and has a toggle. It works on phones and shows times in the viewer's time zone. A value that was not observed shows as `unknown`, never as zero.
 
 **Rack panel (`/rack/`)**
@@ -172,8 +174,8 @@ All settings are optional environment variables.
 | `SPARK_SCOPE_TOPOLOGY` | `topology.json` next to `server.mjs` | Topology file. When set explicitly, a missing file is an error. |
 | `SPARK_SCOPE_USAGE_DB` | `$XDG_DATA_HOME/spark-scope/usage.sqlite` (`~/.local/share/...`) | Token ledger database. The directory is created if needed. |
 | `SPARK_SCOPE_TIME_ZONE` | the server's time zone | IANA time zone (for example `America/Los_Angeles`) that decides where ledger days begin. The page shows it next to the ledger. |
-| `SPARK_SCOPE_NODE_INTERVAL_MS` | `5000` | Node polling interval. Each poll is limited to 4.5 seconds. |
-| `SPARK_SCOPE_API_INTERVAL_MS` | `2000` | Inference metrics polling interval. |
+| `SPARK_SCOPE_NODE_INTERVAL_MS` | `5000` | Node polling interval in milliseconds, at least 1000. Each poll is limited to 4.5 seconds, and each `nvidia-smi` or `docker` call in it to 1.5 seconds. |
+| `SPARK_SCOPE_API_INTERVAL_MS` | `2000` | Inference metrics polling interval in milliseconds, at least 500. |
 | `SPARK_SCOPE_LINK_MIN_GBPS` | `200` | Per-plane speed below which an up link counts as slow. |
 
 Example for a two-node cluster whose head serves SGLang, viewed from the LAN:
@@ -206,7 +208,7 @@ The engine label comes from the metric names or the GPU process name, and the nu
 Open `/rack/` (for example <http://127.0.0.1:8787/rack/>). The panel is laid out at 1920 x 480 and scales to fit the window, so it suits the common 1920 x 480 bar displays and works, letterboxed, on anything else. It reads `/api/state` every 2 seconds (every 30 seconds for the temperature traces), dims and says so when the server stops answering, and reloads itself every 12 hours while the server answers, so it picks up updates without touching the kiosk.
 
 - **Layout by node count.** Three or four nodes share the width. Two nodes get two centred bays. A single node gets one wide bay with its meters side by side and no link dots. With two cables between two nodes, each bay shows a numbered dot per cable (`2 #1`, `2 #2`).
-- **What the bays and the band say.** Each bay header shows its most severe condition: no response, thermal slowdown, a link problem (`Link 2–3 down`, `Link 1–2 #2 down`, `Link 1–2 not cabled`), system state or failed units, a missing inference process while the API serves, disk at 95% or more, less than 2 GiB of free memory, or (for ten minutes) a container restart or a kernel error. The band shows the cluster title (Serving, Ready, Inference stopped, Inference down, Nodes unreachable), the model with its engine, node and link counts and up to two notes.
+- **What the bays and the band say.** Each bay header shows its most severe condition: no response, missing GPU readings (`nvidia-smi stuck`, `GPU query timed out`, `GPU query failed`, `no nvidia-smi`), thermal slowdown, a link problem (`Link 2–3 down`, `Link 1–2 #2 down`, `Link 1–2 not cabled`), system state or failed units, a missing inference process while the API serves, disk at 95% or more, less than 2 GiB of free memory, or (for ten minutes) a container restart or a kernel error. The band shows the cluster title (Serving, Ready, Inference stopped, Inference down, Nodes unreachable), the model with its engine, node and link counts and up to two notes.
 - **Other display sizes.** `?width=N` (1440 to 3840) lays the panel out N pixels wide instead of 1920, still 480 tall, so a display of another aspect ratio is filled edge to edge: use N = 480 x display width / display height (for example `?width=2560` for 2560 x 480 or 1280 x 240). Keep four nodes at 1920 or wider.
 
 ### Raspberry Pi kiosk (Raspberry Pi OS, labwc/Wayland)
@@ -251,7 +253,8 @@ The script waits until `/api/health` answers before it opens Chromium, uses its 
 - TSOC/TS1P temperatures and the A/B plane layout are specific to DGX Spark-class hardware. Other Linux machines with an NVIDIA GPU mostly work, but those parts read `unknown` or need a matching topology.
 - One inference server per dashboard.
 - Charts are kept in memory for six hours and reset when the server restarts or the served model changes.
-- The token ledger adds up counter increases while the dashboard is running. Tokens served while the dashboard is down are counted when it returns, as long as the engine has not restarted in between. If it has, they are lost. Latency p95 values are since engine start, not a rolling window.
+- The token ledger adds up counter increases. Tokens served while the dashboard is down are counted when it returns. After an engine restart the new run counts from its own start: vLLM reports its start time, and for SGLang, which does not, a restart is recognised when its counters fall below the last values seen. If an SGLang run restarted while the dashboard was down and has already passed those values, the part of the previous run the dashboard never saw is lost. Latency p95 values are since engine start, not a rolling window.
+- A node whose `nvidia-smi` hangs, fails or is missing is shown as such (and degrades the cluster status) rather than as healthy with blank readings. A poll that hits its 4.5-second limit keeps the readings that arrived and is marked incomplete.
 - The page treats data older than 20 seconds as stale by comparing the server's timestamp with the viewer's clock, so a viewer clock that is far off shows the server as not responding.
 - Numbers use one fixed format (`1,234.5`, `1.06B`) whatever the viewer's locale. Times and dates follow the viewer's locale and time zone.
 - The rack panel is designed for 1920 x 480; other sizes are scaled or need `?width=`, and four nodes need at least 1920 logical pixels of width.

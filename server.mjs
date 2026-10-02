@@ -11,11 +11,12 @@ import { UsageStore } from "./lib/usage-store.mjs";
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_ROOT = path.join(ROOT, "public");
 
-function positiveInteger(name, fallback) {
+// Whole numbers only: "2s" or "1e4" are rejected instead of being read as 2 or 1.
+function positiveInteger(name, fallback, minimum = 1) {
   const raw = process.env[name];
   if (raw == null || raw === "") return fallback;
-  const value = Number.parseInt(raw, 10);
-  if (!Number.isInteger(value) || value <= 0) throw new Error(`${name} must be a positive integer, got "${raw}"`);
+  const value = /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : NaN;
+  if (!Number.isSafeInteger(value) || value < minimum) throw new Error(`${name} must be a whole number of at least ${minimum}, got "${raw}"`);
   return value;
 }
 
@@ -42,8 +43,8 @@ const config = {
   host: process.env.SPARK_SCOPE_HOST || "127.0.0.1",
   port: portNumber("SPARK_SCOPE_PORT", 8787),
   apiUrl: process.env.SPARK_SCOPE_API_URL || "http://127.0.0.1:8000",
-  nodeIntervalMs: positiveInteger("SPARK_SCOPE_NODE_INTERVAL_MS", 5000),
-  apiIntervalMs: positiveInteger("SPARK_SCOPE_API_INTERVAL_MS", 2000),
+  nodeIntervalMs: positiveInteger("SPARK_SCOPE_NODE_INTERVAL_MS", 5000, 1000),
+  apiIntervalMs: positiveInteger("SPARK_SCOPE_API_INTERVAL_MS", 2000, 500),
   usageDbPath: process.env.SPARK_SCOPE_USAGE_DB || path.join(dataHome, "spark-scope", "usage.sqlite"),
   timeZone: validTimeZone(process.env.SPARK_SCOPE_TIME_ZONE),
   linkMinGbps: positiveInteger("SPARK_SCOPE_LINK_MIN_GBPS", DEFAULT_LINK_MIN_GBPS),
@@ -56,7 +57,16 @@ const topology = loadTopology();
 const nodeDefinitions = topology.nodes.map((node) => ({ ...node, interfaces: nodeInterfaces(topology, node.id) }));
 
 const vllmCollector = new VllmCollector(config.apiUrl);
-const usageStore = new UsageStore(config.usageDbPath, { timeZone: config.timeZone });
+// A ledger that cannot be opened (corrupt file, wrong permissions) turns off token counting, not the dashboard.
+let usageStore = null;
+let usageOpenError = null;
+try {
+  usageStore = new UsageStore(config.usageDbPath, { timeZone: config.timeZone });
+} catch (error) {
+  usageOpenError = `Token ledger unavailable: ${error.message}`;
+  console.error(`${usageOpenError} (${config.usageDbPath})`);
+}
+const unavailableUsage = () => ({ persistent: false, error: usageOpenError, updatedAt: new Date().toISOString() });
 const state = {
   status: "starting",
   message: "Waiting for the first measurements",
@@ -67,13 +77,17 @@ const state = {
   serving: null,
   inferenceState: "unknown",
   history: [],
-  usage: usageStore.summary(),
+  usage: usageStore ? usageStore.summary() : unavailableUsage(),
   startedAt: new Date().toISOString(),
   updatedAt: null,
 };
 
 let collectingNodes = false;
 let collectingVllm = false;
+// The model of the last successful poll: a restart in between (failed polls) does not hide a model switch.
+let lastServedModel = null;
+// Ledger errors repeat every poll; log a message when it changes and at most every ten minutes otherwise.
+let lastUsageError = { message: null, at: 0 };
 
 function refreshClusterStatus() {
   state.ringLinks = buildRingLinks(state.nodes, topology, { minGbps: config.linkMinGbps });
@@ -130,14 +144,16 @@ async function collectVllm() {
   if (collectingVllm) return;
   collectingVllm = true;
   try {
-    const previousModelName = state.vllm?.modelName;
     const nextVllm = await vllmCollector.collect();
-    if (previousModelName && nextVllm.modelName && previousModelName !== nextVllm.modelName) {
-      state.history = [];
+    if (nextVllm.ok && nextVllm.modelName) {
+      if (lastServedModel && lastServedModel !== nextVllm.modelName) state.history = [];
+      lastServedModel = nextVllm.modelName;
     }
     state.vllm = nextVllm;
     try {
-      if (nextVllm.ok) {
+      if (!usageStore) {
+        state.usage = unavailableUsage();
+      } else if (nextVllm.ok) {
         state.usage = usageStore.record(nextVllm);
       } else {
         const { session, modelName, processStartedAt } = state.usage;
@@ -145,7 +161,11 @@ async function collectVllm() {
       }
     } catch (error) {
       state.usage = { ...state.usage, error: error.message, updatedAt: new Date().toISOString() };
-      console.error(`Token usage store: ${error.message}`);
+      const now = Date.now();
+      if (error.message !== lastUsageError.message || now - lastUsageError.at > 10 * 60_000) {
+        console.error(`Token usage store: ${error.message}`);
+        lastUsageError = { message: error.message, at: now };
+      }
     }
     refreshClusterStatus();
     addHistoryPoint();
@@ -263,6 +283,10 @@ async function handle(request, response) {
       sendJson(response, 400, { error: "month must use YYYY-MM format" });
       return;
     }
+    if (!usageStore) {
+      sendJson(response, 503, { error: usageOpenError });
+      return;
+    }
     try {
       sendJson(response, 200, usageStore.month(month));
     } catch (error) {
@@ -294,7 +318,7 @@ vllmTimer.unref();
 
 server.on("error", (error) => {
   console.error(`Spark Scope cannot listen on ${config.host}:${config.port}: ${error.message}`);
-  usageStore.close();
+  usageStore?.close();
   process.exit(1);
 });
 
@@ -305,7 +329,7 @@ server.listen(config.port, config.host, () => {
     console.log("Warning: listening beyond localhost. Spark Scope has no authentication; expose it only on a network you trust.");
   }
   console.log(`Inference API: ${config.apiUrl}`);
-  console.log(`Token ledger: ${config.usageDbPath} (days in ${usageStore.timeZone})`);
+  console.log(usageStore ? `Token ledger: ${config.usageDbPath} (days in ${usageStore.timeZone})` : usageOpenError);
   console.log(`Topology: ${topology.source} (${topology.nodes.map((node) => `${node.name}=${!node.collect ? "not collected" : node.local ? "local" : `ssh ${node.host}`}`).join(", ")})`);
 });
 
@@ -313,7 +337,7 @@ function shutdown() {
   clearInterval(nodeTimer);
   clearInterval(vllmTimer);
   server.close(() => {
-    usageStore.close();
+    usageStore?.close();
     process.exit(0);
   });
   setTimeout(() => process.exit(1), 3000).unref();

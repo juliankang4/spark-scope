@@ -30,7 +30,7 @@ function renderNode(meta,node) {
   const pending=meta.collect===false||node?.collected===false,ok=Boolean(node?.ok);el.classList.toggle('is-unknown',!ok);
   const target=meta.local?'local':meta.host??'no host';
   set('title',meta.name);set('role',[ROLE_NAMES[meta.role]??meta.role,meta.hardware].filter(Boolean).join(' · '));
-  set('state',pending?'not collected':!ok?'no response':node.inferenceProcessReady?'serving':'idle');
+  set('state',pending?'not collected':!ok?'no response':node.gpu?.available===false?'no GPU data':node.inferenceProcessReady?'serving':'idle');
   set('connection',pending?`${target} · not collected`:ok?`${target} · ${fixed(node.latencyMs,0)} ms`:`${target} · status unknown`);
   const gpu=ok?node.gpu:{};set('gpu',finite(gpu?.utilization)?fixed(gpu.utilization,0)+'%':UNKNOWN);
   set('temp',fixed(gpu?.temperature,0));set('power',fixed(gpu?.powerWatts));set('memory',gib(ok?node.memory?.availableBytes:null));set('clock',fixed(gpu?.clockMHz,0));
@@ -78,7 +78,7 @@ function renderCharts(state) {
   }
 }
 function renderToday(usage) {
-  for(const selector of ['[data-usage]','[data-today]'])document.querySelectorAll(selector).forEach(el=>{const key=el.dataset.usage||el.dataset.today;const value=usage?.error?null:usage?.today?.[key];el.textContent=key==='requests'?fixed(value,0):compact(value);el.title=finite(value)?value.toLocaleString('en-US'):''});
+  for(const selector of ['[data-usage]','[data-today]'])document.querySelectorAll(selector).forEach(el=>{const key=el.dataset.usage||el.dataset.today;const value=usage?.error||usage?.reported?.[key]===false?null:usage?.today?.[key];el.textContent=key==='requests'?fixed(value,0):compact(value);el.title=finite(value)?value.toLocaleString('en-US'):''});
   document.querySelectorAll('[data-ledger-zone]').forEach(el=>{el.textContent=ledgerTimeZone?`Days in ${ledgerTimeZone}`:''});
 }
 function renderState(state) {
@@ -110,9 +110,12 @@ function rebuildMonths() {
   if(!choices.includes(selectedMonth))choices.push(selectedMonth);
   $('#token-month').innerHTML=choices.sort().reverse().map(month=>`<option value="${month}"${month===selectedMonth?' selected':''}>${monthLabel(month)}</option>`).join('');
 }
-function metricCell(key,value,tag='td') { return `<${tag} data-metric="${key}" data-count="${value}" title="${value.toLocaleString('en-US')}">${key==='requests'?fixed(value,0):compact(value)}</${tag}>`; }
+// A counter the engine does not export (usage.reported[key] === false) reads as unknown, not as 0.
+let unreported={};
+function metricCell(key,value,tag='td') { if(unreported[key]&&!value)return `<${tag} data-metric="${key}" class="unknown-value">${UNKNOWN}</${tag}>`; return `<${tag} data-metric="${key}" data-count="${value}" title="${value.toLocaleString('en-US')}">${key==='requests'?fixed(value,0):compact(value)}</${tag}>`; }
 function renderMonth(usage) {
   if(usage.timeZone)ledgerTimeZone=usage.timeZone;
+  unreported=Object.fromEntries(Object.entries(usage.reported??{}).filter(([,seen])=>seen===false).map(([key])=>[key,true]));
   earliestMonth=usage.firstMonth;rebuildMonths();const current=selectedMonth===usage.day.slice(0,7),name=monthLabel(selectedMonth).split(' ')[0];
   text('#month-title',current?`${name} to date`:`${name} total`);text('#month-period',current?`${dayLabel(selectedMonth+'-01')} – ${dayLabel(usage.day)}`:monthLabel(selectedMonth));
   $('#month-period').classList.remove('month-load-error');$('#today-tokens').hidden=!current;

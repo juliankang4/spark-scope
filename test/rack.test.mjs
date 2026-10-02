@@ -259,3 +259,12 @@ test("the rack page uses only local files, and every font it names is bundled wi
   assert.ok(existsSync(path.join(ROOT, "public/fonts/OFL-Archivo.txt")));
   assert.ok(existsSync(path.join(ROOT, "public/fonts/OFL-BebasNeue.txt")));
 });
+
+test("a node without GPU readings says why: a hung or failing query is critical, a missing nvidia-smi a warning", () => {
+  const noGpu = (status) => healthy({ gpu: { utilization: null, temperature: null, powerWatts: null, thermalSlowdown: false, available: false, status } });
+  assert.deepEqual([nodeView(META["2"], noGpu("stuck")).level, nodeView(META["2"], noGpu("stuck")).reasons[0]], ["crit", "nvidia-smi stuck"]);
+  assert.deepEqual([nodeView(META["2"], noGpu("timeout")).level, nodeView(META["2"], noGpu("timeout")).reasons[0]], ["crit", "GPU query timed out"]);
+  assert.deepEqual([nodeView(META["2"], noGpu("error")).level, nodeView(META["2"], noGpu("error")).reasons[0]], ["crit", "GPU query failed"]);
+  assert.deepEqual([nodeView(META["2"], noGpu("missing")).level, nodeView(META["2"], noGpu("missing")).reasons[0]], ["warn", "no nvidia-smi"]);
+  assert.equal(nodeView(META["2"], noGpu("timeout")).temp, null);
+});

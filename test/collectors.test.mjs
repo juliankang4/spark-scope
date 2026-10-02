@@ -275,7 +275,8 @@ test("SGLang inter-token latency stands in for TPOT and its accept-rate gauge fo
   assert.equal(metricValue(metrics, "vllm:request_time_per_output_token_seconds_count"), 100);
   assert.equal(metricValue(metrics, "vllm:inter_token_latency_seconds_bucket", { le: "0.04" }), 100);
   assert.ok(Math.abs(speculativeAcceptancePercent(metrics) - 33.5) < 1e-9);
-  assert.equal(speculativeAcceptancePercent(parsePrometheus("vllm:num_requests_running 0\n")), 0);
+  // No speculative decoding at all reads as unknown, not as a 0% acceptance.
+  assert.equal(speculativeAcceptancePercent(parsePrometheus("vllm:num_requests_running 0\n")), null);
 });
 
 test("a local node runs the collector with bash directly; any other node goes over SSH", () => {
@@ -299,4 +300,138 @@ test("local collection runs on this machine and leaves what it cannot read unkno
   }
   assert.equal(node.memory.usedBytes === null, node.memory.totalBytes === null || node.memory.availableBytes === null);
   assert.equal(node.network.spkmissing0.available, false);
+});
+
+// A fake nvidia-smi on PATH, so the collector's handling of a hung or failing GPU query runs on any machine.
+async function withFakeNvidiaSmi(body, run) {
+  const { mkdtempSync, writeFileSync, chmodSync, rmSync } = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-fake-smi-"));
+  writeFileSync(path.join(directory, "nvidia-smi"), `#!/bin/sh\n${body}\n`);
+  chmodSync(path.join(directory, "nvidia-smi"), 0o755);
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${directory}:${savedPath}`;
+  try {
+    return await run();
+  } finally {
+    process.env.PATH = savedPath;
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+// A sleep duration unique to this run, so a parallel test run cannot be mistaken for a leftover of this one.
+const uniqueSleep = () => `sleep 27.${process.pid}${Math.floor(Math.random() * 1e6)}`;
+
+// Processes matching pattern that are still alive after up to 3 s (a killed process can take a moment to be reaped).
+async function leftover(pattern) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const found = spawnSync("pgrep", ["-f", pattern], { encoding: "utf8" }).stdout.trim();
+    if (!found) return "";
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return spawnSync("pgrep", ["-fl", pattern], { encoding: "utf8" }).stdout.trim();
+}
+
+test("a hung nvidia-smi costs only the GPU readings and leaves no process behind", async () => {
+  const hung = uniqueSleep();
+  const node = await withFakeNvidiaSmi(`exec ${hung}`, async () => {
+    const started = Date.now();
+    const result = await collectNode({ id: "1", name: "this", host: "local", local: true });
+    // Well inside the 4.5 s poll budget: the GPU query gave up on its own instead of hitting the poll timeout.
+    assert.ok(Date.now() - started < 4400, "the poll waited for the hung command");
+    return result;
+  });
+  assert.equal(node.ok, true, node.error ?? "");
+  assert.equal(node.incomplete, false);
+  assert.equal(node.gpu.available, false);
+  assert.equal(node.gpu.status, "timeout");
+  assert.equal(node.gpu.temperature, null);
+  assert.ok(node.hostname.length > 0, "the rest of the node was still read");
+  assert.equal(await leftover(hung), "");
+});
+
+test("a failing nvidia-smi is reported as an error, not as a healthy node with no data", async () => {
+  const node = await withFakeNvidiaSmi("echo 'Failed to initialize NVML' >&2; exit 9", () =>
+    collectNode({ id: "1", name: "this", host: "local", local: true }));
+  assert.equal(node.ok, true, node.error ?? "");
+  assert.equal(node.gpu.available, false);
+  assert.equal(node.gpu.status, "error");
+});
+
+test("a poll cut short by the time limit keeps what arrived and stops the whole process group", async () => {
+  const hung = uniqueSleep();
+  const node = await withFakeNvidiaSmi(`exec ${hung}`, () =>
+    collectNode({ id: "1", name: "this", host: "local", local: true }, { timeoutMs: 700 }));
+  assert.equal(node.ok, true);
+  assert.equal(node.incomplete, true);
+  assert.match(node.error, /timed out after 700 ms/);
+  assert.ok(node.hostname.length > 0);
+  assert.equal(node.gpu.available, false);
+  assert.equal(await leftover(hung), "");
+});
+
+// A local stand-in for an inference server's /health, /metrics and /v1/models.
+async function withFakeEngine(metricsText, run) {
+  const http = await import("node:http");
+  let body = metricsText;
+  const server = http.createServer((request, response) => {
+    if (request.url === "/metrics") { response.writeHead(200, { "content-type": "text/plain" }); response.end(body); return; }
+    if (request.url === "/v1/models") { response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ data: [{ id: "example-model" }] })); return; }
+    response.writeHead(200).end("ok");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    return await run(`http://127.0.0.1:${server.address().port}`, (next) => { body = next; });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
+test("vLLM data-parallel engines are added up, and metrics an engine does not export stay unknown", async () => {
+  const { VllmCollector } = await import("../lib/collectors.mjs");
+  const engines = (output) => [
+    `vllm:num_requests_running{engine="0",model_name="example-model"} 2`,
+    `vllm:num_requests_running{engine="1",model_name="example-model"} 5`,
+    `vllm:num_requests_waiting{engine="0",model_name="example-model"} 1`,
+    `vllm:num_requests_waiting{engine="1",model_name="example-model"} 0`,
+    `vllm:generation_tokens_total{engine="0",model_name="example-model"} ${output[0]}`,
+    `vllm:generation_tokens_total{engine="1",model_name="example-model"} ${output[1]}`,
+    `vllm:prompt_tokens_total{engine="0",model_name="example-model"} 4000`,
+    `vllm:prompt_tokens_total{engine="1",model_name="example-model"} 6000`,
+    `vllm:request_success_total{engine="0",finished_reason="stop",model_name="example-model"} 10`,
+    `vllm:request_success_total{engine="1",finished_reason="stop",model_name="example-model"} 30`,
+    `vllm:time_to_first_token_seconds_bucket{engine="0",le="0.1"} 99`,
+    `vllm:time_to_first_token_seconds_bucket{engine="0",le="2.5"} 100`,
+    `vllm:time_to_first_token_seconds_bucket{engine="0",le="+Inf"} 100`,
+    `vllm:time_to_first_token_seconds_bucket{engine="1",le="0.1"} 0`,
+    `vllm:time_to_first_token_seconds_bucket{engine="1",le="2.5"} 100`,
+    `vllm:time_to_first_token_seconds_bucket{engine="1",le="+Inf"} 100`,
+  ].join("\n");
+  await withFakeEngine(engines([1000, 3000]), async (base, setMetrics) => {
+    const collector = new VllmCollector(base);
+    const first = await collector.collect();
+    assert.equal(first.ok, true, first.error ?? "");
+    assert.equal(first.generationTokensTotal, 4000);
+    assert.equal(first.promptTokensTotal, 10000);
+    assert.equal(first.completedRequestsTotal, 40);
+    assert.equal(first.runningRequests, 7);
+    assert.equal(first.waitingRequests, 1);
+    // Half of all first tokens took longer than 0.1 s, so p95 is the 2.5 s bucket, not engine 0's 0.1 s.
+    assert.equal(first.ttftP95Seconds, 2.5);
+    // One sample cannot give a rate, and these metrics are simply not exported here.
+    assert.equal(first.outputTokensPerSecond, null);
+    for (const key of ["promptComputeTokensTotal", "promptCacheTokensTotal", "kvCachePercent", "prefixCacheHitPercent", "speculativeAcceptancePercent"]) {
+      assert.equal(first[key], null, key);
+    }
+    collector.previous.at -= 2000;
+    setMetrics(engines([1100, 3300]));
+    const second = await collector.collect();
+    assert.ok(second.outputTokensPerSecond > 100 && second.outputTokensPerSecond < 300, String(second.outputTokensPerSecond));
+  });
+});
+
+test("process memory nvidia-smi does not report stays unknown", () => {
+  assert.equal(parseInferenceProcess("1234,python3,[N/A],S").memoryBytes, null);
+  assert.equal(parseInferenceProcess("1234,python3,1024,S").memoryBytes, 1024 * 1024 * 1024);
 });

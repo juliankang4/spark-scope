@@ -10,7 +10,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // Starts the real server on a free port with a node that is never contacted and an inference URL that refuses
 // connections, so nothing leaves this machine.
-async function startServer(directory) {
+async function startServer(directory, extraEnv = {}) {
   const topology = path.join(directory, "topology.json");
   writeFileSync(topology, JSON.stringify({ nodes: [{ id: "1", name: "spark-1", host: "spark-1", collect: false }], links: [] }));
   const child = spawn(process.execPath, [path.join(ROOT, "server.mjs")], {
@@ -22,6 +22,7 @@ async function startServer(directory) {
       SPARK_SCOPE_TOPOLOGY: topology,
       SPARK_SCOPE_USAGE_DB: path.join(directory, "usage.sqlite"),
       SPARK_SCOPE_TIME_ZONE: "UTC",
+      ...extraEnv,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -68,6 +69,40 @@ test("the server serves the dashboard, the rack panel, the fonts and the JSON AP
     assert.equal((await fetch(`${base}/api/usage?month=2026-09`)).status, 200);
     assert.notEqual((await fetch(`${base}/%2e%2e/server.mjs`)).status, 200);
     assert.equal((await fetch(`${base}/`, { method: "POST" })).status, 405);
+  } finally {
+    const exited = new Promise((resolve) => child.on("exit", resolve));
+    child.kill("SIGTERM");
+    await exited;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("poll intervals must be whole numbers within limits; '2s' is refused instead of read as 2 ms", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-server-interval-"));
+  try {
+    for (const [name, value] of [["SPARK_SCOPE_API_INTERVAL_MS", "2s"], ["SPARK_SCOPE_NODE_INTERVAL_MS", "1e4"], ["SPARK_SCOPE_API_INTERVAL_MS", "100"]]) {
+      await assert.rejects(startServer(directory, { [name]: value }), new RegExp(`server exited with 1: .*${name} must be a whole number of at least`, "s"));
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a ledger file that cannot be opened turns off token counting, not the dashboard", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-server-ledger-"));
+  const broken = path.join(directory, "broken.sqlite");
+  writeFileSync(broken, Buffer.alloc(4096, 0x5a));
+  const { child, base } = await startServer(directory, { SPARK_SCOPE_USAGE_DB: broken });
+  try {
+    // The server keeps running and serving; this test setup has no reachable node or API, so health reads offline.
+    assert.equal((await fetch(`${base}/`)).status, 200);
+    const stateResponse = await fetch(`${base}/api/state`);
+    assert.equal(stateResponse.status, 200);
+    const state = await stateResponse.json();
+    assert.equal(state.usage.persistent, false);
+    assert.match(state.usage.error, /Token ledger unavailable/);
+    const month = await fetch(`${base}/api/usage?month=2026-10`);
+    assert.equal(month.status, 503);
   } finally {
     const exited = new Promise((resolve) => child.on("exit", resolve));
     child.kill("SIGTERM");

@@ -104,6 +104,13 @@ export function nodeLinks(state, id) {
   });
 }
 
+const GPU_PROBLEMS = {
+  stuck: { level: "crit", text: "nvidia-smi stuck" },
+  timeout: { level: "crit", text: "GPU query timed out" },
+  error: { level: "crit", text: "GPU query failed" },
+  missing: { level: "warn", text: "no nvidia-smi" },
+};
+
 // Reasons are ordered by severity so the bay header can show the most important one.
 export function nodeView(meta, node, { vllmOk = false, lastOkAt = null, nowMs = Date.now(), links = [], clock = {} } = {}) {
   const id = meta?.id ?? node?.id ?? "?";
@@ -144,6 +151,9 @@ export function nodeView(meta, node, { vllmOk = false, lastOkAt = null, nowMs = 
   const crit = [];
   const warn = [...linkReasons];
   if (node.gpu?.thermalSlowdown) crit.push("thermal slowdown");
+  // No GPU readings: a hung or failing nvidia-smi is a likely GPU fault; a missing one is a setup issue.
+  const gpuProblem = node.gpu?.available === false ? GPU_PROBLEMS[node.gpu.status] ?? GPU_PROBLEMS.error : null;
+  if (gpuProblem) (gpuProblem.level === "crit" ? crit : warn).push(gpuProblem.text);
   if (node.systemState && node.systemState !== "running") warn.push(`system ${node.systemState}`);
   if (node.failedUnits > 0) warn.push(`${node.failedUnits} failed ${node.failedUnits === 1 ? "unit" : "units"}`);
   // Nodes marked "inference": false in topology.json may idle while the API serves.

@@ -215,3 +215,14 @@ test('resolved service failures recover on the next sample without hiding new fa
   n['4'].failedUnits = 0;
   assert.equal(clusterStatus(n, { ok: true }, links(), t).status, 'degraded');
 });
+
+test('a reachable node without GPU readings degrades the cluster instead of reading healthy', () => {
+  const t = normalizeTopology(rawExample(1));
+  const nodes = { 1: { ...node('1'), gpu: { thermalSlowdown: false, available: false, status: 'timeout' } } };
+  assert.deepEqual(clusterStatus(nodes, { ok: true }, buildRingLinks(nodes, t), t), {
+    status: 'degraded', inferenceState: 'serving', message: 'GPU readings unavailable on spark-1',
+  });
+  // Older payloads without the flag are judged as before.
+  const legacy = { 1: node('1') };
+  assert.equal(clusterStatus(legacy, { ok: true }, buildRingLinks(legacy, t), t).status, 'healthy');
+});
