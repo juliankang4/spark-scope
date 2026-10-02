@@ -1,6 +1,15 @@
-import { COLORS, nodeOrder, linkText, UNKNOWN, finite, fixed, compact, duration, tokenRate, gib, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, dayLabel, monthOptions, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange } from './view-data.js';
+import { COLORS, nodeOrder, linkText, UNKNOWN, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, dayLabel, monthOptions, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange } from './view-data.js';
+import { parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 const $ = selector => document.querySelector(selector);
-let latest = null, metas = [], lastTopology = null, range = 60, collecting = false, monthSequence = 0, monthLoadedAt = 0, monthController = null;
+// Display settings (units, clock, chart range, refresh) from this browser; a settings link replaces them and is then
+// taken out of the address, so a reload does not apply it again.
+const store=(()=>{try{return window.localStorage}catch{return null}})();
+let settings=loadSettings(store),themeChoice=loadTheme(store);
+const linked=settingsFromQuery(location.search);
+if(linked){settings=linked.settings;themeChoice=linked.theme;saveSettings(store,settings);saveTheme(store,themeChoice);window.history.replaceState(null,'',location.pathname+withoutSettingsQuery(location.search)+location.hash)}
+const hour12=()=>settings.clock==='12';
+const clock=(value,options={})=>clockTime(value,{...options,hour12:hour12()});
+let latest = null, metas = [], lastTopology = null, range = settings.range, collecting = false, monthSequence = 0, monthLoadedAt = 0, monthController = null;
 // The full history is fetched every 30 s and when the range changes; polls in between add their own sample to it.
 const HISTORY_REFRESH_MS = 30_000;
 let history = [], historyAt = 0, historyRange = null;
@@ -14,13 +23,12 @@ const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 function text(selector, value) { const el = $(selector); if (el.textContent !== value) el.textContent = value; el.classList.toggle('unknown-value', value === UNKNOWN || value === 'stopped'); }
 // Theme: follows the system until picked; the button cycles through the other look, the system's look and back to system.
 const themeToggle=$('#theme-toggle'),darkQuery=matchMedia('(prefers-color-scheme: dark)');
-let themeChoice=null;try{const saved=localStorage.getItem('spark-scope-theme');if(saved==='light'||saved==='dark')themeChoice=saved}catch{}
 function applyTheme() {
   const system=darkQuery.matches?'dark':'light',next=nextTheme(themeChoice,system);
   document.documentElement.dataset.theme=themeChoice??system;themeToggle.dataset.choice=themeChoice??'system';
   themeToggle.title=`Theme: ${themeChoice??`system (${system})`}. Switch to ${next??'system'}`;themeToggle.setAttribute('aria-label',themeToggle.title);
 }
-themeToggle.addEventListener('click',()=>{themeChoice=nextTheme(themeChoice,darkQuery.matches?'dark':'light');try{themeChoice?localStorage.setItem('spark-scope-theme',themeChoice):localStorage.removeItem('spark-scope-theme')}catch{}applyTheme()});
+themeToggle.addEventListener('click',()=>{themeChoice=nextTheme(themeChoice,darkQuery.matches?'dark':'light');saveTheme(store,themeChoice);applyTheme();syncForm()});
 onMediaChange(darkQuery,applyTheme);applyTheme();
 
 const ROLE_NAMES={HEAD:'Head',WORKER:'Worker',NODE:'Node'};
@@ -35,11 +43,12 @@ function syncNodes(next) {
 }
 // Sensors and the TP rank are shown only when a node reports them; ACPI zones keep their firmware names.
 const EXTRA_FIELDS=[['Free disk','disk'],['Process memory','process-memory'],['CPU load','cpu',true],['NVMe','nvme',true],['NIC','nic',true],['System','system'],['TP rank','rank',true]];
-function buildNodes() {
-  $('#nodes').innerHTML=metas.map(meta=>`<article class="node" data-node-id="${esc(meta.id)}"><header><h2 data-node="title">${esc(meta.name)}</h2><span class="badge" data-node="state">checking</span></header><div class="role"><span data-node="role"></span><span data-node="connection"></span></div><div class="instrument"><div class="gauge"><svg viewBox="0 0 114 72" aria-hidden="true"><path class="track" d="M10 62 A47 47 0 0 1 104 62"/><path class="needle" pathLength="100" stroke-dasharray="0 100" d="M10 62 A47 47 0 0 1 104 62"/></svg><strong data-node="gpu">${UNKNOWN}</strong><span>GPU load</span></div><div class="readings">${[['GPU temperature','temp','°C'],['GPU power','power','W'],['Free memory','memory','GiB'],['Clock','clock','MHz']].map(([label,field,unit])=>`<div class="reading"><small>${label}</small><b><span data-node="${field}">${UNKNOWN}</span><em>${unit}</em></b></div>`).join('')}</div></div><div class="mem"><div class="memline"><span>Unified memory usage</span><span data-node="memory-used">${UNKNOWN}</span></div><div class="meter"><i style="width:0"></i></div></div><details><summary data-node="kernel-summary">Checking kernel diagnostics</summary><div class="extra">${EXTRA_FIELDS.map(([label,field,optional])=>`<span${optional?' data-optional hidden':''}>${label} <b data-node="${field}">${UNKNOWN}</b></span>`).join('')}<span class="wide" data-optional hidden>ACPI <b data-node="zones">${UNKNOWN}</b></span><span class="wide" data-optional hidden>Container <b data-node="container">${UNKNOWN}</b></span><span class="wide" data-node="kernel-last"></span><span class="wide" data-node="last-update"></span></div></details></article>`).join('');
+function cardHtml(meta) {
+  return `<article class="node" data-node-id="${esc(meta.id)}"><header><h2 data-node="title">${esc(meta.name)}</h2><span class="badge" data-node="state">checking</span></header><div class="role"><span data-node="role"></span><span data-node="connection"></span></div><div class="instrument"><div class="gauge"><svg viewBox="0 0 114 72" aria-hidden="true"><path class="track" d="M10 62 A47 47 0 0 1 104 62"/><path class="needle" pathLength="100" stroke-dasharray="0 100" d="M10 62 A47 47 0 0 1 104 62"/></svg><strong data-node="gpu">${UNKNOWN}</strong><span>GPU load</span></div><div class="readings">${[['GPU temperature','temp',temperatureUnit(settings.temp)],['GPU power','power','W'],['Free memory','memory',memoryUnit(settings.mem)],['Clock','clock','MHz']].map(([label,field,unit])=>`<div class="reading"><small>${label}</small><b><span data-node="${field}">${UNKNOWN}</span><em>${unit}</em></b></div>`).join('')}</div></div><div class="mem"><div class="memline"><span>Unified memory usage</span><span data-node="memory-used">${UNKNOWN}</span></div><div class="meter"><i style="width:0"></i></div></div><details><summary data-node="kernel-summary">Checking kernel diagnostics</summary><div class="extra">${EXTRA_FIELDS.map(([label,field,optional])=>`<span${optional?' data-optional hidden':''}>${label} <b data-node="${field}">${UNKNOWN}</b></span>`).join('')}<span class="wide" data-optional hidden>ACPI <b data-node="zones">${UNKNOWN}</b></span><span class="wide" data-optional hidden>Container <b data-node="container">${UNKNOWN}</b></span><span class="wide" data-node="kernel-last"></span><span class="wide" data-node="last-update"></span></div></details></article>`;
 }
-function renderNode(meta,node) {
-  const el=$('#nodes').querySelector(`[data-node-id="${CSS.escape(meta.id)}"]`);if(!el)return;
+function buildNodes() { $('#nodes').innerHTML=metas.map(cardHtml).join(''); }
+function renderNode(meta,node,root=$('#nodes')) {
+  const el=root.querySelector(`[data-node-id="${CSS.escape(meta.id)}"]`);if(!el)return;
   const set=(name,value)=>{const field=el.querySelector(`[data-node="${name}"]`);field.textContent=value;field.classList.toggle('unknown-value',value===UNKNOWN);if(field.parentElement.hasAttribute('data-optional'))field.parentElement.hidden=value===UNKNOWN};
   const pending=meta.collect===false||node?.collected===false,ok=Boolean(node?.ok);el.classList.toggle('is-unknown',!ok);
   const target=meta.local?'local':meta.host??'no host';
@@ -48,22 +57,24 @@ function renderNode(meta,node) {
   set('state',state);el.querySelector('.badge').dataset.level=BADGE_LEVELS[state]??'idle';
   set('connection',pending?`${target} | not collected`:ok?`${target} | ${fixed(node.latencyMs,0)} ms`:`${target} | status unknown`);
   const gpu=ok?node.gpu:{};set('gpu',finite(gpu?.utilization)?fixed(gpu.utilization,0)+'%':UNKNOWN);el.querySelector('[data-node="gpu"]').classList.toggle('full',finite(gpu?.utilization)&&gpu.utilization>=99.5);
-  set('temp',fixed(gpu?.temperature,0));set('power',fixed(gpu?.powerWatts));set('memory',gib(ok?node.memory?.availableBytes:null));set('clock',fixed(gpu?.clockMHz,0));
+  const mem=settings.mem,memUnit=memoryUnit(mem),tempUnit=temperatureUnit(settings.temp);
+  set('temp',temperature(gpu?.temperature,settings.temp));set('power',fixed(gpu?.powerWatts));set('memory',memory(ok?node.memory?.availableBytes:null,mem));set('clock',fixed(gpu?.clockMHz,0));
   const total=ok?node.memory?.totalBytes:null,used=ok?node.memory?.usedBytes:null;
-  set('memory-used',finite(total)&&finite(used)?`${gib(used)} / ${gib(total,0)} GiB`:UNKNOWN);
+  set('memory-used',finite(total)&&finite(used)?`${memory(used,mem)} / ${memory(total,mem,0)} ${memUnit}`:UNKNOWN);
   el.querySelector('.needle').setAttribute('stroke-dasharray',`${finite(gpu?.utilization)?Math.max(0,Math.min(100,gpu.utilization)):0} 100`);
   el.querySelector('.meter i').style.width=finite(total)&&total>0&&finite(used)?`${Math.min(100,used/total*100)}%`:'0%';
-  set('disk',ok&&finite(node.disk?.availableBytes)?gib(node.disk.availableBytes,0)+' GiB':UNKNOWN);set('process-memory',ok&&finite(node.processMemoryBytes)?gib(node.processMemoryBytes)+' GiB':UNKNOWN);
+  set('disk',ok&&finite(node.disk?.availableBytes)?`${memory(node.disk.availableBytes,mem,0)} ${memUnit}`:UNKNOWN);set('process-memory',ok&&finite(node.processMemoryBytes)?`${memory(node.processMemoryBytes,mem)} ${memUnit}`:UNKNOWN);
   const cpu=ok?node.cpu:null;set('cpu',finite(cpu?.load1)?`${fixed(cpu.load1,2)}${finite(cpu.cores)?` / ${cpu.cores} cores`:''}`:UNKNOWN);
-  set('nvme',ok?fixed(node.nvmeCelsius,1,' °C'):UNKNOWN);set('nic',ok?fixed(node.nicCelsius,1,' °C'):UNKNOWN);
-  const zones=ok?Object.entries(node.thermals?.zones??{}).filter(([,value])=>finite(value)):[];set('zones',zones.length?zones.map(([name,value])=>`${name} ${fixed(value,1)}`).join(' | ')+' °C':UNKNOWN);
+  const degrees=value=>finite(value)?`${temperature(value,settings.temp,1)} ${tempUnit}`:UNKNOWN;
+  set('nvme',ok?degrees(node.nvmeCelsius):UNKNOWN);set('nic',ok?degrees(node.nicCelsius):UNKNOWN);
+  const zones=ok?Object.entries(node.thermals?.zones??{}).filter(([,value])=>finite(value)):[];set('zones',zones.length?zones.map(([name,value])=>`${name} ${temperature(value,settings.temp,1)}`).join(' | ')+` ${tempUnit}`:UNKNOWN);
   set('system',ok&&node.systemState?`${node.systemState} (failed ${node.failedUnits})`:UNKNOWN);set('rank',ok&&finite(node.rank)?String(node.rank):UNKNOWN);
   // The container line appears only when the node can see its inference container (Docker access).
   set('container',ok&&node.container?.detected?`${node.container.name} ${node.container.running?'running':'stopped'} (restarts ${node.container.restarts})`:UNKNOWN);
   const kernel=ok?node.kernelEvents:null;
   set('kernel-summary',kernel?.available?`24 h: Xid ${kernel.capped?'≥':''}${kernel.xid}, NO MEMORY ${kernel.capped?'≥':''}${kernel.noMemory} | details`:'Kernel diagnostics unavailable | details');
-  set('kernel-last',kernel?.available?(kernel.total?`${eventTime(kernel.lastAt)} ${kernel.lastMessage||'kernel error'}`:'No matching kernel errors in the last 24 h'):'Kernel journal summary unavailable');
-  set('last-update',pending?'not collected':`Last poll ${clockTime(node?.updatedAt)}`);
+  set('kernel-last',kernel?.available?(kernel.total?`${eventTime(kernel.lastAt,Date.now(),{hour12:hour12()})} ${kernel.lastMessage||'kernel error'}`:'No matching kernel errors in the last 24 h'):'Kernel journal summary unavailable');
+  set('last-update',pending?'not collected':`Last poll ${clock(node?.updatedAt)}`);
 }
 const LINK_STROKE={up:['var(--link)',''],slow:['var(--orange)',''],partial:['var(--orange)',''],pending:['var(--orange)','6 5'],down:['var(--red)','6 5'],unknown:['var(--line)','3 4']};
 // The interconnect: one line per cable. With one node or no links configured the panel is hidden.
@@ -85,7 +96,7 @@ function renderCharts(state) {
   const d=chartPath(history,'outputTokensPerSecond',{start,end,min:0,max,top:4,bottom:22});$('#output-line').setAttribute('d',d);$('#output-fill').setAttribute('d','');
   $('#avg-line').setAttribute('d',finite(avg)?chartPath([{at:start,value:avg},{at:end,value:avg}],'value',{start,end,min:0,max,top:4,bottom:22}):'');
   const queueMax=Math.max(1,...history.map(p=>p.queue).filter(finite));$('#queue-line').setAttribute('d',chartPath(history,'queue',{start,end,min:0,max:queueMax,top:120,bottom:4}));
-  const label=value=>clockTime(value,{seconds:false});
+  const label=value=>clock(value,{seconds:false});
   text('#range-start',label(start));text('#range-mid',label((start+end)/2));text('#range-end',label(end));
   $('#plot-note').hidden=rates.length>0;$('#plot-note').textContent=state.inferenceState==='stopped'?'The inference process is stopped.':'No output measurements yet.';
   for(const kind of ['temp','mem']) {
@@ -94,7 +105,7 @@ function renderCharts(state) {
     const pick=id=>point=>{const v=point.nodes?.[id]?.[field];return finite(v)?v/scale:null};
     const values=history.flatMap(point=>ids.map(id=>pick(id)(point))).filter(finite),low=kind==='temp'&&values.length?Math.min(...values)-2:0,high=values.length?Math.max(...values)+(kind==='temp'?2:5):1;
     $('#'+kind+'-chart').innerHTML=ids.map((id,index)=>`<path d="${chartPath(history,pick(id),{start,end,width:320,height:80,min:low,max:high})}" fill="none" stroke="${COLORS[index%COLORS.length]}" stroke-width="2" vector-effect="non-scaling-stroke"/>`).join('');
-    $('#'+kind+'-legend').innerHTML=metas.map((meta,index)=>{const node=state.nodes?.[meta.id];const value=!node?.ok?UNKNOWN:kind==='temp'?fixed(node.gpu?.temperature,0):gib(node.memory?.availableBytes);return `<span style="color:${COLORS[index%COLORS.length]}">${esc(meta.name)} <b class="num">${value}</b></span>`}).join('');
+    $('#'+kind+'-legend').innerHTML=metas.map((meta,index)=>{const node=state.nodes?.[meta.id];const value=!node?.ok?UNKNOWN:kind==='temp'?temperature(node.gpu?.temperature,settings.temp):memory(node.memory?.availableBytes,settings.mem);return `<span style="color:${COLORS[index%COLORS.length]}">${esc(meta.name)} <b class="num">${value}</b></span>`}).join('');
   }
 }
 function renderToday(usage) {
@@ -103,6 +114,10 @@ function renderToday(usage) {
 }
 function renderState(state) {
   const age=Date.now()-Date.parse(state.updatedAt);if(!Number.isFinite(age)||age>staleAfterMs(state))throw new Error('stale data');
+  drawState(state);
+}
+// Draws a state that passed the age check; a settings change redraws the last one with the new units.
+function drawState(state) {
   latest=state;lastTopology=state.topology??lastTopology;
   if(state.usage?.timeZone&&state.usage.timeZone!==ledgerTimeZone){ledgerTimeZone=state.usage.timeZone;if(!monthPicked&&selectedMonth!==ledgerToday().slice(0,7)){selectedMonth=ledgerToday().slice(0,7);monthLoadedAt=0;rebuildMonths();if(!$('#tokens').hidden)void refreshMonth(true)}}
   syncNodes(nodeOrder(state));$('#shell').classList.remove('stale');
@@ -111,12 +126,13 @@ function renderState(state) {
   $('.status').className='status '+(state.status==='healthy'?'':stopped?'stopped':'error');text('#status-title',state.message||'Checking status');
   const watts=metas.map(m=>nodes[m.id]).filter(n=>n?.ok&&finite(n.gpu?.powerWatts)).map(n=>n.gpu.powerWatts);
   $('#status-desc').innerHTML=`<span>Nodes ${online}/${count}</span><span>Inference processes ${serving}/${count}</span><span>API ${v?.ok?'up':'no response'}</span>${watts.length?`<span>GPU power ${fixed(watts.reduce((sum,w)=>sum+w,0),1)} W${watts.length<count?` (${watts.length}/${count} nodes)`:''}</span>`:''}`;
-  text('#updated-at',clockTime(state.updatedAt));text('#model-title',v?.modelName||(stopped?'Inference stopped':'Model unknown'));text('#model-meta',serving?`${state.serving?.engine??'Inference'} running on ${plural(serving,'node')}`:`Live monitor | ${plural(count,'node')}`);
+  text('#updated-at',clock(state.updatedAt));text('#model-title',v?.modelName||(stopped?'Inference stopped':'Model unknown'));text('#model-meta',serving?`${state.serving?.engine??'Inference'} running on ${plural(serving,'node')}`:`Live monitor | ${plural(count,'node')}`);
   document.title=v?.modelName?`${v.modelName} | Spark Scope`:'Spark Scope';
   const empty=stopped?'stopped':UNKNOWN,value=(number,formatter=fixed)=>v?.ok?formatter(number):empty;
   text('#speed',value(v?.outputTokensPerSecond));text('#legend-speed',value(v?.outputTokensPerSecond));text('#avg',fixed(state.historyStats?.activeOutputTokensPerSecond));text('#queue',value(v?.waitingRequests,n=>fixed(n,0)));
   document.querySelectorAll('[data-field]').forEach(el=>{const key=el.dataset.field;let result=empty;if(v?.ok){if(key==='requests')result=`${fixed(v.runningRequests,0)} / ${fixed(v.waitingRequests,0)}`;else if(key.endsWith('Seconds'))result=duration(v[key]);else if(key.endsWith('Percent'))result=fixed(v[key],1,'%');else result=tokenRate(v[key])}el.textContent=result});
   metas.forEach(meta=>renderNode(meta,nodes[meta.id]));renderLinks(state);renderCharts(state);renderToday(state.usage);
+  if(dialog.open)renderPreview();
 }
 function failedState() {
   latest=null;
@@ -179,10 +195,70 @@ function selectTab(btn,updateHash=true) {
 }
 document.querySelectorAll('[role=tab]').forEach(btn=>{btn.addEventListener('click',()=>selectTab(btn));btn.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?$('#tab-scope'):e.key==='End'?$('#tab-tokens'):btn.id==='tab-scope'?$('#tab-tokens'):$('#tab-scope');selectTab(next);next.focus()}})});
 window.addEventListener('hashchange',()=>selectTab($(location.hash==='#tokens'?'#tab-tokens':'#tab-scope'),false));
-document.querySelectorAll('[data-range]').forEach(btn=>btn.addEventListener('click',()=>{range=Number(btn.dataset.range);document.querySelectorAll('[data-range]').forEach(b=>b.setAttribute('aria-pressed',String(b===btn)));void refresh()}));
+function showRange(){document.querySelectorAll('[data-range]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.range)===range)))}
+document.querySelectorAll('[data-range]').forEach(btn=>btn.addEventListener('click',()=>{range=Number(btn.dataset.range);showRange();void refresh()}));
 $('#token-month').addEventListener('change',()=>{monthPicked=true;selectedMonth=$('#token-month').value;monthLoadedAt=0;clearMonth('Loading the monthly ledger…');void refreshMonth(true)});
+// ---- settings dialog ----
+const dialog=$('#settings'),form=dialog.querySelector('form'),opener=$('#settings-open');
+let previewId=null;
+function showUnits(){text('#temp-unit',temperatureUnit(settings.temp));text('#mem-unit',memoryUnit(settings.mem))}
+// Puts the current settings into the form controls.
+function syncForm(){
+  for(const [name,value] of Object.entries({...settings,theme:themeChoice??'system'}))for(const input of form.querySelectorAll(`[name="${name}"]`))input.type==='checkbox'?input.checked=Boolean(value):input.checked=input.value===String(value);
+}
+// One node's card drawn with the current settings and live data, the update time on the chosen clock, and About.
+function renderPreview(){
+  const select=$('#preview-node'),options=metas.map(meta=>`<option value="${esc(meta.id)}">${esc(meta.name)}</option>`).join('');
+  if(select.innerHTML!==options)select.innerHTML=options;select.hidden=metas.length<2;
+  if(!metas.some(meta=>meta.id===previewId))previewId=metas[0]?.id??null;select.value=previewId??'';
+  const meta=metas.find(item=>item.id===previewId),box=$('#preview-nodes');
+  box.innerHTML=meta?cardHtml(meta):'';if(meta)renderNode(meta,latest?.nodes?.[meta.id],box);
+  $('#preview-clock').textContent=clock(latest?.updatedAt??Date.now());
+  const intervals=latest?.pollIntervals,every=ms=>finite(ms)?` | every ${fixed(ms/1000,ms%1000?1:0)} s`:'';
+  $('#about-version').textContent=latest?.version??UNKNOWN;
+  $('#about-engine').textContent=(latest?.serving?.engine??UNKNOWN)+every(intervals?.apiMs);
+  $('#about-nodes').textContent=metas.length?plural(metas.length,'node')+every(intervals?.nodeMs):UNKNOWN;
+}
+// Every change applies at once: saved, drawn on the page behind the dialog and in the preview.
+function applySettings({rangeChanged=false,refreshChanged=false}={}){
+  saveSettings(store,settings);showUnits();
+  if(rangeChanged){range=settings.range;showRange();void refresh()}
+  if(refreshChanged)schedulePolls();
+  buildNodes();if(latest){try{drawState(latest)}catch(error){console.error('Spark Scope could not redraw with the new settings:',error)}}
+  renderPreview();syncForm();
+}
+form.addEventListener('change',event=>{
+  const input=event.target;if(input.id==='preview-node'){previewId=input.value;renderPreview();return}
+  if(input.name==='theme'){themeChoice=input.value==='system'?null:input.value;saveTheme(store,themeChoice);applyTheme();return}
+  const before=settings;
+  settings=parseSettings({...settings,[input.name]:input.type==='checkbox'?input.checked:['range','refresh'].includes(input.name)?Number(input.value):input.value});
+  applySettings({rangeChanged:settings.range!==before.range,refreshChanged:settings.refresh!==before.refresh});
+});
+function showSection(name){
+  dialog.querySelectorAll('[data-section]').forEach(button=>button.setAttribute('aria-current',String(button.dataset.section===name)));
+  dialog.querySelectorAll('[data-panel]').forEach(panel=>{panel.hidden=panel.dataset.panel!==name});
+}
+dialog.querySelectorAll('[data-section]').forEach(button=>button.addEventListener('click',()=>showSection(button.dataset.section)));
+opener.addEventListener('click',()=>{syncForm();renderPreview();$('#settings-link').hidden=true;dialog.showModal();opener.setAttribute('aria-expanded','true')});
+dialog.addEventListener('close',()=>{opener.setAttribute('aria-expanded','false');opener.focus()});
+// Clicking the dimmed page outside the dialog closes it.
+dialog.addEventListener('click',event=>{if(event.target===dialog)dialog.close()});
+$('#settings-reset').addEventListener('click',()=>{const before=settings;settings=parseSettings(null);themeChoice=null;saveTheme(store,null);applyTheme();applySettings({rangeChanged:settings.range!==before.range,refreshChanged:settings.refresh!==before.refresh})});
+// The clipboard needs HTTPS or localhost; on plain HTTP the link is shown selected, ready to copy by hand.
+$('#settings-copy').addEventListener('click',async()=>{
+  const query=settingsQuery(settings,themeChoice),url=location.origin+location.pathname+(query?`?${query}`:''),field=$('#settings-link'),button=$('#settings-copy');
+  field.value=url;field.hidden=false;let copied=false;
+  try{await navigator.clipboard.writeText(url);copied=true}catch{}
+  field.focus();field.select();button.textContent=copied?'Link copied':'Copy the selected link';
+  setTimeout(()=>{button.textContent='Copy settings link'},2500);
+});
+
+showUnits();showRange();syncForm();
 buildNodes();rebuildMonths();clearMonth('Loading the monthly ledger…');selectTab($(location.hash==='#tokens'?'#tab-tokens':'#tab-scope'),false);void refresh();
-// A hidden tab sends no requests; when it is shown again it reloads the chart history at once, so the gap fills in.
-function poll(){if(document.hidden)return;void refresh();if(!$('#tokens').hidden)void refreshMonth()}
-setInterval(poll,2000);
+// With "pause while hidden" on (the default) a hidden tab sends no requests; when it is shown again it reloads the
+// chart history at once, so the gap fills in.
+function poll(){if(settings.pause&&document.hidden)return;void refresh();if(!$('#tokens').hidden)void refreshMonth()}
+let pollTimer=null;
+function schedulePolls(){clearInterval(pollTimer);pollTimer=setInterval(poll,settings.refresh*1000)}
+schedulePolls();
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){historyAt=0;poll()}});

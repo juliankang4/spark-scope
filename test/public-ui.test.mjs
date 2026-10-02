@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compact, duration, tokenRate, chartPath, eventTime, validateMonth, monthOptions, monthLabel, dayLabel, localDay, nodeOrder, linkText, fabricLayout, nodeLabel, labelWidth, nextTheme, COLORS } from '../public/view-data.js';
+import { compact, duration, tokenRate, chartPath, clockTime, eventTime, memory, memoryUnit, temperature, temperatureUnit, validateMonth, monthOptions, monthLabel, dayLabel, localDay, nodeOrder, linkText, fabricLayout, nodeLabel, labelWidth, nextTheme, COLORS } from '../public/view-data.js';
 import { loadTopology, publicTopology } from '../lib/topology.mjs';
+import { DEFAULTS, SETTINGS_KEY, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from '../public/settings.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const example = (count) => publicTopology(loadTopology(path.join(ROOT, 'examples', `topology.${count}-node.json`), { fallback: false }));
@@ -242,4 +243,70 @@ test("timeouts and media-query listeners also work where Safari lacks the newer 
   onMediaChange({ addListener: (fn) => calls.push(['legacy', fn]) }, () => {});
   onMediaChange({ addEventListener: (type, fn) => calls.push([type, fn]) }, () => {});
   assert.deepEqual(calls.map(([kind]) => kind), ['legacy', 'change']);
+});
+
+test('settings fall back to the default field by field when stored values are missing or invalid', () => {
+  assert.deepEqual(parseSettings(null), DEFAULTS);
+  assert.deepEqual(parseSettings('{"temp":"f"}'), DEFAULTS);
+  assert.deepEqual(parseSettings([1, 2]), DEFAULTS);
+  assert.deepEqual(parseSettings({ temp: 'f', mem: 'tb', clock: 12, range: 60, refresh: 3, pause: 'no', extra: 1 }),
+    { ...DEFAULTS, temp: 'f' });
+  assert.deepEqual(parseSettings({ temp: 'f', mem: 'gb', clock: '12', range: 360, refresh: 10, pause: false }),
+    { temp: 'f', mem: 'gb', clock: '12', range: 360, refresh: 10, pause: false });
+});
+
+test('settings storage keeps only changed fields and survives broken or missing storage', () => {
+  const memoryStore = () => { const data = new Map(); return { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, String(v)), removeItem: (k) => data.delete(k), data }; };
+  const store = memoryStore();
+  assert.equal(saveSettings(store, { ...DEFAULTS, temp: 'f', range: 15 }), true);
+  assert.equal(store.data.get(SETTINGS_KEY), '{"temp":"f","range":15}');
+  assert.deepEqual(loadSettings(store), { ...DEFAULTS, temp: 'f', range: 15 });
+  saveSettings(store, DEFAULTS);
+  assert.equal(store.data.has(SETTINGS_KEY), false);
+  store.setItem(SETTINGS_KEY, '{not json');
+  assert.deepEqual(loadSettings(store), DEFAULTS);
+  const throwing = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); }, removeItem() { throw new Error('blocked'); } };
+  assert.deepEqual(loadSettings(throwing), DEFAULTS);
+  assert.equal(saveSettings(throwing, DEFAULTS), false);
+  assert.deepEqual(loadSettings(null), DEFAULTS);
+  assert.equal(loadTheme(throwing), null);
+  saveTheme(store, 'dark');
+  assert.equal(loadTheme(store), 'dark');
+  saveTheme(store, null);
+  assert.equal(loadTheme(store), null);
+});
+
+test('a settings link carries the whole setup and ignores what it does not know', () => {
+  const settings = { ...DEFAULTS, temp: 'f', mem: 'gb', clock: '12', range: 15, refresh: 5, pause: false };
+  const query = settingsQuery(settings, 'dark');
+  assert.equal(query, 'temp=f&mem=gb&clock=12&range=15&refresh=5&pause=0&theme=dark');
+  assert.deepEqual(settingsFromQuery(`?${query}`), { settings, theme: 'dark' });
+  assert.equal(settingsQuery(DEFAULTS, null), '');
+  assert.equal(settingsFromQuery(''), null);
+  assert.equal(settingsFromQuery('?view=tokens'), null);
+  // A link names only what differs from the defaults, so a missing field resets to its default.
+  assert.deepEqual(settingsFromQuery('?temp=f&range=7&pause=maybe&theme=blue'), { settings: { ...DEFAULTS, temp: 'f' }, theme: null });
+  assert.equal(withoutSettingsQuery('?temp=f&mem=gb&view=tokens'), '?view=tokens');
+  assert.equal(withoutSettingsQuery('?temp=f&theme=dark'), '');
+});
+
+test('temperatures and memory read in the chosen units', () => {
+  assert.equal(temperature(63, 'c'), '63');
+  assert.equal(temperature(63, 'f'), '145');
+  assert.equal(temperature(47.5, 'f', 1), '117.5');
+  assert.equal(temperature(null, 'f'), 'unknown');
+  assert.equal(temperatureUnit('f'), '°F');
+  assert.equal(memory(122 * 2 ** 30, 'gib', 0), '122');
+  assert.equal(memory(122 * 2 ** 30, 'gb', 0), '131');
+  assert.equal(memory(10.5 * 2 ** 30, 'gb'), '11.3');
+  assert.equal(memoryUnit('gb'), 'GB');
+  assert.equal(memoryUnit('anything'), 'GiB');
+});
+
+test('the 12-hour clock names AM and PM and drops the leading zero', () => {
+  const at = new Date(2026, 9, 3, 18, 4, 5).getTime();
+  assert.equal(clockTime(at, { hour12: true }), '6:04:05 PM');
+  assert.equal(clockTime(at, { hour12: true, seconds: false }), '6:04 PM');
+  assert.match(clockTime(at), /^18.04.05$/);
+  assert.match(eventTime(at, at, { hour12: true }), /^6:04:05 PM$/);
 });

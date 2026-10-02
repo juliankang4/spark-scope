@@ -21,6 +21,8 @@ const { UsageStore } = await import("./lib/usage-store.mjs");
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_ROOT = path.join(ROOT, "public");
+// Shown in the settings dialog's About section.
+const VERSION = JSON.parse(await readFile(path.join(ROOT, "package.json"), "utf8")).version;
 
 // Whole numbers only: "2s" or "1e4" are rejected instead of being read as 2 or 1.
 function positiveInteger(name, fallback, minimum = 1) {
@@ -279,6 +281,7 @@ async function handle(request, response) {
       history: withHistory ? downsampleHistory(history) : undefined,
       historyStats: summarizeHistory(history, minutes),
       pollIntervals: { nodeMs: config.nodeIntervalMs, apiMs: config.apiIntervalMs },
+      version: VERSION,
     }));
     return;
   }
