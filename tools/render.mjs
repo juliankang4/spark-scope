@@ -209,6 +209,10 @@ const CHECK_WEB = `(() => {
   const issues = [];
   const overflow = document.documentElement.scrollWidth - window.innerWidth;
   if (overflow > 0) issues.push("horizontal overflow " + overflow + "px");
+  // Reading labels stay whole on one line unless Full labels were chosen (Auto switches narrow cards to the short ones).
+  if (document.documentElement.dataset.labels !== "full") for (const el of document.querySelectorAll(".reading small")) {
+    if (el.getClientRects().length && el.scrollWidth > el.clientWidth + 1) issues.push("reading label cut: " + el.innerText.trim().slice(0, 40));
+  }
   for (const el of document.querySelectorAll("#scope h1, #scope h2, .identity h1, .badge, .role span, .reading b, .extra span, .links td, .trend p span, .legend div, .status .sub span, #tokens h2, #tokens h3, .month-metrics small, .month-metrics b, .history th, .history td, .day-bar span")) {
     if (!el.getClientRects().length) continue;
     if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).textOverflow !== "ellipsis") issues.push("text wider than its box: " + el.textContent.trim().slice(0, 40));
@@ -433,7 +437,7 @@ try {
     await web.go(`${base}/`);
     await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && /\\d/.test(document.querySelector('#updated-at').textContent)");
     await web.evaluate("document.querySelector('#settings-open').click()");
-    for (const section of ["units", "dashboard", "about"]) {
+    for (const section of ["card", "units", "dashboard", "about"]) {
       await web.evaluate(`document.querySelector('[data-section="${section}"]').click()`);
       await new Promise((resolve) => setTimeout(resolve, 300));
       const issues = await web.evaluate(CHECK_SETTINGS);
@@ -441,6 +445,10 @@ try {
       await web.shoot(name);
       report(name, [], [...issues, ...web.errors.splice(0)]);
     }
+    // Selecting a reading on the preview card opens its slot in Node card.
+    await web.evaluate(`document.querySelector('[data-section="units"]').click(); document.querySelector('#preview-nodes .reading[data-slot="2"]').click()`);
+    const picked = await web.evaluate("[document.querySelector('[data-section=card]').getAttribute('aria-current'), document.activeElement?.dataset.slot ?? null, Boolean(document.querySelector('.slots label.flash'))]");
+    report(`web-${label}-settings-preview-pick`, [`section current: ${picked[0]}, focused slot: ${picked[1]}, highlighted: ${picked[2]}`], picked[0] === "true" && picked[1] === "2" && picked[2] ? [] : ["selecting a preview reading did not open its slot"]);
     await checkHelp(web, label, "");
     await web.go(`${base}/?temp=f&mem=gb&clock=12&range=15`);
     await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && /\\d/.test(document.querySelector('#updated-at').textContent)");
@@ -460,6 +468,23 @@ try {
     const name = `web-${label}-settings-link.png`;
     await web.shoot(name, { fullPage: true });
     report(name, [`units: ${linked.units}`, `updated: ${linked.updated}`, `stored: ${linked.stored}`], problems);
+    // A card set up like a setup shared on social media: °F, disk used in a slot and a root filesystem bar; engine
+    // panel and trends hidden.
+    await web.evaluate("localStorage.clear()");
+    await web.go(`${base}/?temp=f&readings=temp,power,disk,clock&bars=unified,disk&hide=engine,trends`);
+    await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && /\\d/.test(document.querySelector('#updated-at').textContent)");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const card = await web.evaluate(`(() => ({
+      readings: [...document.querySelectorAll('#nodes .node:first-child .reading')].map((r) => r.innerText.replace(/\\s+/g, " ")).join(" / "),
+      bars: [...document.querySelectorAll('#nodes .node:first-child [data-bar]')].map((b) => b.innerText.replace(/\\s+/g, " ")).join(" / "),
+      hidden: [document.querySelector('.engine').hidden, document.querySelector('.trends').hidden, document.querySelector('.lower').classList.contains('single')],
+    }))()`);
+    const cardProblems = [...await web.evaluate(CHECK_WEB), ...web.errors.splice(0)];
+    if (!/Disk used/.test(card.readings) || !/°F/.test(card.readings)) cardProblems.push("readings not applied: " + card.readings);
+    if (!/Root filesystem/.test(card.bars)) cardProblems.push("root filesystem bar missing: " + card.bars);
+    if (card.hidden.some((value) => !value)) cardProblems.push("panels not hidden: " + card.hidden.join(","));
+    await web.shoot(`web-${label}-card-setup.png`, { fullPage: true });
+    report(`web-${label}-card-setup.png`, [`readings: ${card.readings}`, `bars: ${card.bars}`], cardProblems);
     await web.evaluate("localStorage.clear()");
     await web.close();
   }
@@ -520,7 +545,7 @@ try {
     const switched = [];
     if (after[3] !== "ko") switched.push("page language " + after[3]);
     for (const [index, part] of ["page card", "preview card", "dialog title"].entries()) if (after[index] === before[index]) switched.push(`${part} still reads ${after[index]}`);
-    for (const section of ["units", "dashboard", "about"]) {
+    for (const section of ["card", "units", "dashboard", "about"]) {
       await web.evaluate(`document.querySelector('[data-section="${section}"]').click()`);
       await new Promise((resolve) => setTimeout(resolve, 300));
       const issues = await web.evaluate(CHECK_SETTINGS);

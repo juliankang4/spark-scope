@@ -1,5 +1,5 @@
-import { COLORS, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange } from './view-data.js';
-import { parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
+import { COLORS, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue } from './view-data.js';
+import { READING_IDS, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 import { t, setLanguage, translatePage, serverText, LANGUAGE_NAMES } from './i18n.js';
 import { hide as hideHelp, helpButton } from './help.js';
 const $ = selector => document.querySelector(selector);
@@ -47,7 +47,7 @@ function syncNodes(next) {
 const extraFields=()=>[[t('node.freeDisk'),'disk'],[t('node.processMemory'),'process-memory'],[t('node.cpuLoad'),'cpu',true],['NVMe','nvme',true],['NIC','nic',true],[t('node.system'),'system'],['TP rank','rank',true]];
 function cardHtml(meta) {
   const u=unknown();
-  return `<article class="node" data-node-id="${esc(meta.id)}"><header><h2 data-node="title">${esc(meta.name)}</h2><span class="badge" data-node="state">${t('node.badge.checking')}</span></header><div class="role"><span data-node="role"></span><span data-node="connection"></span></div><div class="instrument"><div class="gauge"><svg viewBox="0 0 114 72" aria-hidden="true"><path class="track" d="M10 62 A47 47 0 0 1 104 62"/><path class="needle" pathLength="100" stroke-dasharray="0 100" d="M10 62 A47 47 0 0 1 104 62"/></svg><strong data-node="gpu">${u}</strong><span>${t('node.gpuLoad')}</span></div><div class="readings">${[[t('node.gpuTemperature'),'temp',temperatureUnit(settings.temp)],[t('node.gpuPower'),'power','W'],[t('node.freeMemory'),'memory',memoryUnit(settings.mem)],[t('node.clock'),'clock','MHz']].map(([label,field,unit])=>`<div class="reading"><small>${label}</small><b><span data-node="${field}">${u}</span><em>${unit}</em></b></div>`).join('')}</div></div><div class="mem"><div class="memline"><span>${t('node.unifiedMemoryUsage')}</span><span data-node="memory-used">${u}</span></div><div class="meter"><i style="width:0"></i></div></div><details><summary data-node="kernel-summary">${t('node.kernelChecking')}</summary><div class="extra">${extraFields().map(([label,field,optional])=>`<span${optional?' data-optional hidden':''}>${label} <b data-node="${field}">${u}</b></span>`).join('')}<span class="wide" data-optional hidden>ACPI <b data-node="zones">${u}</b></span><span class="wide" data-optional hidden>${t('node.container')} <b data-node="container">${u}</b></span><span class="wide" data-node="kernel-last"></span><span class="wide" data-node="last-update"></span></div></details></article>`;
+  return `<article class="node" data-node-id="${esc(meta.id)}"><header><h2 data-node="title">${esc(meta.name)}</h2><span class="badge" data-node="state">${t('node.badge.checking')}</span></header><div class="role"><span data-node="role"></span><span data-node="connection"></span></div><div class="instrument"><div class="gauge"><svg viewBox="0 0 114 72" aria-hidden="true"><path class="track" d="M10 62 A47 47 0 0 1 104 62"/><path class="needle" pathLength="100" stroke-dasharray="0 100" d="M10 62 A47 47 0 0 1 104 62"/></svg><strong data-node="gpu">${u}</strong><span>${t('node.gpuLoad')}</span></div><div class="readings">${settings.readings.map((id,slot)=>`<div class="reading" data-slot="${slot}"><small><span class="full">${t(`node.reading.${id}`)}</span><span class="short">${t(`node.readingShort.${id}`)}</span></small><b data-reading="${slot}"><span>${u}</span><em></em></b></div>`).join('')}</div></div>${settings.bars.includes('unified')?`<div class="mem" data-bar="unified"><div class="memline"><span>${t('node.unifiedMemoryUsage')}</span><span data-node="memory-used">${u}</span></div><div class="meter"><i style="width:0"></i></div></div>`:''}${settings.bars.includes('disk')?`<div class="mem" data-bar="disk"><div class="memline"><span>${t('node.rootFilesystem')}</span><span data-node="disk-used">${u}</span></div><div class="meter"><i style="width:0"></i></div></div>`:''}<details><summary data-node="kernel-summary">${t('node.kernelChecking')}</summary><div class="extra">${extraFields().map(([label,field,optional])=>`<span${optional?' data-optional hidden':''}>${label} <b data-node="${field}">${u}</b></span>`).join('')}<span class="wide" data-optional hidden>ACPI <b data-node="zones">${u}</b></span><span class="wide" data-optional hidden>${t('node.container')} <b data-node="container">${u}</b></span><span class="wide" data-node="kernel-last"></span><span class="wide" data-node="last-update"></span></div></details></article>`;
 }
 function buildNodes() { $('#nodes').innerHTML=metas.map(cardHtml).join(''); }
 function renderNode(meta,node,root=$('#nodes')) {
@@ -61,11 +61,13 @@ function renderNode(meta,node,root=$('#nodes')) {
   set('connection',pending?t('node.connection.notCollected',{target}):ok?`${target} | ${fixed(node.latencyMs,0)} ms`:t('node.connection.statusUnknown',{target}));
   const gpu=ok?node.gpu:{};set('gpu',finite(gpu?.utilization)?fixed(gpu.utilization,0)+'%':u);el.querySelector('[data-node="gpu"]').classList.toggle('full',finite(gpu?.utilization)&&gpu.utilization>=99.5);
   const mem=settings.mem,memUnit=memoryUnit(mem),tempUnit=temperatureUnit(settings.temp);
-  set('temp',temperature(gpu?.temperature,settings.temp));set('power',fixed(gpu?.powerWatts));set('memory',memory(ok?node.memory?.availableBytes:null,mem));set('clock',fixed(gpu?.clockMHz,0));
-  const total=ok?node.memory?.totalBytes:null,used=ok?node.memory?.usedBytes:null;
-  set('memory-used',finite(total)&&finite(used)?`${memory(used,mem)} / ${memory(total,mem,0)} ${memUnit}`:u);
+  // The four readings chosen in the settings, orange past their warning level.
+  settings.readings.forEach((id,slot)=>{const field=el.querySelector(`[data-reading="${slot}"]`);if(!field)return;const r=readingValue(id,node,settings);field.firstElementChild.textContent=r.text;field.lastElementChild.textContent=r.unit;field.classList.toggle('unknown-value',r.text===u);field.classList.toggle('warn',r.warn)});
   el.querySelector('.needle').setAttribute('stroke-dasharray',`${finite(gpu?.utilization)?Math.max(0,Math.min(100,gpu.utilization)):0} 100`);
-  el.querySelector('.meter i').style.width=finite(total)&&total>0&&finite(used)?`${Math.min(100,used/total*100)}%`:'0%';
+  const total=ok?node.memory?.totalBytes:null,used=ok?node.memory?.usedBytes:null,free=ok?node.memory?.availableBytes:null,unified=el.querySelector('[data-bar="unified"]');
+  if(unified){set('memory-used',finite(total)&&finite(used)?`${memory(used,mem)} / ${memory(total,mem,0)} ${memUnit}`:u);const bar=unified.querySelector('.meter i');bar.style.width=finite(total)&&total>0&&finite(used)?`${Math.min(100,used/total*100)}%`:'0%';bar.classList.toggle('warn',finite(free)&&free<settings.memWarn*2**30)}
+  const disk=ok?node.disk:null,rootfs=el.querySelector('[data-bar="disk"]');
+  if(rootfs){const pct=finite(disk?.usedPercent)?disk.usedPercent:null;set('disk-used',pct!==null&&finite(disk?.totalBytes)?t('node.diskOf',{percent:fixed(pct,0),total:memory(disk.totalBytes,mem,0),unit:memUnit}):u);const bar=rootfs.querySelector('.meter i');bar.style.width=pct!==null?`${Math.min(100,pct)}%`:'0%';bar.classList.toggle('warn',pct!==null&&pct>=settings.diskWarn)}
   set('disk',ok&&finite(node.disk?.availableBytes)?`${memory(node.disk.availableBytes,mem,0)} ${memUnit}`:u);set('process-memory',ok&&finite(node.processMemoryBytes)?`${memory(node.processMemoryBytes,mem)} ${memUnit}`:u);
   const cpu=ok?node.cpu:null;set('cpu',finite(cpu?.load1)?(finite(cpu.cores)?t('node.cpuCores',{load:fixed(cpu.load1,2),cores:cpu.cores}):fixed(cpu.load1,2)):u);
   const degrees=value=>finite(value)?`${temperature(value,settings.temp,1)} ${tempUnit}`:u;
@@ -83,7 +85,7 @@ const LINK_STROKE={up:['var(--link)',''],slow:['var(--orange)',''],partial:['var
 // The interconnect: one line per cable. With one node or no links configured the panel is hidden.
 function renderLinks(state) {
   const topology=state?.topology??lastTopology,links=topology?.links??[],layout=fabricLayout(topology);
-  $('#fabric-panel').hidden=!layout;$('#body-grid').classList.toggle('no-fabric',!layout);
+  const visible=Boolean(layout)&&!settings.hide.includes('interconnect');$('#fabric-panel').hidden=!visible;$('#body-grid').classList.toggle('no-fabric',!visible);
   if(!layout)return;
   $('#link-rows').innerHTML=links.map(link=>{const live=state?.ringLinks?.[link.id],st=live?.state??'unknown',planes=link.planes??['a','b'],color=st==='up'&&!live.slow?'green':st==='down'?'red':st==='unknown'?'muted':'orange';const rate=plane=>planes.includes(plane)?fixed(live?.[plane]?.rateGbps,2):'—';return `<tr><td>${esc(link.label.replace('–',' ↔ '))}</td><td>${rate('a')}</td><td>${rate('b')}</td><td style="color:var(--${color})">${esc(linkText(live))}</td></tr>`}).join('');
   $('#fabric-links').innerHTML=layout.links.map(line=>{const live=state?.ringLinks?.[line.id],[stroke,dash]=LINK_STROKE[live?.state==='up'&&live.slow?'slow':live?.state??'unknown']??LINK_STROKE.unknown;return `<line x1="${line.x1.toFixed(1)}" y1="${line.y1.toFixed(1)}" x2="${line.x2.toFixed(1)}" y2="${line.y2.toFixed(1)}" style="stroke:${stroke}${dash?`;stroke-dasharray:${dash}`:''}"><title>${esc(links.find(link=>link.id===line.id)?.label??line.id)}: ${esc(linkText(live))}</title></line>`}).join('');
@@ -219,7 +221,20 @@ let previewId=null;
 function showUnits(){text('#temp-range',t('trends.selectedRange',{unit:temperatureUnit(settings.temp)}));text('#mem-range',t('trends.selectedRange',{unit:memoryUnit(settings.mem)}))}
 // Puts the current settings into the form controls.
 function syncForm(){
-  for(const [name,value] of Object.entries({...settings,theme:themeChoice??'system'}))for(const input of form.querySelectorAll(`[name="${name}"]`))input.type==='checkbox'?input.checked=Boolean(value):input.checked=input.value===String(value);
+  for(const [name,value] of Object.entries({...settings,theme:themeChoice??'system'}))for(const input of form.querySelectorAll(`input[name="${name}"]:not([type=number])`))input.type==='checkbox'?input.checked=Boolean(value):input.checked=input.value===String(value);
+  form.querySelectorAll('select[name="reading"]').forEach(select=>{const slot=Number(select.dataset.slot);const options=READING_IDS.map(id=>`<option value="${id}">${esc(t(`node.reading.${id}`))}</option>`).join('');if(select.innerHTML!==options)select.innerHTML=options;select.value=settings.readings[slot]});
+  form.querySelectorAll('[data-slot-label]').forEach(el=>{el.textContent=t('settings.card.slot',{n:Number(el.dataset.slotLabel)+1})});
+  form.querySelectorAll('input[name="bar"]').forEach(input=>{input.checked=settings.bars.includes(input.value)});
+  form.querySelectorAll('input[name="panel"]').forEach(input=>{input.checked=!settings.hide.includes(input.value)});
+  // The temperature level is kept in °C and shown in the chosen unit.
+  const f=settings.temp==='f',warnTemp=form.querySelector('input[name="tempWarn"]');warnTemp.min=f?104:40;warnTemp.max=f?230:110;warnTemp.value=f?Math.round(settings.tempWarn*9/5+32):settings.tempWarn;$('#warn-temp-unit').textContent=t('settings.card.warnTempUnit',{unit:temperatureUnit(settings.temp)});
+  form.querySelector('input[name="diskWarn"]').value=settings.diskWarn;form.querySelector('input[name="memWarn"]').value=settings.memWarn;
+}
+// Labels and panels follow the settings on the page itself.
+function showLayout(){
+  document.documentElement.dataset.labels=settings.labels;
+  $('.engine').hidden=settings.hide.includes('engine');
+  const trends=settings.hide.includes('trends'),ledger=settings.hide.includes('ledger');$('.trends').hidden=trends;$('#today-ledger').hidden=ledger;$('.lower').hidden=trends&&ledger;$('.lower').classList.toggle('single',trends!==ledger);
 }
 // One node's card drawn with the current settings and live data, the update time on the chosen clock, and About.
 function renderPreview(){
@@ -239,7 +254,7 @@ function renderPreview(){
 function applySettings({rangeChanged=false,refreshChanged=false,langChanged=false}={}){
   saveSettings(store,settings);
   if(langChanged){setLanguage(settings.lang);translatePage();applyTheme();rebuildMonths();redrawMonth()}
-  showUnits();
+  showUnits();showLayout();
   if(rangeChanged){range=settings.range;showRange();void refresh()}
   if(refreshChanged)schedulePolls();
   buildNodes();const lost=$('#shell').classList.contains('stale');
@@ -250,10 +265,20 @@ const changes=before=>({rangeChanged:settings.range!==before.range,refreshChange
 form.addEventListener('change',event=>{
   const input=event.target;if(input.id==='preview-node'){previewId=input.value;renderPreview();return}
   if(input.name==='theme'){themeChoice=input.value==='system'?null:input.value;saveTheme(store,themeChoice);applyTheme();return}
-  const before=settings;
-  settings=parseSettings({...settings,[input.name]:input.type==='checkbox'?input.checked:['range','refresh'].includes(input.name)?Number(input.value):input.value});
+  const before=settings;let next;
+  // Picking a reading another slot already shows swaps the two.
+  if(input.name==='reading'){const slot=Number(input.dataset.slot),readings=[...settings.readings],other=readings.indexOf(input.value);if(other>=0)readings[other]=readings[slot];readings[slot]=input.value;next={readings};input.closest('label').classList.remove('flash')}
+  else if(input.name==='bar')next={bars:[...form.querySelectorAll('input[name="bar"]:checked')].map(box=>box.value)};
+  else if(input.name==='panel')next={hide:[...form.querySelectorAll('input[name="panel"]:not(:checked)')].map(box=>box.value)};
+  else if(input.name==='tempWarn'){const value=Number(input.value);next={tempWarn:Math.round(settings.temp==='f'?(value-32)*5/9:value)}}
+  else if(input.name==='diskWarn'||input.name==='memWarn')next={[input.name]:Math.round(Number(input.value))};
+  else next={[input.name]:input.type==='checkbox'?input.checked:['range','refresh'].includes(input.name)?Number(input.value):input.value};
+  // An out-of-range level falls back to the default; the form then shows what applies.
+  settings=parseSettings({...settings,...next});
   applySettings(changes(before));
 });
+// Selecting a reading on the preview card opens its slot in Node card.
+$('#preview-nodes').addEventListener('click',event=>{const reading=event.target.closest('.reading');if(!reading)return;showSection('card');const label=form.querySelector(`select[data-slot="${reading.dataset.slot}"]`)?.closest('label');if(label){form.querySelectorAll('.slots label').forEach(other=>other.classList.toggle('flash',other===label));label.querySelector('select').focus()}});
 function showSection(name){
   dialog.querySelectorAll('[data-section]').forEach(button=>button.setAttribute('aria-current',String(button.dataset.section===name)));
   dialog.querySelectorAll('[data-panel]').forEach(panel=>{panel.hidden=panel.dataset.panel!==name});
@@ -273,7 +298,7 @@ $('#settings-copy').addEventListener('click',async()=>{
   setTimeout(()=>{button.textContent=t('settings.copyLink')},2500);
 });
 
-showUnits();showRange();syncForm();
+showUnits();showLayout();showRange();syncForm();
 buildNodes();rebuildMonths();clearMonth('ledger.loading');selectTab($(location.hash==='#tokens'?'#tab-tokens':'#tab-scope'),false);void refresh();
 // With "pause while hidden" on (the default) a hidden tab sends no requests; when it is shown again it reloads the
 // chart history at once, so the gap fills in.

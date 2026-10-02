@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compact, duration, tokenRate, chartPath, clockTime, eventTime, memory, memoryUnit, temperature, temperatureUnit, validateMonth, monthOptions, monthLabel, dayLabel, localDay, nodeOrder, linkText, fabricLayout, nodeLabel, labelWidth, nextTheme, COLORS } from '../public/view-data.js';
+import { readingValue, compact, duration, tokenRate, chartPath, clockTime, eventTime, memory, memoryUnit, temperature, temperatureUnit, validateMonth, monthOptions, monthLabel, dayLabel, localDay, nodeOrder, linkText, fabricLayout, nodeLabel, labelWidth, nextTheme, COLORS } from '../public/view-data.js';
 import { loadTopology, publicTopology } from '../lib/topology.mjs';
 import { DEFAULTS, SETTINGS_KEY, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from '../public/settings.js';
 
@@ -252,7 +252,7 @@ test('settings fall back to the default field by field when stored values are mi
   assert.deepEqual(parseSettings({ temp: 'f', mem: 'tb', clock: 12, range: 60, refresh: 3, pause: 'no', lang: 'fr', extra: 1 }),
     { ...DEFAULTS, temp: 'f' });
   assert.deepEqual(parseSettings({ temp: 'f', mem: 'gb', clock: '12', range: 360, refresh: 10, pause: false, lang: 'ko' }),
-    { temp: 'f', mem: 'gb', clock: '12', range: 360, refresh: 10, pause: false, lang: 'ko' });
+    { ...DEFAULTS, temp: 'f', mem: 'gb', clock: '12', range: 360, refresh: 10, pause: false, lang: 'ko' });
   // English is the default language.
   assert.equal(DEFAULTS.lang, 'en');
 });
@@ -316,4 +316,50 @@ test('the 12-hour clock names AM and PM and drops the leading zero', () => {
   assert.equal(clockTime(at, { hour12: true, seconds: false }), '6:04 PM');
   assert.match(clockTime(at), /^18.04.05$/);
   assert.match(eventTime(at, at, { hour12: true }), /^6:04:05 PM$/);
+});
+
+test('node card settings: four distinct known readings, known bars and panels, whole-number warning levels', () => {
+  assert.deepEqual(DEFAULTS.readings, ['temp', 'power', 'mem', 'clock']);
+  assert.deepEqual(DEFAULTS.bars, ['unified']);
+  assert.deepEqual(DEFAULTS.hide, []);
+  assert.equal(DEFAULTS.labels, 'auto');
+  const good = { readings: ['temp', 'power', 'disk', 'clock'], bars: ['unified', 'disk'], hide: ['engine', 'trends'], labels: 'short', tempWarn: 80, diskWarn: 90, memWarn: 4 };
+  assert.deepEqual(parseSettings(good), { ...DEFAULTS, ...good });
+  // Three readings, a repeated one, an unknown one: the slots fall back to the default four.
+  for (const readings of [['temp', 'power', 'mem'], ['temp', 'temp', 'mem', 'clock'], ['temp', 'power', 'fan', 'clock'], 'temp,power,mem,clock'])
+    assert.deepEqual(parseSettings({ readings }).readings, DEFAULTS.readings, String(readings));
+  assert.deepEqual(parseSettings({ bars: [] }).bars, [], 'no bars at all is a valid choice');
+  assert.deepEqual(parseSettings({ bars: ['gpu'] }).bars, DEFAULTS.bars);
+  assert.deepEqual(parseSettings({ hide: ['ledger', 'ledger'] }).hide, DEFAULTS.hide);
+  for (const [key, value] of [['tempWarn', 39], ['tempWarn', 85.5], ['diskWarn', 101], ['memWarn', -1], ['memWarn', '2'], ['labels', 'tiny']])
+    assert.equal(parseSettings({ [key]: value })[key], DEFAULTS[key], `${key}=${value}`);
+  // A stored list is a copy: changing the parsed settings never changes the defaults.
+  const parsed = parseSettings(null);
+  parsed.readings[0] = 'cpu';
+  assert.equal(DEFAULTS.readings[0], 'temp');
+  // In a link the lists are comma-separated.
+  const query = settingsQuery({ ...DEFAULTS, temp: 'f', readings: ['temp', 'power', 'disk', 'clock'], bars: ['unified', 'disk'], hide: ['engine'] }, null);
+  assert.equal(query, 'temp=f&readings=temp%2Cpower%2Cdisk%2Cclock&bars=unified%2Cdisk&hide=engine');
+  assert.deepEqual(settingsFromQuery(`?${query}`).settings, { ...DEFAULTS, temp: 'f', readings: ['temp', 'power', 'disk', 'clock'], bars: ['unified', 'disk'], hide: ['engine'] });
+  assert.deepEqual(settingsFromQuery('?bars=').settings.bars, []);
+  assert.deepEqual(settingsFromQuery('?readings=temp,power').settings.readings, DEFAULTS.readings);
+});
+
+test('card readings give text, unit and warning in the chosen units', () => {
+  const GIB = 2 ** 30;
+  const settings = { ...DEFAULTS, temp: 'f' };
+  const node = { ok: true, gpu: { temperature: 86, powerWatts: 31.52, clockMHz: 2405 }, memory: { availableBytes: 1.5 * GIB },
+    disk: { totalBytes: 1000 * GIB, availableBytes: 40 * GIB, usedPercent: 96 }, cpu: { load1: 1.834, cores: 20 }, nvmeCelsius: 48, processMemoryBytes: 98.2 * GIB };
+  const read = (id) => readingValue(id, node, settings);
+  assert.deepEqual(read('temp'), { text: '187', unit: '°F', warn: true });
+  assert.deepEqual(read('power'), { text: '31.5', unit: 'W', warn: false });
+  assert.deepEqual(read('mem'), { text: '1.5', unit: 'GiB', warn: true });
+  assert.deepEqual(read('disk'), { text: '960', unit: 'GiB', warn: true });
+  assert.deepEqual(read('diskfree'), { text: '40', unit: 'GiB', warn: true });
+  assert.deepEqual(read('cpu'), { text: '1.83', unit: '/ 20', warn: false });
+  assert.deepEqual(read('nvme'), { text: '118', unit: '°F', warn: false });
+  assert.equal(read('nic').text, 'unknown');
+  assert.equal(readingValue('temp', { ok: false }, settings).text, 'unknown');
+  assert.equal(readingValue('temp', node, { ...settings, tempWarn: 90 }).warn, false);
+  assert.equal(readingValue('mem', node, { ...settings, mem: 'gb' }).unit, 'GB');
 });
