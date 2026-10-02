@@ -297,10 +297,10 @@ The script waits until `/api/health` answers before it opens Chromium (printing 
 
 ```bash
 npm test
-node tools/render.mjs        # optional: needs Chrome or Chromium
+node tools/render.mjs        # needs Chrome or Chromium; CI runs it too
 ```
 
-The tests use only `node:test` and cover topology parsing and validation (one-node, two-cable and ring layouts), link and cluster status, the collector script with fake `nvidia-smi` and `ssh` commands (hangs, failures, missing binaries), metric parsing for vLLM and SGLang against a fake engine, the token ledger, the chart history, the browser-side formatting and layout helpers, the rack panel's view logic, the kiosk script, and a running server (routes, host checks, security headers, path tricks sent over a raw socket, what the browser payload leaves out). They do not contact any other machine. CI runs them on Node 22.13 and 24, on x64 and arm64, and runs `shellcheck` on the kiosk script.
+The tests use only `node:test` and cover topology parsing and validation (one-node, two-cable and ring layouts), link and cluster status, the collector script with fake `nvidia-smi` and `ssh` commands (hangs, failures, missing binaries), metric parsing for vLLM and SGLang against a fake engine, the token ledger, the chart history, the browser-side formatting and layout helpers, the rack panel's view logic, the kiosk script, and a running server (routes, host checks, security headers, path tricks sent over a raw socket, what the browser payload leaves out). They do not contact any other machine. CI runs them on Node 22.13 and 24, on x64 and arm64, runs the render check below and runs `shellcheck` on the kiosk script.
 
 `tools/render.mjs` serves the pages with synthetic data (`tools/fixtures.mjs`) and the server's security headers, and renders the rack panel and the web dashboard in headless Chrome through the DevTools protocol: one to six nodes, the longest ids and names, a 2560 x 480 bar, a 1024 x 600 screen and a phone. Chrome runs with its background services off, so nothing but the local fixture server is contacted. It writes PNGs to `$OUT` (default: a `spark-scope-renders` folder in the system temp directory) and reports clipped or overlapping text, overflow, script errors and Content-Security-Policy violations. Set `CHROME` if Chrome is not found, and `COUNTS=1,2` to limit the node counts. The screenshots in this README come from it.
 

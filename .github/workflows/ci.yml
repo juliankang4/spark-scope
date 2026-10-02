@@ -26,6 +26,27 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm test
 
+  render:
+    name: render check (rack panel and web page)
+    # The runner image ships Google Chrome, which tools/render.mjs finds on its own.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: node tools/render.mjs
+        env:
+          OUT: ${{ runner.temp }}/renders
+      - name: Keep the renders of a failed check
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: renders
+          path: ${{ runner.temp }}/renders
+          retention-days: 7
+
   shellcheck:
     name: shellcheck (kiosk script)
     runs-on: ubuntu-latest
