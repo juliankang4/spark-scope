@@ -1,4 +1,4 @@
-import { COLORS, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue } from './view-data.js';
+import { COLORS, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue } from './view-data.js';
 import { READING_IDS, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 import { t, setLanguage, translatePage, serverText, LANGUAGE_NAMES } from './i18n.js';
 import { hide as hideHelp, helpButton } from './help.js';
@@ -47,7 +47,8 @@ function syncNodes(next) {
 const extraFields=()=>[[t('node.freeDisk'),'disk'],[t('node.processMemory'),'process-memory'],[t('node.cpuLoad'),'cpu',true],['NVMe','nvme',true],['NIC','nic',true],[t('node.system'),'system'],['TP rank','rank',true]];
 function cardHtml(meta) {
   const u=unknown();
-  return `<article class="node" data-node-id="${esc(meta.id)}"><header><h2 data-node="title">${esc(meta.name)}</h2><span class="badge" data-node="state">${t('node.badge.checking')}</span></header><div class="role"><span data-node="role"></span><span data-node="connection"></span></div><div class="instrument"><div class="gauge"><svg viewBox="0 0 114 72" aria-hidden="true"><path class="track" d="M10 62 A47 47 0 0 1 104 62"/><path class="needle" pathLength="100" stroke-dasharray="0 100" d="M10 62 A47 47 0 0 1 104 62"/></svg><strong data-node="gpu">${u}</strong><span>${t('node.gpuLoad')}</span></div><div class="readings">${settings.readings.map((id,slot)=>`<div class="reading" data-slot="${slot}"><small><span class="full">${t(`node.reading.${id}`)}</span><span class="short">${t(`node.readingShort.${id}`)}</span></small><b data-reading="${slot}"><span>${u}</span><em></em></b></div>`).join('')}</div></div>${settings.bars.includes('unified')?`<div class="mem" data-bar="unified"><div class="memline"><span>${t('node.unifiedMemoryUsage')}</span><span data-node="memory-used">${u}</span></div><div class="meter"><i style="width:0"></i></div></div>`:''}${settings.bars.includes('disk')?`<div class="mem" data-bar="disk"><div class="memline"><span>${t('node.rootFilesystem')}</span><span data-node="disk-used">${u}</span></div><div class="meter"><i style="width:0"></i></div></div>`:''}<details><summary data-node="kernel-summary">${t('node.kernelChecking')}</summary><div class="extra">${extraFields().map(([label,field,optional])=>`<span${optional?' data-optional hidden':''}>${label} <b data-node="${field}">${u}</b></span>`).join('')}<span class="wide" data-optional hidden>ACPI <b data-node="zones">${u}</b></span><span class="wide" data-optional hidden>${t('node.container')} <b data-node="container">${u}</b></span><span class="wide" data-node="kernel-last"></span><span class="wide" data-node="last-update"></span></div></details></article>`;
+  const index=Math.max(0,metas.findIndex(item=>item.id===meta.id));
+  return `<article class="node" data-node-id="${esc(meta.id)}" style="--node:${nodeColor(settings.colors,index)}"><header><h2 data-node="title">${esc(meta.name)}</h2><span class="badge" data-node="state">${t('node.badge.checking')}</span></header><div class="role"><span data-node="role"></span><span data-node="connection"></span></div><div class="instrument"><div class="gauge"><svg viewBox="0 0 114 72" aria-hidden="true"><path class="track" d="M10 62 A47 47 0 0 1 104 62"/><path class="needle" pathLength="100" stroke-dasharray="0 100" d="M10 62 A47 47 0 0 1 104 62"/></svg><strong data-node="gpu">${u}</strong><span>${t('node.gpuLoad')}</span></div><div class="readings">${settings.readings.map((id,slot)=>`<div class="reading" data-slot="${slot}"><small><span class="full">${t(`node.reading.${id}`)}</span><span class="short">${t(`node.readingShort.${id}`)}</span></small><b data-reading="${slot}"><span>${u}</span><em></em></b></div>`).join('')}</div></div>${settings.bars.includes('unified')?`<div class="mem" data-bar="unified"><div class="memline"><span>${t('node.unifiedMemoryUsage')}</span><span data-node="memory-used">${u}</span></div><div class="meter"><i style="width:0"></i></div></div>`:''}${settings.bars.includes('disk')?`<div class="mem" data-bar="disk"><div class="memline"><span>${t('node.rootFilesystem')}</span><span data-node="disk-used">${u}</span></div><div class="meter"><i style="width:0"></i></div></div>`:''}<details><summary data-node="kernel-summary">${t('node.kernelChecking')}</summary><div class="extra">${extraFields().map(([label,field,optional])=>`<span${optional?' data-optional hidden':''}>${label} <b data-node="${field}">${u}</b></span>`).join('')}<span class="wide" data-optional hidden>ACPI <b data-node="zones">${u}</b></span><span class="wide" data-optional hidden>${t('node.container')} <b data-node="container">${u}</b></span><span class="wide" data-node="kernel-last"></span><span class="wide" data-node="last-update"></span></div></details></article>`;
 }
 function buildNodes() { $('#nodes').innerHTML=metas.map(cardHtml).join(''); }
 function renderNode(meta,node,root=$('#nodes')) {
@@ -90,7 +91,7 @@ function renderLinks(state) {
   $('#link-rows').innerHTML=links.map(link=>{const live=state?.ringLinks?.[link.id],st=live?.state??'unknown',planes=link.planes??['a','b'],color=st==='up'&&!live.slow?'green':st==='down'?'red':st==='unknown'?'muted':'orange';const rate=plane=>planes.includes(plane)?fixed(live?.[plane]?.rateGbps,2):'—';return `<tr><td>${esc(link.label.replace('–',' ↔ '))}</td><td>${rate('a')}</td><td>${rate('b')}</td><td style="color:var(--${color})">${esc(linkText(live))}</td></tr>`}).join('');
   $('#fabric-links').innerHTML=layout.links.map(line=>{const live=state?.ringLinks?.[line.id],[stroke,dash]=LINK_STROKE[live?.state==='up'&&live.slow?'slow':live?.state??'unknown']??LINK_STROKE.unknown;return `<line x1="${line.x1.toFixed(1)}" y1="${line.y1.toFixed(1)}" x2="${line.x2.toFixed(1)}" y2="${line.y2.toFixed(1)}" style="stroke:${stroke}${dash?`;stroke-dasharray:${dash}`:''}"><title>${esc(links.find(link=>link.id===line.id)?.label??line.id)}: ${esc(linkText(live))}</title></line>`}).join('');
   // Short ids sit in a circle; longer ones in a pill sized to the label, with the full id and name on hover.
-  $('#fabric-nodes').innerHTML=layout.nodes.map(node=>{const width=labelWidth(node.label),meta=topology.nodes.find(item=>item.id===node.id),x=node.x.toFixed(1),y=node.y.toFixed(1);const shape=width===38?`<circle cx="${x}" cy="${y}" r="19" style="stroke:${node.color}"/>`:`<rect x="${(node.x-width/2).toFixed(1)}" y="${(node.y-16).toFixed(1)}" width="${width}" height="32" rx="16" style="stroke:${node.color}"/>`;return `<g><title>${esc(node.id)}${meta?.name&&meta.name!==node.id?` | ${esc(meta.name)}`:''}</title>${shape}<text class="label" x="${x}" y="${(node.y+4).toFixed(1)}" text-anchor="middle">${esc(node.label)}</text></g>`}).join('');
+  $('#fabric-nodes').innerHTML=layout.nodes.map(node=>{const width=labelWidth(node.label),meta=topology.nodes.find(item=>item.id===node.id),x=node.x.toFixed(1),y=node.y.toFixed(1),color=nodeColor(settings.colors,topology.nodes.findIndex(item=>item.id===node.id));const shape=width===38?`<circle cx="${x}" cy="${y}" r="19" style="stroke:${color}"/>`:`<rect x="${(node.x-width/2).toFixed(1)}" y="${(node.y-16).toFixed(1)}" width="${width}" height="32" rx="16" style="stroke:${color}"/>`;return `<g><title>${esc(node.id)}${meta?.name&&meta.name!==node.id?` | ${esc(meta.name)}`:''}</title>${shape}<text class="label" x="${x}" y="${(node.y+4).toFixed(1)}" text-anchor="middle">${esc(node.label)}</text></g>`}).join('');
   const paths=links.reduce((sum,link)=>sum+(link.planes??['a','b']).length,0),count=$('#fabric-count');
   count.setAttribute('x',layout.caption.x);count.setAttribute('y',layout.caption.y);count.textContent=`${t('fabric.cables',{count:links.length})} | ${t('fabric.paths',{count:paths})}`;
 }
@@ -109,8 +110,8 @@ function renderCharts(state) {
     const field=kind==='temp'?'temperature':'memoryAvailableBytes',scale=kind==='mem'?2**30:1,ids=metas.map(meta=>meta.id);
     const pick=id=>point=>{const v=point.nodes?.[id]?.[field];return finite(v)?v/scale:null};
     const values=history.flatMap(point=>ids.map(id=>pick(id)(point))).filter(finite),low=kind==='temp'&&values.length?Math.min(...values)-2:0,high=values.length?Math.max(...values)+(kind==='temp'?2:5):1;
-    $('#'+kind+'-chart').innerHTML=ids.map((id,index)=>`<path d="${chartPath(history,pick(id),{start,end,width:320,height:80,min:low,max:high})}" fill="none" stroke="${COLORS[index%COLORS.length]}" stroke-width="2" vector-effect="non-scaling-stroke"/>`).join('');
-    $('#'+kind+'-legend').innerHTML=metas.map((meta,index)=>{const node=state.nodes?.[meta.id];const value=!node?.ok?unknown():kind==='temp'?temperature(node.gpu?.temperature,settings.temp):memory(node.memory?.availableBytes,settings.mem);return `<span style="color:${COLORS[index%COLORS.length]}">${esc(meta.name)} <b class="num">${value}</b></span>`}).join('');
+    $('#'+kind+'-chart').innerHTML=ids.map((id,index)=>`<path d="${chartPath(history,pick(id),{start,end,width:320,height:80,min:low,max:high})}" fill="none" stroke="${nodeColor(settings.colors,index)}" stroke-width="2" vector-effect="non-scaling-stroke"/>`).join('');
+    $('#'+kind+'-legend').innerHTML=metas.map((meta,index)=>{const node=state.nodes?.[meta.id];const value=!node?.ok?unknown():kind==='temp'?temperature(node.gpu?.temperature,settings.temp):memory(node.memory?.availableBytes,settings.mem);return `<span style="color:${nodeColor(settings.colors,index)}">${esc(meta.name)} <b class="num">${value}</b></span>`}).join('');
   }
 }
 function renderToday(usage) {
@@ -237,12 +238,12 @@ function showLayout(){
   const trends=settings.hide.includes('trends'),ledger=settings.hide.includes('ledger');$('.trends').hidden=trends;$('#today-ledger').hidden=ledger;$('.lower').hidden=trends&&ledger;$('.lower').classList.toggle('single',trends!==ledger);
 }
 // One node's card drawn with the current settings and live data, the update time on the chosen clock, and About.
-function renderPreview(){
+function renderPreview({rows=true}={}){
   const select=$('#preview-node'),options=metas.map(meta=>`<option value="${esc(meta.id)}">${esc(meta.name)}</option>`).join('');
   if(select.innerHTML!==options)select.innerHTML=options;select.hidden=metas.length<2;
   if(!metas.some(meta=>meta.id===previewId))previewId=metas[0]?.id??null;select.value=previewId??'';
   const meta=metas.find(item=>item.id===previewId),box=$('#preview-nodes');
-  box.innerHTML=meta?cardHtml(meta):'';if(meta)renderNode(meta,latest?.nodes?.[meta.id],box);
+  box.innerHTML=meta?cardHtml(meta):'';if(meta)renderNode(meta,latest?.nodes?.[meta.id],box);if(rows)renderColorRows();
   $('#preview-clock').textContent=clock(latest?.updatedAt??Date.now());
   const intervals=latest?.pollIntervals,every=ms=>finite(ms)?` | ${t('settings.about.every',{seconds:fixed(ms/1000,ms%1000?1:0)})}`:'';
   $('#about-version').textContent=latest?.version??unknown();
@@ -277,6 +278,31 @@ form.addEventListener('change',event=>{
   settings=parseSettings({...settings,...next});
   applySettings(changes(before));
 });
+// ---- node colours ----
+// A node's colour as picked, or its default: the palette in order without red, which is never a default.
+const colorOf=index=>settings.colors[index]??PALETTE[index%(PALETTE.length-1)];
+function renderColorRows(){
+  const rows=metas.map((meta,index)=>{const current=colorOf(index),custom=current.startsWith('#'),low=custom?lowContrast(current):null;
+    return `<div class="crow" data-node-row="${index}" aria-current="${meta.id===previewId}"><div class="cname"><i style="background:${nodeColor(settings.colors,index)}"></i><span>${esc(meta.name)}<small>${t('settings.colors.node',{n:index+1})}</small></span></div><div><div class="swatches">${PALETTE.map(name=>`<button type="button" class="sw" data-color="${index}" data-value="${name}" aria-pressed="${current===name}" aria-label="${t(`settings.color.${name}`)}" title="${t(`settings.color.${name}`)}" style="background:var(--${name})"></button>`).join('')}<label class="custom"><span>${t('settings.colors.custom')}</span><input type="color" data-custom="${index}" value="${custom?current:'#7cbbeb'}" class="${custom?'picked':''}" aria-label="${t('settings.colors.customFor',{node:meta.name})}"></label></div>${low?`<p class="contrast">${t(`settings.colors.low.${low}`)}</p>`:''}</div></div>`}).join('');
+  // Left alone while a colour picker in it is open, so the next poll does not close it.
+  const box=$('#color-rows');if(box.innerHTML!==rows&&!box.contains(document.activeElement?.closest('[data-custom]')))box.innerHTML=rows;
+}
+// A colour for one node: the list is filled up to that node with the current colours, and a list equal to the
+// defaults is stored as no choice at all.
+function setColor(index,value){
+  const list=metas.map((_,k)=>colorOf(k));list[index]=value;
+  const before=settings;settings=parseSettings({...settings,colors:list.every((color,k)=>color===PALETTE[k%(PALETTE.length-1)])?[]:list});
+  previewId=metas[index]?.id??previewId;applySettings(changes(before));
+}
+$('#color-rows').addEventListener('click',event=>{
+  const swatch=event.target.closest('.sw');if(swatch){setColor(Number(swatch.dataset.color),swatch.dataset.value);return}
+  const row=event.target.closest('.crow');if(row&&!event.target.closest('.custom')){previewId=metas[Number(row.dataset.nodeRow)]?.id??previewId;renderPreview()}
+});
+// The colour picker reports while it is dragged; the page follows at once, the row is redrawn when the picker closes.
+$('#color-rows').addEventListener('input',event=>{const input=event.target.closest('[data-custom]');if(!input)return;const index=Number(input.dataset.custom);settings=parseSettings({...settings,colors:metas.map((_,k)=>k===index?input.value:colorOf(k))});saveSettings(store,settings);previewId=metas[index]?.id??previewId;buildNodes();if(latest){try{drawState(latest)}catch{}}renderPreview({rows:false})});
+$('#color-rows').addEventListener('change',event=>{const input=event.target.closest('[data-custom]');if(input)setColor(Number(input.dataset.custom),input.value)});
+$('#colors-reset').addEventListener('click',()=>{const before=settings;settings=parseSettings({...settings,colors:[]});applySettings(changes(before))});
+
 // Selecting a reading on the preview card opens its slot in Node card.
 $('#preview-nodes').addEventListener('click',event=>{const reading=event.target.closest('.reading');if(!reading)return;showSection('card');const label=form.querySelector(`select[data-slot="${reading.dataset.slot}"]`)?.closest('label');if(label){form.querySelectorAll('.slots label').forEach(other=>other.classList.toggle('flash',other===label));label.querySelector('select').focus()}});
 function showSection(name){

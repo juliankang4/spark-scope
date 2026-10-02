@@ -134,3 +134,22 @@ html:not([data-labels=full]) .reading small{white-space:nowrap;overflow:hidden;t
 /* One of the two lower panels hidden: the other takes the whole width. */
 .lower.single{grid-template-columns:minmax(0,1fr)}
 .lower.single>*{border-right:0}
+
+/* Colors: one row per node with the palette and a custom colour; the selected row is the node in the preview. */
+.colors{display:grid;gap:8px}
+.crow{display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--line);cursor:pointer}
+.crow[aria-current=true]{border-color:var(--ink);box-shadow:inset 3px 0 0 var(--ink)}
+.cname{display:flex;align-items:center;gap:8px;font:600 13px var(--num-font);min-width:0}
+.cname i{width:7px;height:20px;flex:none}
+.cname span{min-width:0;overflow-wrap:anywhere}
+.cname small{display:block;font:400 10px var(--num-font);color:var(--muted)}
+.swatches{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.sw{width:24px;height:24px;padding:0;border:1px solid var(--line)}
+.sw:hover{filter:brightness(1.1)}
+.sw[aria-pressed=true]{outline:2px solid var(--ink);outline-offset:2px}
+.custom{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-left:4px}
+.custom input{width:30px;height:26px;padding:1px;border:1px solid var(--line);background:transparent}
+.custom input.picked{outline:2px solid var(--ink);outline-offset:2px}
+.contrast{margin:6px 0 0;font-size:11px;color:var(--orange)}
+button.plain{border:1px solid var(--line);background:transparent;color:var(--ink);padding:7px 12px;font:500 12px var(--num-font)}
+@media(max-width:760px){.crow{grid-template-columns:minmax(0,1fr)}}

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readingValue, compact, duration, tokenRate, chartPath, clockTime, eventTime, memory, memoryUnit, temperature, temperatureUnit, validateMonth, monthOptions, monthLabel, dayLabel, localDay, nodeOrder, linkText, fabricLayout, nodeLabel, labelWidth, nextTheme, COLORS } from '../public/view-data.js';
+import { readingValue, nodeColor, lowContrast, PALETTE, compact, duration, tokenRate, chartPath, clockTime, eventTime, memory, memoryUnit, temperature, temperatureUnit, validateMonth, monthOptions, monthLabel, dayLabel, localDay, nodeOrder, linkText, fabricLayout, nodeLabel, labelWidth, nextTheme, COLORS } from '../public/view-data.js';
 import { loadTopology, publicTopology } from '../lib/topology.mjs';
 import { DEFAULTS, SETTINGS_KEY, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from '../public/settings.js';
 
@@ -362,4 +362,27 @@ test('card readings give text, unit and warning in the chosen units', () => {
   assert.equal(readingValue('temp', { ok: false }, settings).text, 'unknown');
   assert.equal(readingValue('temp', node, { ...settings, tempWarn: 90 }).warn, false);
   assert.equal(readingValue('mem', node, { ...settings, mem: 'gb' }).unit, 'GB');
+});
+
+test('node colours: palette names or hex by position, written without # in a link', () => {
+  assert.deepEqual(DEFAULTS.colors, []);
+  assert.deepEqual(parseSettings({ colors: ['purple', '#FF8800', 'ff0000'] }).colors, ['purple', '#ff8800', '#ff0000']);
+  for (const colors of [['purple', 'pink'], ['#ff88'], 'purple', Array(33).fill('blue')]) assert.deepEqual(parseSettings({ colors }).colors, [], String(colors));
+  const query = settingsQuery({ ...DEFAULTS, colors: ['purple', '#ff8800'] }, null);
+  assert.equal(query, 'colors=purple%2Cff8800');
+  assert.deepEqual(settingsFromQuery(`?${query}`).settings.colors, ['purple', '#ff8800']);
+  // The colour a node gets: its pick, otherwise the default order (which never uses red).
+  assert.equal(nodeColor([], 0), 'var(--blue)');
+  assert.equal(nodeColor(['purple'], 0), 'var(--purple)');
+  assert.equal(nodeColor(['purple', '#ff8800'], 1), '#ff8800');
+  assert.equal(nodeColor(['purple'], 3), 'var(--ink)');
+  assert.equal(nodeColor([], 8), 'var(--blue)');
+  assert.ok(!COLORS.includes('var(--red)'));
+  assert.ok(PALETTE.includes('red'));
+  // Custom colours that would be hard to see get a warning for the theme in question.
+  assert.equal(lowContrast('#ffff00'), 'light');
+  assert.equal(lowContrast('#111111'), 'dark');
+  assert.equal(lowContrast('#c0392b'), 'dark');
+  assert.equal(lowContrast('#7a7a7a'), null);
+  assert.equal(lowContrast('purple'), null);
 });

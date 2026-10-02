@@ -1,6 +1,28 @@
 import { t, language, locale, hasOwnString } from './i18n.js';
 // One colour per node in topology order (cards, cable diagram, trend lines); a ninth node starts over.
 export const COLORS = ['var(--blue)', 'var(--orange)', 'var(--green)', 'var(--ink)', 'var(--purple)', 'var(--gold)', 'var(--magenta)', 'var(--umber)'];
+// The palette a node's colour can be picked from in the settings (red is never a default, so it stays free for a node
+// that should stand out). Each name is a theme colour in styles.css with a light and a dark value.
+export const PALETTE = ['blue', 'orange', 'green', 'ink', 'purple', 'gold', 'magenta', 'umber', 'red'];
+// The node's colour: the one picked in the settings (a palette name or #rrggbb), otherwise the default order.
+export function nodeColor(colors, index) {
+  const choice = colors?.[index];
+  if (PALETTE.includes(choice)) return `var(--${choice})`;
+  if (/^#[0-9a-f]{6}$/i.test(choice ?? '')) return choice;
+  return COLORS[index % COLORS.length];
+}
+// A custom colour that is hard to see on the themes' cards: 'light', 'dark', 'both' or null. Uses the WCAG contrast
+// ratio against the card backgrounds (#e7e7df light, #222222 dark) and the 3:1 level for graphics and large text.
+export function lowContrast(hex) {
+  if (!/^#[0-9a-f]{6}$/i.test(hex ?? '')) return null;
+  const luminance = (value) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(value.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const ratio = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  const own = luminance(hex), light = ratio(own, luminance('#e7e7df')) < 3, dark = ratio(own, luminance('#222222')) < 3;
+  return light && dark ? 'both' : light ? 'light' : dark ? 'dark' : null;
+}
 // Shown wherever a value was not observed; never replaced by a made-up zero.
 export const unknown = (lang) => t('common.unknown', {}, lang);
 // Nodes in the order of the server's topology (topology.json); a payload without topology falls back to its node keys.

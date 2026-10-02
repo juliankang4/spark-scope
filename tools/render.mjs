@@ -437,7 +437,7 @@ try {
     await web.go(`${base}/`);
     await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && /\\d/.test(document.querySelector('#updated-at').textContent)");
     await web.evaluate("document.querySelector('#settings-open').click()");
-    for (const section of ["card", "units", "dashboard", "about"]) {
+    for (const section of ["card", "colors", "units", "dashboard", "about"]) {
       await web.evaluate(`document.querySelector('[data-section="${section}"]').click()`);
       await new Promise((resolve) => setTimeout(resolve, 300));
       const issues = await web.evaluate(CHECK_SETTINGS);
@@ -471,18 +471,24 @@ try {
     // A card set up like a setup shared on social media: °F, disk used in a slot and a root filesystem bar; engine
     // panel and trends hidden.
     await web.evaluate("localStorage.clear()");
-    await web.go(`${base}/?temp=f&readings=temp,power,disk,clock&bars=unified,disk&hide=engine,trends`);
+    await web.go(`${base}/?temp=f&readings=temp,power,disk,clock&bars=unified,disk&hide=engine,trends&colors=purple,ff8800`);
     await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && /\\d/.test(document.querySelector('#updated-at').textContent)");
     await new Promise((resolve) => setTimeout(resolve, 300));
     const card = await web.evaluate(`(() => ({
       readings: [...document.querySelectorAll('#nodes .node:first-child .reading')].map((r) => r.innerText.replace(/\\s+/g, " ")).join(" / "),
       bars: [...document.querySelectorAll('#nodes .node:first-child [data-bar]')].map((b) => b.innerText.replace(/\\s+/g, " ")).join(" / "),
       hidden: [document.querySelector('.engine').hidden, document.querySelector('.trends').hidden, document.querySelector('.lower').classList.contains('single')],
+      colors: [...document.querySelectorAll('#nodes .node h2')].slice(0, 2).map((h) => getComputedStyle(h, '::before').backgroundColor).concat([...document.querySelectorAll('#fabric-nodes circle')].slice(0, 2).map((c) => getComputedStyle(c).stroke)),
+      purple: getComputedStyle(document.documentElement).getPropertyValue('--purple').trim(),
     }))()`);
     const cardProblems = [...await web.evaluate(CHECK_WEB), ...web.errors.splice(0)];
     if (!/Disk used/.test(card.readings) || !/°F/.test(card.readings)) cardProblems.push("readings not applied: " + card.readings);
     if (!/Root filesystem/.test(card.bars)) cardProblems.push("root filesystem bar missing: " + card.bars);
     if (card.hidden.some((value) => !value)) cardProblems.push("panels not hidden: " + card.hidden.join(","));
+    // The first two nodes in purple and #ff8800, on the cards and in the interconnect diagram.
+    const hex = (rgb) => "#" + (rgb.match(/\d+/g) ?? []).slice(0, 3).map((n) => Number(n).toString(16).padStart(2, "0")).join("");
+    const [card1, card2, ring1, ring2] = card.colors.map(hex);
+    if (card1 !== card.purple || ring1 !== card.purple || card2 !== "#ff8800" || ring2 !== "#ff8800") cardProblems.push("node colours not applied: " + card.colors.join(" / ") + " (purple " + card.purple + ")");
     await web.shoot(`web-${label}-card-setup.png`, { fullPage: true });
     report(`web-${label}-card-setup.png`, [`readings: ${card.readings}`, `bars: ${card.bars}`], cardProblems);
     await web.evaluate("localStorage.clear()");
@@ -545,7 +551,7 @@ try {
     const switched = [];
     if (after[3] !== "ko") switched.push("page language " + after[3]);
     for (const [index, part] of ["page card", "preview card", "dialog title"].entries()) if (after[index] === before[index]) switched.push(`${part} still reads ${after[index]}`);
-    for (const section of ["card", "units", "dashboard", "about"]) {
+    for (const section of ["card", "colors", "units", "dashboard", "about"]) {
       await web.evaluate(`document.querySelector('[data-section="${section}"]').click()`);
       await new Promise((resolve) => setTimeout(resolve, 300));
       const issues = await web.evaluate(CHECK_SETTINGS);
