@@ -183,4 +183,3 @@ document.querySelectorAll('[data-range]').forEach(btn=>btn.addEventListener('cli
 $('#token-month').addEventListener('change',()=>{monthPicked=true;selectedMonth=$('#token-month').value;monthLoadedAt=0;clearMonth('Loading the monthly ledger…');void refreshMonth(true)});
 buildNodes();rebuildMonths();clearMonth('Loading the monthly ledger…');selectTab($(location.hash==='#tokens'?'#tab-tokens':'#tab-scope'),false);void refresh();
 setInterval(()=>{void refresh();if(!$('#tokens').hidden)void refreshMonth()},2000);
-console.error('temporary: CI failure-path test');
