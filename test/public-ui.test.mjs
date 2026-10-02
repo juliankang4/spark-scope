@@ -123,3 +123,52 @@ test("both pages link the favicon files that ship with them", async () => {
   }
   assert.ok(existsSync(path.join(ROOT, 'public', 'favicon.ico')));
 });
+
+test("a change to any card field of the topology rebuilds the cards, not only a change of ids", async () => {
+  const { topologyKey } = await import('../public/view-data.js');
+  const before = [{ id: '1', name: 'spark-1', host: 'spark-1', role: 'HEAD', collect: false }];
+  assert.equal(topologyKey(before), topologyKey([{ ...before[0] }]));
+  assert.notEqual(topologyKey(before), topologyKey([{ ...before[0], name: 'renamed' }]));
+  assert.notEqual(topologyKey(before), topologyKey([{ ...before[0], collect: true }]));
+});
+
+test("data counts as stale after three of the server's slower poll intervals, never sooner than 20 s", async () => {
+  const { staleAfterMs } = await import('../public/view-data.js');
+  assert.equal(staleAfterMs({}), 20_000);
+  assert.equal(staleAfterMs({ pollIntervals: { nodeMs: 5000, apiMs: 2000 } }), 20_000);
+  assert.equal(staleAfterMs({ pollIntervals: { nodeMs: 30_000, apiMs: 30_000 } }), 90_000);
+});
+
+test("a poll without history adds its own sample to the history the page already has", async () => {
+  const { livePoint, mergeLivePoint } = await import('../public/view-data.js');
+  const state = {
+    updatedAt: '2026-10-02T03:00:02Z',
+    vllm: { ok: true, updatedAt: '2026-10-02T03:00:02Z', outputTokensPerSecond: 61.3, promptTokensPerSecond: 2104, runningRequests: 2, waitingRequests: 0 },
+    nodes: { 1: { ok: true, gpu: { temperature: 57 }, memory: { availableBytes: 9.5 * 2 ** 30 } }, 2: { ok: false } },
+  };
+  const point = livePoint(state);
+  assert.deepEqual(point, {
+    at: Date.parse('2026-10-02T03:00:02Z'), outputTokensPerSecond: 61.3, promptTokensPerSecond: 2104, runningRequests: 2, queue: 0,
+    nodes: { 1: { temperature: 57, memoryAvailableBytes: 9.5 * 2 ** 30 }, 2: { temperature: null, memoryAvailableBytes: null } },
+  });
+  const old = { at: point.at - 61 * 60_000 }, recent = { at: point.at - 2000 };
+  assert.deepEqual(mergeLivePoint([old, recent], point, 60 * 60_000), [recent, point]);
+  // The same sample twice, or an older one, changes nothing.
+  assert.deepEqual(mergeLivePoint([recent, point], point, 60 * 60_000), [recent, point]);
+  assert.equal(livePoint({ vllm: { ok: false }, updatedAt: '2026-10-02T03:00:02Z' }).outputTokensPerSecond, null);
+});
+
+test("timeouts and media-query listeners also work where Safari lacks the newer APIs", async () => {
+  const { timeoutSignal, onMediaChange } = await import('../public/view-data.js');
+  const timed = timeoutSignal(10);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(timed.signal.aborted, true);
+  const cancelled = timeoutSignal(10);
+  cancelled.done();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(cancelled.signal.aborted, false);
+  const calls = [];
+  onMediaChange({ addListener: (fn) => calls.push(['legacy', fn]) }, () => {});
+  onMediaChange({ addEventListener: (type, fn) => calls.push([type, fn]) }, () => {});
+  assert.deepEqual(calls.map(([kind]) => kind), ['legacy', 'change']);
+});

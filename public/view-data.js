@@ -133,3 +133,53 @@ export function fabricLayout(topology, { width = 380, height = 190, rx = 120, ry
     caption: { x: cx, y: count === 2 ? cy + 50 : cy + 4 },
   };
 }
+
+// Everything the cards show from topology.json; a change rebuilds them (the ids alone can stay the same).
+export function topologyKey(metas) {
+  return JSON.stringify((metas ?? []).map(({ id, name, host, local, role, hardware, collect, inference }) => [id, name, host, local, role, hardware, collect, inference]));
+}
+
+// Data is stale after three of the slower poll intervals the server reports, and never sooner than 20 s.
+export function staleAfterMs(state) {
+  const slowest = Math.max(state?.pollIntervals?.nodeMs ?? 0, state?.pollIntervals?.apiMs ?? 0);
+  return Math.max(20_000, finite(slowest) ? slowest * 3 : 0);
+}
+
+// The latest sample of a state polled without history, shaped like one point of state.history.
+export function livePoint(state) {
+  const at = Date.parse(state?.vllm?.updatedAt ?? state?.updatedAt ?? '');
+  if (!finite(at)) return null;
+  const vllm = state?.vllm?.ok ? state.vllm : null;
+  const value = (key) => (vllm && finite(vllm[key]) ? vllm[key] : null);
+  return {
+    at,
+    outputTokensPerSecond: value('outputTokensPerSecond'),
+    promptTokensPerSecond: value('promptTokensPerSecond'),
+    runningRequests: value('runningRequests'),
+    queue: value('waitingRequests'),
+    nodes: Object.fromEntries(Object.entries(state?.nodes ?? {}).map(([id, node]) => [id, {
+      temperature: node?.ok && finite(node.gpu?.temperature) ? node.gpu.temperature : null,
+      memoryAvailableBytes: node?.ok && finite(node.memory?.availableBytes) ? node.memory.availableBytes : null,
+    }])),
+  };
+}
+
+// Appends a newer point and drops what fell out of the window; the input array is not changed.
+export function mergeLivePoint(history, point, windowMs) {
+  const list = Array.isArray(history) ? history : [];
+  if (!point || (list.length && point.at <= list[list.length - 1].at)) return list;
+  return [...list, point].filter((item) => item.at >= point.at - windowMs);
+}
+
+// AbortSignal.timeout() needs Safari 16; this works on older iPhones and iPads too.
+export function timeoutSignal(ms) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return { signal: controller.signal, done: () => clearTimeout(timer) };
+}
+
+// matchMedia().addEventListener needs Safari 14; older Safari only has addListener.
+export function onMediaChange(query, listener) {
+  if (typeof query.addEventListener === 'function') query.addEventListener('change', listener);
+  else if (typeof query.addListener === 'function') query.addListener(listener);
+}

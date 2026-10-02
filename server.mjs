@@ -3,6 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { gzipSync } from "node:zlib";
 import { collectNode, uncollectedNode, VllmCollector, applyNetworkRates } from "./lib/collectors.mjs";
 import { buildRingLinks, clusterStatus, servingSummary, DEFAULT_LINK_MIN_GBPS } from "./lib/cluster.mjs";
 import { loadTopology, nodeInterfaces, publicTopology } from "./lib/topology.mjs";
@@ -255,12 +256,17 @@ async function serveStatic(urlPath, response, root = PUBLIC_ROOT) {
   }
 }
 
-function sendJson(response, status, body) {
-  response.writeHead(status, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store",
-  });
-  response.end(JSON.stringify(body));
+// JSON, gzip-compressed when the client accepts it (the state payload shrinks to a fraction).
+function sendJson(request, response, status, body) {
+  const text = JSON.stringify(body);
+  const headers = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", Vary: "Accept-Encoding" };
+  if (text.length > 1024 && /\bgzip\b/.test(request.headers["accept-encoding"] ?? "")) {
+    response.writeHead(status, { ...headers, "Content-Encoding": "gzip" });
+    response.end(gzipSync(text));
+    return;
+  }
+  response.writeHead(status, headers);
+  response.end(text);
 }
 
 async function handle(request, response) {
@@ -273,31 +279,34 @@ async function handle(request, response) {
     const requestedMinutes = Number(url.searchParams.get("minutes") || 60);
     const minutes = [15, 60, 360].includes(requestedMinutes) ? requestedMinutes : 60;
     const history = state.history.filter(point => point.at >= Date.now() - minutes * 60_000);
-    sendJson(response, 200, {
+    // history=0 leaves out the samples: pages poll every two seconds and fetch the full history only now and then.
+    const withHistory = url.searchParams.get("history") !== "0";
+    sendJson(request, response, 200, {
       ...state,
-      history: downsampleHistory(history),
+      history: withHistory ? downsampleHistory(history) : undefined,
       historyStats: summarizeHistory(history, minutes),
+      pollIntervals: { nodeMs: config.nodeIntervalMs, apiMs: config.apiIntervalMs },
     });
     return;
   }
   if (url.pathname === "/api/health") {
-    sendJson(response, state.status === "offline" ? 503 : 200, { status: state.status, message: state.message, updatedAt: state.updatedAt });
+    sendJson(request, response, state.status === "offline" ? 503 : 200, { status: state.status, message: state.message, updatedAt: state.updatedAt });
     return;
   }
   if (url.pathname === "/api/usage") {
     const month = url.searchParams.get("month") ?? "";
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
-      sendJson(response, 400, { error: "month must use YYYY-MM format" });
+      sendJson(request, response, 400, { error: "month must use YYYY-MM format" });
       return;
     }
     if (!usageStore) {
-      sendJson(response, 503, { error: usageOpenError });
+      sendJson(request, response, 503, { error: usageOpenError });
       return;
     }
     try {
-      sendJson(response, 200, usageStore.month(month));
+      sendJson(request, response, 200, usageStore.month(month));
     } catch (error) {
-      sendJson(response, 500, { error: error.message });
+      sendJson(request, response, 500, { error: error.message });
     }
     return;
   }

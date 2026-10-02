@@ -31,11 +31,13 @@ const escapeHtml = (text) => String(text).replace(/[&<>"]/g, (c) => ({ "&": "&am
 
 let latest = null;
 let lastReceivedAt = null;
+let polling = false;
 let tempHistory = [];
 let liveOut = [];
 let bandAnchor = { serverMs: 0, clientMs: 0 };
 const lastOkAt = {};
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+const onMotionChange = (listener) => (reduceMotion.addEventListener ? reduceMotion.addEventListener("change", listener) : reduceMotion.addListener?.(listener));
 
 async function getJson(url) {
   const controller = new AbortController();
@@ -103,11 +105,23 @@ function renderBay(meta, toMs) {
     <div class="foot"><span>Power ${f1(view.power)} W</span>${view.tsoc === null ? "" : `<span>TSOC ${f1(view.tsoc)}°C</span>`}${dots}</div>`;
 }
 
+// The band glides left between polls with one CSS transition per poll (composited), instead of a script that moves
+// it every frame. Each redraw puts it back at the start; with reduced motion or while disconnected it stays still.
+function glideBand() {
+  bandSvg.style.transition = "none";
+  bandSvg.style.transform = "translateX(0px)";
+  if (reduceMotion.matches || screen.classList.contains("stale")) return;
+  void bandSvg.getBoundingClientRect();
+  bandSvg.style.transition = `transform ${POLL_MS}ms linear`;
+  bandSvg.style.transform = `translateX(${(-(POLL_MS / BAND_WINDOW_MS) * BW).toFixed(2)}px)`;
+}
+
 function drawBand() {
   const toMs = bandAnchor.serverMs;
   const fromMs = toMs - BAND_WINDOW_MS;
   const merged = new Map();
-  for (const point of seriesPoints(latest?.history, "outputTokensPerSecond", fromMs - BAND_GAP_MS, toMs)) merged.set(point.at, point);
+  // Earlier samples come from the 60-minute history (refreshed every 30 s); the 2-second polls add their own.
+  for (const point of seriesPoints(tempHistory, "outputTokensPerSecond", fromMs - BAND_GAP_MS, toMs)) merged.set(point.at, point);
   for (const point of liveOut) if (point.at >= fromMs - BAND_GAP_MS) merged.set(point.at, point);
   const points = [...merged.values()].sort((a, b) => a.at - b.at);
   const peak = Math.max(0, ...points.map((point) => point.value ?? 0));
@@ -120,11 +134,14 @@ function drawBand() {
     grid += `<line x1="${x}" x2="${x}" y1="${BAND_BOTTOM - 10}" y2="${BAND_BOTTOM}" stroke="#3a3a3a" stroke-width="2"/>`;
   }
   bandPlot.innerHTML = `${grid}<line x1="0" x2="${BW * 1.2}" y1="${BAND_BOTTOM}" y2="${BAND_BOTTOM}" stroke="#262626" stroke-width="1"/><path d="${area}" fill="var(--data-fill)"/><path d="${line}" fill="none" stroke="var(--data)" stroke-opacity=".8" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>`;
+  glideBand();
 }
 
 function renderCluster(fetchFailed) {
   const view = clusterView(latest, { fetchFailed, lastReceivedAt });
+  const wasStale = screen.classList.contains("stale");
   screen.classList.toggle("stale", Boolean(view.stale));
+  if (view.stale && !wasStale) glideBand();
   $("cl-lamp").className = `lamp ${view.level}`;
   $("cl-title").textContent = view.title;
   $("cl-line1").textContent = view.lines[0] ?? "";
@@ -134,47 +151,59 @@ function renderCluster(fetchFailed) {
   $("tok-sub").textContent = view.todayRequests === null ? "Tokens today" : `Tokens today | ${view.todayRequests.toLocaleString("en-US")} requests`;
 }
 
-function render() {
+function renderBays() {
   const toMs = Date.parse(latest.updatedAt) || Date.now();
   const metas = orderedNodes(latest);
   syncBays(metas);
   for (const meta of metas) renderBay(meta, toMs);
+}
+
+function render() {
+  renderBays();
   drawBand();
   renderCluster(false);
 }
 
+// Every two seconds, without history (small and cheap); one poll at a time, so answers never arrive out of order.
 async function poll() {
+  if (polling) return;
+  polling = true;
+  let state = null;
   try {
-    const state = await getJson("/api/state?minutes=15");
-    latest = state;
-    lastReceivedAt = new Date();
-    for (const [id, node] of Object.entries(state.nodes ?? {})) if (node?.ok) lastOkAt[id] = node.updatedAt ?? state.updatedAt;
-    const at = Date.parse(state.vllm?.updatedAt ?? state.updatedAt);
-    if (Number.isFinite(at) && at !== liveOut.at(-1)?.at) {
-      liveOut.push({ at, value: state.vllm?.ok && Number.isFinite(state.vllm.outputTokensPerSecond) ? state.vllm.outputTokensPerSecond : null });
-      liveOut = liveOut.filter((point) => point.at >= at - BAND_WINDOW_MS - BAND_GAP_MS);
-    }
-    bandAnchor = { serverMs: Date.parse(state.updatedAt) || Date.now(), clientMs: performance.now() };
-    render();
+    state = await getJson("/api/state?minutes=15&history=0");
   } catch {
     renderCluster(true);
   }
+  try {
+    if (state) {
+      latest = state;
+      lastReceivedAt = new Date();
+      for (const [id, node] of Object.entries(state.nodes ?? {})) if (node?.ok) lastOkAt[id] = node.updatedAt ?? state.updatedAt;
+      const at = Date.parse(state.vllm?.updatedAt ?? state.updatedAt);
+      if (Number.isFinite(at) && at !== liveOut[liveOut.length - 1]?.at) {
+        liveOut.push({ at, value: state.vllm?.ok && Number.isFinite(state.vllm.outputTokensPerSecond) ? state.vllm.outputTokensPerSecond : null });
+        liveOut = liveOut.filter((point) => point.at >= at - BAND_WINDOW_MS - BAND_GAP_MS);
+      }
+      bandAnchor = { serverMs: Date.parse(state.updatedAt) || Date.now(), clientMs: performance.now() };
+      render();
+    }
+  } catch (error) {
+    // A drawing problem is not a lost connection: keep the last good panel and say what broke.
+    console.error("Spark Scope rack could not draw the latest state:", error);
+  } finally {
+    polling = false;
+  }
 }
 
+// Every 30 s: the 60-minute history for the temperature traces and the band's earlier samples.
 async function pollTemps() {
   try {
     const state = await getJson("/api/state?minutes=60");
     tempHistory = state.history ?? [];
-    if (latest) render();
+    if (latest) renderBays();
   } catch {
     // Keep the previous trace; the 2-second poll reports the disconnect.
   }
-}
-
-function scroll(now) {
-  const offset = reduceMotion.matches || !latest ? 0 : -((now - bandAnchor.clientMs) / BAND_WINDOW_MS) * BW;
-  bandPlot.setAttribute("transform", `translate(${offset.toFixed(2)} 0)`);
-  requestAnimationFrame(scroll);
 }
 
 function fit() {
@@ -188,8 +217,13 @@ await pollTemps();
 await poll();
 setInterval(poll, POLL_MS);
 setInterval(pollTemps, TEMP_POLL_MS);
-setTimeout(function reloadWhenReachable() {
-  if (lastReceivedAt && Date.now() - lastReceivedAt.getTime() < 10_000) location.reload();
-  else setTimeout(reloadWhenReachable, 60_000);
+// Reloads only right after the server answered a health check, so the kiosk never lands on an error page.
+setTimeout(async function reloadWhenReachable() {
+  try {
+    await getJson("/api/health").catch((error) => { if (!/HTTP 503/.test(error.message)) throw error; });
+    location.reload();
+  } catch {
+    setTimeout(reloadWhenReachable, 60_000);
+  }
 }, RELOAD_MS);
-requestAnimationFrame(scroll);
+onMotionChange(() => glideBand());

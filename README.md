@@ -222,7 +222,7 @@ The engine label comes from the metric names or the GPU process name, and the nu
 
 ## Rack panel and kiosk
 
-Open `/rack/` (for example <http://127.0.0.1:8787/rack/>). The panel is laid out at 1920 x 480 and scales to fit the window, so it suits the common 1920 x 480 bar displays and works, letterboxed, on anything else. It reads `/api/state` every 2 seconds (every 30 seconds for the temperature traces), dims and says so when the server stops answering, and reloads itself every 12 hours while the server answers, so it picks up updates without touching the kiosk.
+Open `/rack/` (for example <http://127.0.0.1:8787/rack/>). The panel is laid out at 1920 x 480 and scales to fit the window, so it suits the common 1920 x 480 bar displays and works, letterboxed, on anything else. It polls `/api/state` every 2 seconds without the history and fetches the 60-minute history every 30 seconds for the temperature traces and the band's earlier samples. When the server stops answering, the bays and the band dim and the band stops moving. The page reloads itself every 12 hours, right after a successful health check, so it picks up updates without touching the kiosk.
 
 - **Layout by node count.** Three or four nodes share the width. Two nodes get two centred bays. A single node gets one wide bay with its meters side by side and no link dots. With two cables between two nodes, each bay shows a numbered dot per cable (`2 #1`, `2 #2`).
 - **What the bays and the band say.** Each bay header shows its most severe condition: no response, missing GPU readings (`nvidia-smi stuck`, `GPU query timed out`, `GPU query failed`, `no nvidia-smi`), thermal slowdown, a link problem (`Link 2–3 down`, `Link 1–2 #2 down`, `Link 1–2 not cabled`), system state or failed units, a missing inference process while the API serves, disk at 95% or more, less than 2 GiB of free memory, or (for ten minutes) a container restart or a kernel error. The band shows the cluster title (Serving, Ready, Inference stopped, Inference down, Nodes unreachable), the model with its engine, node and link counts and up to two notes.
@@ -252,7 +252,7 @@ The script waits until `/api/health` answers before it opens Chromium, uses its 
 ## HTTP API
 
 - `GET /` and `GET /rack/`: the web dashboard and the rack panel.
-- `GET /api/state?minutes=15|60|360`: the full dashboard state as JSON: `topology` (nodes and links, without interface names), `nodes` keyed by node id, `ringLinks` keyed by link id (`state` is `up`, `partial`, `down`, `pending` or `unknown`), `vllm` (inference metrics, also used for SGLang), `serving`, `usage`, `history`, `historyStats`, plus `status`, `message`, `inferenceState`, `startedAt` and `updatedAt`.
+- `GET /api/state?minutes=15|60|360[&history=0]`: the full dashboard state as JSON (gzip-compressed when the client accepts it; `history=0` leaves out the samples, which the pages request every 2 seconds while fetching the full history every 30 seconds): `topology` (nodes and links, without interface names), `nodes` keyed by node id, `ringLinks` keyed by link id (`state` is `up`, `partial`, `down`, `pending` or `unknown`), `vllm` (inference metrics, also used for SGLang), `serving`, `usage`, `history`, `historyStats`, plus `status`, `message`, `inferenceState`, `startedAt`, `updatedAt` and `pollIntervals` (the node and API poll intervals, which the page uses to decide when data is stale).
 - `GET /api/health`: `status`, `message` and `updatedAt`; HTTP 503 when nothing can be reached.
 - `GET /api/usage?month=YYYY-MM`: one month of the token ledger.
 

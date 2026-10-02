@@ -68,6 +68,15 @@ test("the server serves the dashboard, the rack panel, the fonts and the JSON AP
     assert.equal(state.vllm.ok, false);
     assert.equal(state.usage.timeZone, "UTC");
     assert.equal(state.historyStats.windowMinutes, 15);
+    assert.deepEqual(state.pollIntervals, { nodeMs: 5000, apiMs: 2000 });
+    assert.ok(Array.isArray(state.history));
+    const light = await (await fetch(`${base}/api/state?minutes=15&history=0`)).json();
+    assert.equal(light.history, undefined);
+    assert.equal(light.historyStats.windowMinutes, 15);
+    // fetch() asks for gzip and decodes it; the raw response shows the encoding.
+    const http = await import("node:http");
+    const encoding = await new Promise((resolve, reject) => http.get(`${base}/api/state`, { headers: { "Accept-Encoding": "gzip" } }, (res) => { res.resume(); resolve(res.headers["content-encoding"]); }).on("error", reject));
+    assert.equal(encoding, "gzip");
 
     assert.equal((await fetch(`${base}/api/usage?month=2026-13`)).status, 400);
     assert.equal((await fetch(`${base}/api/usage?month=2026-09`)).status, 200);

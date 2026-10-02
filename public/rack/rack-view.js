@@ -275,7 +275,7 @@ export function timePaths(points, { fromMs, toMs, width, height, min, max, gapMs
   const flush = () => {
     if (segment.length > 1) {
       line += `M${segment.join("L")}`;
-      area += `M${segment[0].split(" ")[0]} ${bottom}L${segment.join("L")}L${segment.at(-1).split(" ")[0]} ${bottom}Z`;
+      area += `M${segment[0].split(" ")[0]} ${bottom}L${segment.join("L")}L${segment[segment.length - 1].split(" ")[0]} ${bottom}Z`;
     }
     segment = [];
   };

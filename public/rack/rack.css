@@ -52,7 +52,7 @@ body{color:var(--ink);font-family:Archivo,system-ui,sans-serif;font-size:20px;li
 .down b{font-size:150px;color:var(--ink3);line-height:.9}
 
 .band{position:absolute;left:0;top:350px;width:var(--w,1920px);height:130px;border-top:1px solid var(--hair);overflow:hidden}
-.band svg{position:absolute;left:0;top:0}
+.band svg{position:absolute;left:0;top:0;will-change:transform}.screen.stale .band svg,.screen.stale .tok,.screen.stale .out{opacity:.4}
 .band .over{position:absolute;inset:0;display:grid;grid-template-columns:clamp(480px,calc(var(--w,1920px) / 3),640px) 1fr clamp(330px,calc(var(--w,1920px) * .2292),440px);align-items:center;padding:0 30px;gap:24px}
 .cl{display:grid;gap:3px;min-width:0}
 .cl div{display:flex;align-items:center;gap:14px;font-size:34px;font-weight:700}

@@ -1,22 +1,28 @@
-import { COLORS, nodeOrder, linkText, UNKNOWN, finite, fixed, compact, duration, gib, escapeHtml as esc, clockTime, localDay, monthLabel, dayLabel, monthOptions, chartPath, validateMonth, fabricLayout } from './view-data.js';
+import { COLORS, nodeOrder, linkText, UNKNOWN, finite, fixed, compact, duration, gib, escapeHtml as esc, clockTime, localDay, monthLabel, dayLabel, monthOptions, chartPath, validateMonth, fabricLayout, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange } from './view-data.js';
 const $ = selector => document.querySelector(selector);
 let latest = null, metas = [], lastTopology = null, range = 60, collecting = false, monthSequence = 0, monthLoadedAt = 0, monthController = null;
+// The full history is fetched every 30 s and when the range changes; polls in between add their own sample to it.
+const HISTORY_REFRESH_MS = 30_000;
+let history = [], historyAt = 0, historyRange = null;
 // The token ledger counts days in the server's time zone (usage.timeZone); until the first response, the viewer's own.
 let ledgerTimeZone = null;
 const ledgerToday = () => localDay(Date.now(), ledgerTimeZone);
-let selectedMonth = ledgerToday().slice(0,7), earliestMonth = null;
+// Until the server names its ledger time zone, the month is a guess; it follows the server's month unless picked by hand.
+let selectedMonth = ledgerToday().slice(0,7), earliestMonth = null, monthPicked = false;
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
-function text(selector, value) { const el = $(selector); el.textContent = value; el.classList.toggle('unknown-value', value === UNKNOWN || value === 'stopped'); }
+// Unchanged text is left alone, so live regions only speak when something actually changes.
+function text(selector, value) { const el = $(selector); if (el.textContent !== value) el.textContent = value; el.classList.toggle('unknown-value', value === UNKNOWN || value === 'stopped'); }
 const themeToggle = $('#theme-toggle');
 function themeLabel() { const dark=document.documentElement.dataset.theme==='dark'; themeToggle.title=dark?'Switch to light mode':'Switch to dark mode'; themeToggle.setAttribute('aria-label',themeToggle.title); }
 themeToggle.addEventListener('click',()=>{const theme=document.documentElement.dataset.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=theme;try{localStorage.setItem('spark-scope-theme',theme)}catch{}themeLabel()});
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change',event=>{let choice;try{choice=localStorage.getItem('spark-scope-theme')}catch{}if(!['light','dark'].includes(choice)){document.documentElement.dataset.theme=event.matches?'dark':'light';themeLabel()}});themeLabel();
+onMediaChange(matchMedia('(prefers-color-scheme: dark)'),event=>{let choice;try{choice=localStorage.getItem('spark-scope-theme')}catch{}if(!['light','dark'].includes(choice)){document.documentElement.dataset.theme=event.matches?'dark':'light';themeLabel()}});themeLabel();
 
 const ROLE_NAMES={HEAD:'Head',WORKER:'Worker',NODE:'Node'};
-// One card per node in topology order; rebuilt only when topology.json changes on the server.
+// One card per node in topology order; rebuilt when anything in topology.json changes on the server.
+let nodesKey=null;
 function syncNodes(next) {
-  const ids=next.map(meta=>meta.id).join(',');if($('#nodes').dataset.ids===ids)return;
-  metas=next;$('#nodes').dataset.ids=ids;$('#nodes').dataset.count=metas.length<=4?String(metas.length):'many';
+  const key=topologyKey(next);if(nodesKey===key)return;
+  nodesKey=key;metas=next;$('#nodes').dataset.count=metas.length<=4?String(metas.length):'many';
   $('#brand-count').textContent=metas.length>1?`× ${metas.length}`:'';buildNodes();
 }
 // Sensors and the TP rank are shown only when a node reports them; ACPI zones keep their firmware names.
@@ -84,8 +90,10 @@ function renderToday(usage) {
   document.querySelectorAll('[data-ledger-zone]').forEach(el=>{el.textContent=ledgerTimeZone?`Days in ${ledgerTimeZone}`:''});
 }
 function renderState(state) {
-  const age=Date.now()-Date.parse(state.updatedAt);if(!Number.isFinite(age)||age>20000)throw new Error('stale data');
-  latest=state;lastTopology=state.topology??lastTopology;if(state.usage?.timeZone)ledgerTimeZone=state.usage.timeZone;syncNodes(nodeOrder(state));$('#shell').classList.remove('stale');
+  const age=Date.now()-Date.parse(state.updatedAt);if(!Number.isFinite(age)||age>staleAfterMs(state))throw new Error('stale data');
+  latest=state;lastTopology=state.topology??lastTopology;
+  if(state.usage?.timeZone&&state.usage.timeZone!==ledgerTimeZone){ledgerTimeZone=state.usage.timeZone;if(!monthPicked&&selectedMonth!==ledgerToday().slice(0,7)){selectedMonth=ledgerToday().slice(0,7);monthLoadedAt=0;rebuildMonths();if(!$('#tokens').hidden)void refreshMonth(true)}}
+  syncNodes(nodeOrder(state));$('#shell').classList.remove('stale');
   const v=state.vllm,stopped=state.inferenceState==='stopped',nodes=state.nodes||{};
   const online=metas.filter(m=>nodes[m.id]?.ok).length,serving=metas.filter(m=>nodes[m.id]?.ok&&nodes[m.id]?.inferenceProcessReady).length,count=metas.length;
   $('.status').className='status '+(state.status==='healthy'?'':stopped?'stopped':'error');text('#status-title',state.message||'Checking status');
@@ -104,8 +112,20 @@ function failedState() {
   metas.forEach(meta=>renderNode(meta,null));renderLinks(null);renderToday(null);for(const id of ['speed','legend-speed','avg','queue'])text('#'+id,UNKNOWN);document.querySelectorAll('[data-field]').forEach(el=>el.textContent=UNKNOWN);$('#plot-note').hidden=false;$('#plot-note').textContent='Lost the connection to the server. Reconnecting…';
 }
 async function refresh() {
-  if(collecting)return;collecting=true;const requestedRange=range;
-  try{const res=await fetch(`/api/state?minutes=${requestedRange}`,{cache:'no-store',signal:AbortSignal.timeout(8000)});if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();if(requestedRange===range)renderState(data)}catch{if(requestedRange===range)failedState()}finally{collecting=false;if(requestedRange!==range)void refresh()}
+  if(collecting)return;collecting=true;const requestedRange=range,full=historyRange!==requestedRange||Date.now()-historyAt>=HISTORY_REFRESH_MS;
+  let data=null;const timeout=timeoutSignal(8000);
+  try{const res=await fetch(`/api/state?minutes=${requestedRange}${full?'':'&history=0'}`,{cache:'no-store',signal:timeout.signal});if(!res.ok)throw new Error('HTTP '+res.status);data=await res.json()}
+  catch{if(requestedRange===range)failedState()}
+  finally{timeout.done()}
+  try{
+    if(data&&requestedRange===range){
+      if(full){history=data.history??[];historyAt=Date.now();historyRange=requestedRange}else history=mergeLivePoint(history,livePoint(data),requestedRange*60_000);
+      renderState({...data,history});
+    }
+  }catch(error){
+    // A drawing problem is not a lost connection: keep the last good view and say what broke.
+    if(error?.message==='stale data')failedState();else console.error('Spark Scope could not draw the latest state:',error);
+  }finally{collecting=false;if(requestedRange!==range)void refresh()}
 }
 
 function rebuildMonths() {
@@ -123,7 +143,8 @@ function renderMonth(usage) {
   text('#month-title',current?`${name} to date`:`${name} total`);text('#month-period',current?`${dayLabel(selectedMonth+'-01')} – ${dayLabel(usage.day)}`:monthLabel(selectedMonth));
   $('#month-period').classList.remove('month-load-error');$('#today-tokens').hidden=!current;
   const metrics=[['Total tokens','total'],['Cache read','cache'],['New input','compute'],['Output','output'],['Logical input','input'],['Requests','requests']];
-  $('#month-metrics').innerHTML=metrics.map(([label,key])=>`<div class="${key==='total'?'total-tokens':''}"><small>${label}</small>${metricCell(key,usage.totals[key],'b')}</div>`).join('');
+  const metricsHtml=metrics.map(([label,key])=>`<div class="${key==='total'?'total-tokens':''}"><small>${label}</small>${metricCell(key,usage.totals[key],'b')}</div>`).join('');
+  if($('#month-metrics').innerHTML!==metricsHtml)$('#month-metrics').innerHTML=metricsHtml;
   const days=[...usage.days].sort((a,b)=>b.day.localeCompare(a.day));const fields=['cache','compute','output','requests'];
   $('#token-days').innerHTML=days.length?days.map(day=>`<tr><th scope="row">${esc(dayLabel(day.day))}</th>${fields.map(k=>metricCell(k,day[k])).join('')}</tr>`).join(''):'<tr><td colspan="5">No token usage recorded this month.</td></tr>';
   $('#token-month-total').innerHTML=`<tr><th scope="row">Month total</th>${fields.map(k=>metricCell(k,usage.totals[k])).join('')}</tr>`;
@@ -147,6 +168,6 @@ function selectTab(btn,updateHash=true) {
 document.querySelectorAll('[role=tab]').forEach(btn=>{btn.addEventListener('click',()=>selectTab(btn));btn.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?$('#tab-scope'):e.key==='End'?$('#tab-tokens'):btn.id==='tab-scope'?$('#tab-tokens'):$('#tab-scope');selectTab(next);next.focus()}})});
 window.addEventListener('hashchange',()=>selectTab($(location.hash==='#tokens'?'#tab-tokens':'#tab-scope'),false));
 document.querySelectorAll('[data-range]').forEach(btn=>btn.addEventListener('click',()=>{range=Number(btn.dataset.range);document.querySelectorAll('[data-range]').forEach(b=>b.setAttribute('aria-pressed',String(b===btn)));void refresh()}));
-$('#token-month').addEventListener('change',()=>{selectedMonth=$('#token-month').value;monthLoadedAt=0;clearMonth('Loading the monthly ledger…');void refreshMonth(true)});
+$('#token-month').addEventListener('change',()=>{monthPicked=true;selectedMonth=$('#token-month').value;monthLoadedAt=0;clearMonth('Loading the monthly ledger…');void refreshMonth(true)});
 buildNodes();rebuildMonths();clearMonth('Loading the monthly ledger…');selectTab($(location.hash==='#tokens'?'#tab-tokens':'#tab-scope'),false);void refresh();
 setInterval(()=>{void refresh();if(!$('#tokens').hidden)void refreshMonth()},2000);
