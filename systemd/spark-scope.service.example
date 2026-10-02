@@ -20,7 +20,8 @@ ExecStart=/usr/bin/node %h/spark-scope/server.mjs
 Environment=SPARK_SCOPE_HOST=127.0.0.1
 Environment=SPARK_SCOPE_PORT=8787
 Environment=SPARK_SCOPE_API_URL=http://127.0.0.1:8000
-#Environment=SPARK_SCOPE_TOPOLOGY=%h/spark-scope/topology.json
+# Without this, ~/.config/spark-scope/topology.json is used when it exists, else the shipped topology.json.
+#Environment=SPARK_SCOPE_TOPOLOGY=%h/.config/spark-scope/topology.json
 #Environment=SPARK_SCOPE_USAGE_DB=%h/.local/share/spark-scope/usage.sqlite
 #Environment=SPARK_SCOPE_TIME_ZONE=Etc/UTC
 

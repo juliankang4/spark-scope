@@ -14,7 +14,7 @@ Web dashboard, four nodes:
 
 ![Web dashboard with four nodes](docs/screenshots/dashboard-4-nodes.png)
 
-Rack panel, four nodes while serving, then with one node down and a broken link:
+Rack panel, four nodes while serving, then with one node not responding and its two links down:
 
 ![Rack panel with four nodes](docs/screenshots/rack-4-nodes.png)
 
@@ -51,7 +51,14 @@ A dark 1920 x 480 panel for a bar display or a Raspberry Pi kiosk. Each node get
 
 ## Requirements
 
-- Node.js 22.13 or later (24 LTS recommended). The token ledger uses the built-in `node:sqlite`. Ubuntu 24.04's packaged `nodejs` is too old, so install Node from nodejs.org, NodeSource or a version manager such as nvm. Some Node versions print an "SQLite is an experimental feature" warning on start; it is harmless.
+- Node.js 22.13 or later (24 LTS recommended). The token ledger uses the built-in `node:sqlite`, and the server stops with a clear message on an older Node. The `nodejs` packages of Ubuntu 24.04 (DGX OS) and Raspberry Pi OS are too old. NodeSource has arm64 and x86 packages for both:
+
+  ```bash
+  curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
+  sudo apt-get install -y nodejs
+  ```
+
+  A version manager such as nvm works too. Some Node versions print an "SQLite is an experimental feature" warning on start; it is harmless.
 - On each monitored node: Linux with `bash`, `nvidia-smi` and the usual coreutils. DGX OS already has everything. `systemd`, `journalctl` and `docker` are used when present.
 - For remote nodes: an SSH client on the dashboard machine and key-based SSH access to each node.
 - Optionally an inference server with Prometheus metrics: vLLM (on by default) or SGLang (start it with `--enable-metrics`).
@@ -61,6 +68,7 @@ A dark 1920 x 480 panel for a bar display or a Raspberry Pi kiosk. Each node get
 The shipped `topology.json` describes a single node collected locally (`"host": "local"`), so no SSH is involved.
 
 ```bash
+git clone https://github.com/juliankang4/spark-scope.git
 cd spark-scope
 node --version          # 22.13 or later
 SPARK_SCOPE_API_URL=http://127.0.0.1:8000 npm start
@@ -100,6 +108,9 @@ The dashboard can run on one of the Sparks (that node uses `"host": "local"`, th
        User your-user
        IdentityFile ~/.ssh/id_ed25519_spark_scope
        IdentitiesOnly yes
+       # Optional: keep these host keys apart from your everyday known_hosts. Set it before the first
+       # connection in step 4, so the key you accept there is stored in this file.
+       UserKnownHostsFile ~/.ssh/known_hosts_spark_scope
        # Optional: reuse one connection for the polls every five seconds.
        ControlMaster auto
        ControlPath ~/.ssh/spark-scope-%C
@@ -113,12 +124,13 @@ The dashboard can run on one of the Sparks (that node uses `"host": "local"`, th
    ssh -o BatchMode=yes spark-2 'nvidia-smi -L'   # must work without any prompt
    ```
 
-   To keep these keys separate from your everyday `known_hosts`, add `UserKnownHostsFile ~/.ssh/known_hosts_spark_scope` and `StrictHostKeyChecking yes` to the `Host` block after the first connection.
+   Once every node is accepted, you can add `StrictHostKeyChecking yes` to the `Host` blocks, so a changed host key is refused instead of offered.
 
-5. **Describe the cluster** by copying an example and editing it (see the next section):
+5. **Describe the cluster** by copying an example to your config directory and editing it (see the next section). Keeping it there means `git pull` never conflicts with your edits:
 
    ```bash
-   cp examples/topology.2-node.json topology.json
+   mkdir -p ~/.config/spark-scope
+   cp examples/topology.2-node.json ~/.config/spark-scope/topology.json
    npm start
    ```
 
@@ -126,7 +138,12 @@ Optional permissions on the nodes: kernel error summaries need read access to th
 
 ## Topology (`topology.json`)
 
-`topology.json` maps dashboard cards to machines and cables to network interfaces. The server reads it at start; restart after editing. `SPARK_SCOPE_TOPOLOGY` can point at another file. If the default `topology.json` is missing, the server falls back to one locally collected node named after the machine.
+`topology.json` maps dashboard cards to machines and cables to network interfaces. The server reads it at start; restart after editing. It uses the first of these that exists:
+
+1. the file named by `SPARK_SCOPE_TOPOLOGY` (an error if it is missing),
+2. `$XDG_CONFIG_HOME/spark-scope/topology.json` (normally `~/.config/spark-scope/topology.json`),
+3. the shipped `topology.json` next to `server.mjs` (one locally collected node),
+4. a built-in single local node named after the machine.
 
 | Example | Layout |
 |---|---|
@@ -171,7 +188,7 @@ All settings are optional environment variables.
 | `SPARK_SCOPE_HOST` | `127.0.0.1` | Listen address. Set `0.0.0.0` (or a specific address) to serve other machines; see Security. |
 | `SPARK_SCOPE_PORT` | `8787` | Listen port. |
 | `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | Base URL of the OpenAI-compatible inference server. The dashboard reads `/health`, `/metrics` and `/v1/models`. vLLM listens on 8000 by default, SGLang on 30000. |
-| `SPARK_SCOPE_TOPOLOGY` | `topology.json` next to `server.mjs` | Topology file. When set explicitly, a missing file is an error. |
+| `SPARK_SCOPE_TOPOLOGY` | `~/.config/spark-scope/topology.json` if it exists, otherwise `topology.json` next to `server.mjs` | Topology file. When set explicitly, a missing file is an error. |
 | `SPARK_SCOPE_USAGE_DB` | `$XDG_DATA_HOME/spark-scope/usage.sqlite` (`~/.local/share/...`) | Token ledger database. The directory is created if needed. |
 | `SPARK_SCOPE_TIME_ZONE` | the server's time zone | IANA time zone (for example `America/Los_Angeles`) that decides where ledger days begin. The page shows it next to the ledger. |
 | `SPARK_SCOPE_NODE_INTERVAL_MS` | `5000` | Node polling interval in milliseconds, at least 1000. Each poll is limited to 4.5 seconds, and each `nvidia-smi` or `docker` call in it to 1.5 seconds. |
@@ -181,7 +198,7 @@ All settings are optional environment variables.
 Example for a two-node cluster whose head serves SGLang, viewed from the LAN:
 
 ```bash
-SPARK_SCOPE_HOST=0.0.0.0 SPARK_SCOPE_API_URL=http://127.0.0.1:30000 SPARK_SCOPE_TOPOLOGY=$PWD/topology.json npm start
+SPARK_SCOPE_HOST=0.0.0.0 SPARK_SCOPE_API_URL=http://127.0.0.1:30000 npm start
 ```
 
 ## Running as a service
@@ -235,7 +252,7 @@ The script waits until `/api/health` answers before it opens Chromium, uses its 
 ## HTTP API
 
 - `GET /` and `GET /rack/`: the web dashboard and the rack panel.
-- `GET /api/state?minutes=15|60|360`: the full dashboard state as JSON: `topology` (nodes and links, without interface names), `nodes` keyed by node id, `ringLinks` keyed by link id (`state` is `up`, `partial`, `down`, `pending` or `unknown`), `vllm` (inference metrics, also used for SGLang), `serving`, `usage`, `history` and `historyStats`.
+- `GET /api/state?minutes=15|60|360`: the full dashboard state as JSON: `topology` (nodes and links, without interface names), `nodes` keyed by node id, `ringLinks` keyed by link id (`state` is `up`, `partial`, `down`, `pending` or `unknown`), `vllm` (inference metrics, also used for SGLang), `serving`, `usage`, `history`, `historyStats`, plus `status`, `message`, `inferenceState`, `startedAt` and `updatedAt`.
 - `GET /api/health`: `status`, `message` and `updatedAt`; HTTP 503 when nothing can be reached.
 - `GET /api/usage?month=YYYY-MM`: one month of the token ledger.
 

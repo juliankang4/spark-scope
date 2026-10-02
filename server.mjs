@@ -6,7 +6,14 @@ import { fileURLToPath } from "node:url";
 import { collectNode, uncollectedNode, VllmCollector, applyNetworkRates } from "./lib/collectors.mjs";
 import { buildRingLinks, clusterStatus, servingSummary, DEFAULT_LINK_MIN_GBPS } from "./lib/cluster.mjs";
 import { loadTopology, nodeInterfaces, publicTopology } from "./lib/topology.mjs";
-import { UsageStore } from "./lib/usage-store.mjs";
+
+// node:sqlite (the token ledger) needs Node 22.13 or later; say so instead of failing on the import.
+const [major, minor] = process.versions.node.split(".").map(Number);
+if (major < 22 || (major === 22 && minor < 13)) {
+  console.error(`Spark Scope needs Node.js 22.13 or later; this is ${process.versions.node}. See "Requirements" in README.md.`);
+  process.exit(1);
+}
+const { UsageStore } = await import("./lib/usage-store.mjs");
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_ROOT = path.join(ROOT, "public");

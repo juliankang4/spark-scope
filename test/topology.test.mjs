@@ -113,3 +113,22 @@ test("the browser gets names, roles and links but no interface names", () => {
   assert.ok(!JSON.stringify(shared).includes("enp1s0"));
   assert.equal(publicTopology(example(1)).nodes[0].local, true);
 });
+
+test("without SPARK_SCOPE_TOPOLOGY the user's own topology is preferred over the shipped one", async () => {
+  const { defaultTopologyPath, userTopologyPath } = await import("../lib/topology.mjs");
+  const { mkdirSync, writeFileSync, rmSync, mkdtempSync } = await import("node:fs");
+  const os = await import("node:os");
+  const config = mkdtempSync(path.join(os.tmpdir(), "spark-scope-config-"));
+  try {
+    const env = { XDG_CONFIG_HOME: config, HOME: "/nonexistent" };
+    assert.equal(userTopologyPath(env), path.join(config, "spark-scope", "topology.json"));
+    assert.equal(defaultTopologyPath(env), DEFAULT_TOPOLOGY_PATH);
+    mkdirSync(path.join(config, "spark-scope"));
+    writeFileSync(path.join(config, "spark-scope", "topology.json"), "{}");
+    assert.equal(defaultTopologyPath(env), path.join(config, "spark-scope", "topology.json"));
+    assert.equal(defaultTopologyPath({ ...env, SPARK_SCOPE_TOPOLOGY: "/elsewhere/topology.json" }), "/elsewhere/topology.json");
+    assert.equal(userTopologyPath({ HOME: "/home/someone" }), "/home/someone/.config/spark-scope/topology.json");
+  } finally {
+    rmSync(config, { recursive: true, force: true });
+  }
+});

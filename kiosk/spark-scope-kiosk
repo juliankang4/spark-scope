@@ -7,7 +7,8 @@
 #                       is not 4:1, add ?width=N (see README).
 # CHROMIUM              the browser binary (default: chromium, then chromium-browser).
 URL="${SPARK_SCOPE_RACK_URL:-http://127.0.0.1:8787/rack/}"
-BASE="${URL%%/rack*}"
+# Shortest match, so a host name that itself starts with "rack" (rack-pi.local) survives.
+BASE="${URL%/rack*}"
 CHROMIUM="${CHROMIUM:-$(command -v chromium || command -v chromium-browser)}"
 if [ -z "$CHROMIUM" ]; then
   echo "spark-scope-kiosk: Chromium not found; set CHROMIUM=/path/to/chromium" >&2
@@ -17,7 +18,14 @@ fi
 until curl -s -o /dev/null --max-time 3 "$BASE/api/health"; do
   sleep 5
 done
-exec "$CHROMIUM" --ozone-platform-hint=auto \
+# Wayland when a Wayland display is there (Raspberry Pi OS with labwc), even if XDG_SESSION_TYPE is not set,
+# for example when the kiosk is started over SSH; otherwise let Chromium pick (X11 desktops).
+if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+  PLATFORM="--ozone-platform=wayland"
+else
+  PLATFORM="--ozone-platform-hint=auto"
+fi
+exec "$CHROMIUM" "$PLATFORM" \
   --kiosk --noerrdialogs --disable-infobars --no-first-run \
   --disable-session-crashed-bubble --hide-crash-restore-bubble \
   --disable-features=Translate --password-store=basic \
