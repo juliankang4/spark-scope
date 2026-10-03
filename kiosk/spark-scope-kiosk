@@ -4,7 +4,7 @@
 #
 # SPARK_SCOPE_RACK_URL  the panel to show (default: a dashboard on this machine). For a dashboard on
 #                       another machine use e.g. http://dashboard-host:8787/rack/ ; for a display that
-#                       is not 4:1, add ?width=N (see README).
+#                       is not 4:1, add ?width=N (see docs/rack.md).
 # CHROMIUM              the browser binary (default: chromium, then chromium-browser).
 URL="${SPARK_SCOPE_RACK_URL:-http://127.0.0.1:8787/rack/}"
 # Shortest match, so a host name that itself starts with "rack" (rack-pi.local) survives.

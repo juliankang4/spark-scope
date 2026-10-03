@@ -16,7 +16,7 @@ Description=Spark Scope (read-only DGX Spark monitoring dashboard)
 WorkingDirectory=%h/spark-scope
 ExecStart=/usr/bin/node %h/spark-scope/server.mjs
 
-# Edit as needed; every setting is optional (see README.md).
+# Edit as needed; every setting is optional (see docs/configuration.md).
 Environment=SPARK_SCOPE_HOST=127.0.0.1
 Environment=SPARK_SCOPE_PORT=8787
 Environment=SPARK_SCOPE_API_URL=http://127.0.0.1:8000

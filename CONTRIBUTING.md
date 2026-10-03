@@ -12,5 +12,5 @@ Bug reports, fixes and small features are welcome. For anything larger, open an 
 ## Pull requests
 
 - Say clearly what changes: for a fix, what was wrong and how it behaves now; for a feature, what it adds and how to use it. A screenshot helps for anything you can see.
-- `npm test` passes (Node.js 22.13 or later, no install step). If you change what the pages show, `node tools/render.mjs` (needs Chrome or Chromium) shows whether anything got clipped or broken; CI runs both.
+- `npm test` passes (Node.js 22.13 or later, no install step). If you change what the pages show, `node tools/render.mjs` (needs Chrome or Chromium) shows whether anything got clipped or broken; CI runs both. `npm run demo` shows the pages on made-up data, and [Development](docs/development.md) has the details.
 - English is enough. New text only needs its English entry in `public/i18n.js`; the Korean is added before the merge, and so are README updates if you leave them out.
