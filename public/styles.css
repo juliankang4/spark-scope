@@ -170,11 +170,14 @@ html,body{overflow-anchor:none}
 .settings-nav{display:flex;flex-direction:column;border-right:1px solid var(--line);padding:10px 0;overflow:auto}
 .settings-nav button{border:0;background:transparent;color:var(--muted);text-align:left;padding:11px 18px;font:500 13px var(--num-font)}
 .settings-nav button[aria-current=true]{color:var(--ink);font-weight:700;box-shadow:inset 3px 0 0 var(--blue)}
-.settings-body{padding:18px 22px;overflow:auto;min-height:420px}
+.settings-body{padding:18px 22px;overflow:auto;min-height:420px;container-type:inline-size}
 .settings-body section{display:grid;gap:16px;align-content:start}
 .settings-body h3{margin:0;font:700 14px var(--num-font)}
 .choice{display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px;align-items:center;margin:0;padding:0;border:0;min-width:0}
 .choice legend{float:left;padding:0;font-size:12px;color:var(--muted)}
+/* Beside the 150px label column the controls need about 420px. A narrower body (a tablet, a zoomed page) puts each
+   label above its controls, as on a phone, instead of squeezing the controls to the right. */
+@container (max-width:579px){.choice{grid-template-columns:minmax(0,1fr)}}
 .pills{display:inline-flex;flex-wrap:wrap;justify-self:start;border:1px solid var(--line)}
 .pills label{position:relative;display:block}
 .pills label+label{border-left:1px solid var(--line)}
@@ -200,7 +203,9 @@ html,body{overflow-anchor:none}
 .settings-foot .primary{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 .settings-share{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;min-width:0}
 .settings-share input{font:500 11px var(--num-font);color:var(--ink);background:var(--screen);border:1px solid var(--line);padding:7px 8px;width:min(360px,100%)}
-@media(max-width:1050px){.settings-frame{grid-template-columns:150px minmax(0,1fr)}.settings-preview{grid-column:1/-1;border-left:0;border-top:1px solid var(--line)}.settings-preview .nodes{max-width:420px}}
+/* With the preview below the choices, the dialog scrolls as one page; a scrolling middle row would shrink under a
+   tall preview and let the choices slide behind it. */
+@media(max-width:1050px){.settings-frame{grid-template-columns:150px minmax(0,1fr);grid-template-rows:auto;overflow:auto}.settings-body{overflow:visible}.settings-head{position:sticky;top:0;z-index:1;background:var(--paper)}.settings-foot{position:sticky;bottom:0;z-index:1;background:var(--paper)}.settings-preview{grid-column:1/-1;border-left:0;border-top:1px solid var(--line)}.settings-preview .nodes{max-width:420px}}
 /* On a phone the dialog fills the screen and scrolls as one page, with the title and the buttons kept in view. */
 @media(max-width:760px){
   .settings{width:100vw;height:100dvh;max-height:none;margin:0;border:0}
