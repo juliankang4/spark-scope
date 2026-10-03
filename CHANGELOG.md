@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.1.1 (2026-10-03)
+
+<p align="center"><img src="docs/changes/0.1.1/settings.png" alt="Settings dialog" width="820"></p>
+
+### Added
+
+- Settings dialog, from the gear button in the header ([#14](https://github.com/juliankang4/spark-scope/pull/14), [#18](https://github.com/juliankang4/spark-scope/pull/18), [#19](https://github.com/juliankang4/spark-scope/pull/19), [#21](https://github.com/juliankang4/spark-scope/pull/21)):
+  - node card: the four readings and their order, the bars, full or short labels, the levels that turn a reading orange;
+  - a colour per node, from the palette or custom;
+  - units: °C or °F, GiB or GB, 24- or 12-hour clock;
+  - dashboard: panels to show, chart range, refresh interval, pausing hidden tabs, theme;
+  - rack panel: band motion and the kiosk URL;
+  - a settings link that carries them to another browser.
+- Designs: Default, Console and Soft ([#23](https://github.com/juliankang4/spark-scope/pull/23)).
+- Korean for the web page and the rack panel (`?lang=ko`) ([#16](https://github.com/juliankang4/spark-scope/pull/16)).
+- Mini window (`M`): glance, scope and recorded runs, kept on top in Chrome and Edge ([#24](https://github.com/juliankang4/spark-scope/pull/24)).
+- Token ledger: statement, calendar and charts, a table by model, CSV export ([#26](https://github.com/juliankang4/spark-scope/pull/26)).
+- `?` explanations next to the figures that need one ([#17](https://github.com/juliankang4/spark-scope/pull/17)).
+- Rack panel options in its address: `temp=f`, `mem=gb`, `colors=`, `motion=` ([#21](https://github.com/juliankang4/spark-scope/pull/21)).
+- `npm run demo`: the pages on made-up data, without a Spark ([#25](https://github.com/juliankang4/spark-scope/pull/25)).
+- API: `/api/state` adds `version`, `messageKey` and `messageParams`, the 5-minute latency fields, `prefillUpdatedAt` and `rackSeenAt`; `/api/usage` adds each day's and the month's models and `firstDay` ([#15](https://github.com/juliankang4/spark-scope/pull/15), [#16](https://github.com/juliankang4/spark-scope/pull/16), [#21](https://github.com/juliankang4/spark-scope/pull/21), [#24](https://github.com/juliankang4/spark-scope/pull/24), [#26](https://github.com/juliankang4/spark-scope/pull/26)).
+
+<p align="center"><img src="docs/changes/0.1.1/designs.png" alt="Console and Soft designs"></p>
+
+### Changed
+
+- TTFT and TPOT p95 cover the last 5 minutes; the value since the engine started is behind the `?` ([#15](https://github.com/juliankang4/spark-scope/pull/15)).
+- A hidden web tab pauses its updates and catches up when shown ([#13](https://github.com/juliankang4/spark-scope/pull/13)).
+- The rack kiosk uses about a third of the CPU: the band moves in one-pixel steps and the kiosk turns off Chromium's renderer accessibility. Reinstall `kiosk/spark-scope-kiosk` to get the second part ([#13](https://github.com/juliankang4/spark-scope/pull/13)).
+- A shorter README with a Korean version; the reference moved to `docs/` ([#11](https://github.com/juliankang4/spark-scope/pull/11), [#27](https://github.com/juliankang4/spark-scope/pull/27)).
+- CI renders the pages and fails on clipped text, overflow or script errors ([#12](https://github.com/juliankang4/spark-scope/pull/12)). A shorter contributing guide; English is enough for a pull request ([#20](https://github.com/juliankang4/spark-scope/pull/20)).
+
+### Fixed
+
+- "GPU temperature" wrapped onto two lines on narrow cards and pushed the readings out of line ([#18](https://github.com/juliankang4/spark-scope/pull/18)).
+
 ## 0.1.0 (2026-10-02)
 
 The first tagged release. Spark Scope went public on 2026-10-01; this covers everything changed since.
