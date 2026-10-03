@@ -432,3 +432,28 @@ test('the model servers view is a setting that a settings link carries', () => {
   assert.equal(settingsQuery({ ...DEFAULTS, servers: 'one', server: 'b' }, null), 'servers=one&server=b');
   assert.deepEqual(settingsFromQuery('?servers=one&server=b').settings, { ...DEFAULTS, servers: 'one', server: 'b' });
 });
+
+test('keyboard shortcuts go by physical key, so they also work with a Korean layout, and never while typing or with a modifier', async () => {
+  const { shortcutAction } = await import('../public/view-data.js');
+  const key = (code, key, extra = {}) => ({ code, key, shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, repeat: false, ...extra });
+  assert.equal(shortcutAction(key('KeyS', 's')), 'scope');
+  assert.equal(shortcutAction(key('KeyL', 'l')), 'tokens');
+  assert.equal(shortcutAction(key('KeyM', 'm')), 'mini');
+  assert.equal(shortcutAction(key('Comma', ',')), 'settings');
+  assert.equal(shortcutAction(key('Slash', '?', { shiftKey: true })), 'keys');
+  // With the Korean layout on, the same keys type ㄴ, ㅣ and ㅡ.
+  assert.equal(shortcutAction(key('KeyS', 'ㄴ')), 'scope');
+  assert.equal(shortcutAction(key('KeyL', 'ㅣ')), 'tokens');
+  assert.equal(shortcutAction(key('KeyM', 'ㅡ')), 'mini');
+  // On AZERTY "," sits where QWERTY has M, and M where QWERTY has ";": the character typed decides.
+  assert.equal(shortcutAction(key('KeyM', ',')), 'settings');
+  assert.equal(shortcutAction(key('Semicolon', 'm')), 'mini');
+  // The browser's own shortcuts (Cmd+L, Ctrl+S), typing in a field, a held key and Shift+letters do nothing.
+  assert.equal(shortcutAction(key('KeyL', 'l', { metaKey: true })), null);
+  assert.equal(shortcutAction(key('KeyS', 's', { ctrlKey: true })), null);
+  assert.equal(shortcutAction(key('KeyM', 'm', { altKey: true })), null);
+  assert.equal(shortcutAction(key('KeyS', 's'), true), null);
+  assert.equal(shortcutAction(key('KeyS', 's', { repeat: true })), null);
+  assert.equal(shortcutAction(key('KeyS', 'S', { shiftKey: true })), null);
+  assert.equal(shortcutAction(key('KeyX', 'x')), null);
+});

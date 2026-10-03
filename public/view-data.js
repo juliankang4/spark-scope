@@ -31,6 +31,21 @@ export function nodeOrder(state) {
   if (Array.isArray(metas) && metas.length) return metas;
   return Object.keys(state?.nodes ?? {}).map(id => ({ id, name: state.nodes[id]?.name ?? state.nodes[id]?.host ?? id, host: state.nodes[id]?.host ?? null, role: state.nodes[id]?.role ?? '', collect: true }));
 }
+// Keyboard shortcuts: S Scope, L token ledger, M mini window, "," settings, "?" the list of them. The character typed
+// decides on Latin layouts (AZERTY puts "," where QWERTY has M); with a Korean or other non-Latin layout on, the key's
+// position does (S then types a Hangul letter). Nothing while typing in a field, and nothing with Ctrl, Cmd or Alt held, so the
+// browser's own shortcuts (Cmd+L, Cmd+S) keep working.
+const SHORTCUT_CHARS = { s: 'scope', l: 'tokens', m: 'mini', ',': 'settings' };
+const SHORTCUT_CODES = { KeyS: 'scope', KeyL: 'tokens', KeyM: 'mini', Comma: 'settings' };
+export function shortcutAction(event, inField = false) {
+  if (inField || event.metaKey || event.ctrlKey || event.altKey || event.repeat) return null;
+  const key = String(event.key ?? '');
+  const latin = /^[\x21-\x7e]$/.test(key);
+  if (key === '?' || (!latin && event.code === 'Slash' && event.shiftKey)) return 'keys';
+  if (event.shiftKey) return null;
+  return latin ? SHORTCUT_CHARS[key.toLowerCase()] ?? null : SHORTCUT_CODES[event.code] ?? null;
+}
+
 // ---- model servers (topology.json "servers"; one covering every node without it) ----
 // The servers of a state, or one covering every node for a payload from an older server without servers[].
 export function modelServers(state) {

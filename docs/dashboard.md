@@ -68,6 +68,18 @@ Designs: Default, Console (a terminal look, always dark) and Soft (rounded cards
 
 The settings are kept in this browser only, so each browser has its own. "Copy settings link" gives an address that carries them to another browser, for example `/?temp=f&readings=temp,power,disk,clock&bars=unified,disk&lang=ko`; opening it applies them once and drops them from the address. Nothing in the settings changes the server.
 
+## Keyboard shortcuts
+
+| Key | Does |
+|---|---|
+| `S` | Scope |
+| `L` | Token ledger |
+| `M` | Opens or closes the mini window |
+| `,` | Opens or closes the settings |
+| `?` | Shows the list of shortcuts (also under About in the settings) |
+
+They follow the character typed, or the key's position while a Korean or other non-Latin layout is on (S then types a Hangul letter), and do nothing while typing in a field or with Ctrl, Cmd or Alt held, so the browser's own shortcuts keep working.
+
 ## Language
 
 The pages are in English, with Korean as the other choice: Settings, Dashboard, Language on the web page (it applies at once and travels in a settings link as `lang=ko`), and `?lang=ko` in the address of the rack panel. Dates and the 12-hour clock follow the language, numbers keep one format (1,234.5), and technical terms such as GPU, TTFT p95 and KV cache stay in English. All the text is in one table, `public/i18n.js`.

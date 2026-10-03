@@ -299,3 +299,12 @@ button.server-row[aria-pressed=true]{background:var(--hover);color:var(--ink);bo
 .engine-for i{width:10px;height:10px;border-radius:50%;flex:none}
 .engine-for:not([hidden])+.engine{margin-top:6px}
 @media(max-width:760px){.servers{padding:10px 15px}}
+/* Keyboard shortcuts ("?"). */
+.keys{border:2px solid var(--ink);background:var(--paper);color:var(--ink);padding:18px 22px;width:min(420px,calc(100vw - 32px))}
+.keys::backdrop{background:#0008}
+.keys h2{margin:0 0 14px;font:700 16px var(--num-font)}
+.keys-list{display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px 14px;align-items:center;margin:0;font-size:13px}
+.keys-list dd{margin:0}
+kbd{display:inline-block;min-width:24px;padding:2px 6px;border:1px solid var(--line);border-bottom-width:2px;background:var(--screen);color:var(--ink);font:600 12px var(--num-font);text-align:center}
+.keys-note{margin:14px 0;font-size:12px;color:var(--muted)}
+.keys button{border:1px solid var(--line);background:transparent;color:var(--ink);padding:7px 13px;font:500 12px var(--num-font)}

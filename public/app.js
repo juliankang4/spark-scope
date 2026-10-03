@@ -1,4 +1,4 @@
-import { COLORS, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, pickedServer, viewInference } from './view-data.js';
+import { COLORS, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, pickedServer, viewInference } from './view-data.js';
 import { READING_IDS, rackQuery, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 import { t, setLanguage, translatePage, serverText, LANGUAGE_NAMES } from './i18n.js';
 import { hide as hideHelp } from './help.js';
@@ -457,9 +457,23 @@ async function toggleMini(){
   const watch=setInterval(()=>{if(win.closed){clearInterval(watch);mini=null;showMini()}},1000);
 }
 miniButton.addEventListener('click',()=>void toggleMini());
+// ---- keyboard shortcuts (shortcutAction in view-data.js) ----
+const keysDialog=$('#keys');
+function toggleKeys(){if(keysDialog.open)keysDialog.close();else keysDialog.showModal()}
+$('#keys-show').addEventListener('click',toggleKeys);
+let keysPressedOutside=false;
+keysDialog.addEventListener('pointerdown',event=>{keysPressedOutside=event.target===keysDialog});
+keysDialog.addEventListener('click',event=>{if(event.target===keysDialog&&keysPressedOutside)keysDialog.close()});
 document.addEventListener('keydown',event=>{
-  if(event.key!=='m'&&event.key!=='M')return;if(event.metaKey||event.ctrlKey||event.altKey||dialog.open||event.target.closest?.('input,select,textarea,[contenteditable]'))return;
-  if(getComputedStyle(miniButton).display!=='none')void toggleMini();
+  const action=shortcutAction(event,Boolean(event.target.closest?.('input,select,textarea,[contenteditable]')));if(!action)return;
+  // "?" and "," also close their own dialog; the others wait until no dialog is open.
+  if(action==='keys'){event.preventDefault();toggleKeys();return}
+  if(action==='settings'&&dialog.open&&!keysDialog.open){event.preventDefault();dialog.close();return}
+  if(document.querySelector('dialog[open]'))return;
+  event.preventDefault();
+  if(action==='scope'||action==='tokens'){const tab=$(action==='scope'?'#tab-scope':'#tab-tokens');selectTab(tab);tab.focus()}
+  else if(action==='mini'){if(getComputedStyle(miniButton).display!=='none')void toggleMini()}
+  else if(action==='settings')opener.click();
 });
 
 // ---- rack panel settings ----
