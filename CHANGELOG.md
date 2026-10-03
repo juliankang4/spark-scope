@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.1.2 (2026-10-03)
+
+### Added
+
+- TensorFold alongside vLLM and SGLang: its metrics, and on CUDA the `/health` counters for live output speed, cache hit rate and prefill rates ([#29](https://github.com/juliankang4/spark-scope/pull/29)).
+
+### Changed
+
+- `SPARK_SCOPE_API_URL` must be an `http://` or `https://` URL without a user name or password; otherwise the server stops with a message ([#30](https://github.com/juliankang4/spark-scope/pull/30)).
+
+### Fixed
+
+Fixed in [#30](https://github.com/juliankang4/spark-scope/pull/30):
+
+- Settings: the Readings dropdowns were pushed to the right in a narrow dialog, and on a short screen below 1050 px the choices slid behind the preview.
+- Kernel errors from before a reboot were not counted, and a journal the account cannot read showed 0 errors instead of "unavailable".
+- Token ledger:
+  - a clock that went back booked a restarted run again on every poll;
+  - the page could open on the viewer's month instead of the server's and did not follow the month change;
+  - the input chart was empty when the engine does not split cache read and new input.
+- Rack panel:
+  - the band jumped back and forth and drew dips that never happened;
+  - the footer cut the power reading short;
+  - the low-memory reason ignored `mem=gb`.
+- Web page:
+  - the trend legends kept old values while the server was down;
+  - a custom node colour did not update its row until the focus moved;
+  - dragging a selection out of the settings closed them.
+
 ## 0.1.1 (2026-10-03)
 
 <p align="center"><img src="docs/changes/0.1.1/settings.png" alt="Settings dialog" width="820"></p>
