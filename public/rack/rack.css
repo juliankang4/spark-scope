@@ -49,7 +49,10 @@ html:lang(ko){word-break:keep-all}
 .bar i.warn{background:var(--warn)}
 .cap{grid-column:1/-1;font-size:19px;color:var(--ink2)}
 .foot{display:flex;gap:22px;align-items:center;font-size:19px;color:var(--ink3);overflow:hidden}
-.foot>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.foot>span:first-child{flex:none;white-space:nowrap}
+/* Steps rack.js takes, in order, while the footer does not fit (fitFoot). */
+.foot.fit-dots .lk em{font-size:0;gap:0}.foot.fit-tsoc .tsoc,.foot.fit-label .lk-label{display:none}
+.foot.fit-first>span:first-child{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .lk{display:flex;align-items:center;gap:12px;margin-left:auto;flex:none}
 .lk em{font-style:normal;display:inline-flex;align-items:center;gap:6px;color:var(--ink2)}
 .lk i{width:10px;height:10px;border-radius:50%;background:var(--ink3)}
@@ -59,10 +62,11 @@ html:lang(ko){word-break:keep-all}
 .down b{font-size:150px;color:var(--ink3);line-height:.9}
 
 .band{position:absolute;left:0;top:350px;width:var(--w,1920px);height:130px;border-top:1px solid var(--hair);overflow:hidden}
-.band svg{position:absolute;left:0;top:0;will-change:transform}.screen.stale .band svg,.screen.stale .tok,.screen.stale .out{opacity:.4}
+.band svg{position:absolute;left:0;top:0;will-change:transform;overflow:visible}.screen.stale .band svg,.screen.stale .tok,.screen.stale .out{opacity:.4}
 .band .over{position:absolute;inset:0;display:grid;grid-template-columns:clamp(480px,calc(var(--w,1920px) / 3),640px) 1fr clamp(330px,calc(var(--w,1920px) * .2292),440px);align-items:center;padding:0 30px;gap:24px}
 .cl{display:grid;gap:3px;min-width:0}
 .cl div{display:flex;align-items:center;gap:14px;font-size:34px;font-weight:700}
+#cl-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cl>span{font-size:20px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis}
 .out{display:flex;align-items:baseline;gap:14px}
 .out b{font-size:104px;line-height:.9}

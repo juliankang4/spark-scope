@@ -44,7 +44,12 @@ let lastReceivedAt = null;
 let polling = false;
 let tempHistory = [];
 let liveOut = [];
-let bandAnchor = { serverMs: 0, clientMs: 0 };
+// The band's right edge follows this browser's clock, set to the server's time. The server's updatedAt moves in uneven
+// steps (the engine poll and the node poll both set it), and drawing to it made the band jump back and forth.
+// updatedAt is never ahead of the server's clock, so the largest offset seen is the closest; a much smaller one means
+// a clock was set back.
+let clockOffsetMs = null;
+let bandAnchor = { serverMs: 0 };
 const lastOkAt = {};
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const onMotionChange = (listener) => (reduceMotion.addEventListener ? reduceMotion.addEventListener("change", listener) : reduceMotion.addListener?.(listener));
@@ -87,17 +92,17 @@ const meter = (label, value, pct, warn = false, detail = "") => `<div class="met
 
 function renderBay(meta, toMs, index) {
   const links = nodeLinks(latest, meta.id);
-  const view = nodeView(meta, latest.nodes?.[meta.id], { inferenceOk: Boolean(latest?.inference?.ok), lastOkAt: lastOkAt[meta.id], nowMs: toMs, links });
+  const view = nodeView(meta, latest.nodes?.[meta.id], { inferenceOk: Boolean(latest?.inference?.ok), lastOkAt: lastOkAt[meta.id], nowMs: toMs, links, mem: options.mem });
   const target = view.local ? t("node.target.local") : view.host ? `SSH ${view.host}` : t("node.target.noHost");
   const el = bays.querySelector(`[data-node="${CSS.escape(meta.id)}"]`);
   el.className = `bay ${view.level}`;
   // With "?colors=", the bay's bars and temperature trace take the node's colour; the stripe keeps its state colour.
   el.style.cssText = bayColorStyle(bayColor(options.colors, index));
   const head = `<span class="stripe"></span><header><div class="name">${escapeHtml(view.name)}<small>${escapeHtml(view.role)}</small></div><div class="reason" title="${escapeHtml(view.reasons.join(", "))}"><span class="lamp ${view.level}"></span><span>${escapeHtml(reasonText(view))}</span></div></header>`;
-  // Peer names next to the dots only while they are short; long ids leave just the coloured dots.
-  const named = view.links.every((link) => link.tag.length <= 6);
+  // Peer names next to the dots only while the ids are short; long ids leave just the coloured dots.
+  const named = view.links.every((link) => link.peer.length <= 6);
   const dots = view.links.length
-    ? `<span class="lk${named ? "" : " dots"}">${t("rack.bay.links")}${view.links.map((link) => `<em><i class="${link.level}"></i>${escapeHtml(link.tag)}</em>`).join("")}</span>`
+    ? `<span class="lk${named ? "" : " dots"}"><span class="lk-label">${t("rack.bay.links")}</span>${view.links.map((link) => `<em><i class="${link.level}"></i>${escapeHtml(link.tag)}</em>`).join("")}</span>`
     : "";
   if (!view.ok) {
     const body = view.pending
@@ -105,6 +110,7 @@ function renderBay(meta, toMs, index) {
       : `<div class="down"><b class="num">—</b><span>${escapeHtml(t("rack.bay.notResponding", { target }))}${view.lastOk ? ` | ${t("rack.bay.lastOk", { time: view.lastOk })}` : ""}</span></div>`;
     const note = t(view.pending ? "rack.bay.noReadingsYet" : "rack.bay.readingsUnavailable");
     el.innerHTML = `${head}${body}<div class="foot"><span>${note}</span>${dots}</div>`;
+    fitFoot(el);
     return;
   }
   const trace = tempTrace(meta.id, toMs);
@@ -119,6 +125,17 @@ function renderBay(meta, toMs, index) {
       <div class="cap"><span class="cap-label">${t("rack.caption.gpuTemp")} </span>${t("rack.caption.range", { range: trace.range })}</div>
     </div>
     <div class="foot"><span>${t("rack.power", { watts: f1(view.power) })}</span>${view.tsoc === null ? "" : `<span class="tsoc">TSOC ${f1(degrees(view.tsoc, options.temp))}${degreeUnit(options.temp)}</span>`}${dots}</div>`;
+  fitFoot(el);
+}
+
+// The footer keeps its first reading (the power) whole: when the line does not fit, the link dots drop their peer
+// names, then the TSOC reading and the "Links" label go, and only then is the power cut short.
+function fitFoot(bay) {
+  const foot = bay.querySelector(".foot");
+  for (const step of ["fit-dots", "fit-tsoc", "fit-label", "fit-first"]) {
+    if (foot.scrollWidth <= foot.clientWidth) return;
+    foot.classList.add(step);
+  }
 }
 
 // The band moves left between polls with one CSS transition per poll (composited), instead of a script that moves
@@ -139,8 +156,10 @@ function drawBand() {
   const toMs = bandAnchor.serverMs;
   const fromMs = toMs - BAND_WINDOW_MS;
   const merged = new Map();
-  // Earlier samples come from the 60-minute history (refreshed every 30 s); the 2-second polls add their own.
-  for (const point of seriesPoints(tempHistory, "outputTokensPerSecond", fromMs - BAND_GAP_MS, toMs)) merged.set(point.at, point);
+  // Earlier samples come from the 60-minute history (refreshed every 30 s), up to the first 2-second poll: the history
+  // holds 10-second averages, and mixing them with the polls' raw values drew dips and spikes that never happened.
+  const historyEnd = Math.min(toMs, (liveOut[0]?.at ?? Infinity) - 1);
+  for (const point of seriesPoints(tempHistory, "outputTokensPerSecond", fromMs - BAND_GAP_MS, historyEnd)) merged.set(point.at, point);
   for (const point of liveOut) if (point.at >= fromMs - BAND_GAP_MS) merged.set(point.at, point);
   const points = [...merged.values()].sort((a, b) => a.at - b.at);
   const peak = Math.max(0, ...points.map((point) => point.value ?? 0));
@@ -203,7 +222,12 @@ async function poll() {
         liveOut.push({ at, value: state.inference?.ok && Number.isFinite(state.inference.outputTokensPerSecond) ? state.inference.outputTokensPerSecond : null });
         liveOut = liveOut.filter((point) => point.at >= at - BAND_WINDOW_MS - BAND_GAP_MS);
       }
-      bandAnchor = { serverMs: Date.parse(state.updatedAt) || Date.now(), clientMs: performance.now() };
+      const serverMs = Date.parse(state.updatedAt);
+      if (Number.isFinite(serverMs)) {
+        const offset = serverMs - Date.now();
+        if (clockOffsetMs === null || offset > clockOffsetMs || offset < clockOffsetMs - 30_000) clockOffsetMs = offset;
+      }
+      bandAnchor = { serverMs: Date.now() + (clockOffsetMs ?? 0) };
       render();
     }
   } catch (error) {
