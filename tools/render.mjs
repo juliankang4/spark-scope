@@ -71,16 +71,20 @@ const chrome = spawn(findChrome(), [
   "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps",
   "--disable-domain-reliability", "--disable-client-side-phishing-detection", "--metrics-recording-only", "--no-pings",
   "about:blank",
-], { stdio: "ignore" });
+], { stdio: ["ignore", "ignore", "pipe"] });
+// Chrome's own messages, shown only if it fails to start.
+let chromeErrors = "";
+chrome.stderr.on("data", (chunk) => { chromeErrors = (chromeErrors + chunk).slice(-4000); });
 const cleanUp = () => {
   chrome.kill();
   rmSync(profile, { recursive: true, force: true });
 };
 process.once("exit", cleanUp);
 const portFile = path.join(profile, "DevToolsActivePort");
-for (let i = 0; i < 100 && !existsSync(portFile); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+// A cold start on a CI runner can take well over ten seconds.
+for (let i = 0; i < 300 && !existsSync(portFile); i++) await new Promise((resolve) => setTimeout(resolve, 100));
 if (!existsSync(portFile)) {
-  console.error("Chrome did not open its DevTools port within 10 seconds");
+  console.error(`Chrome did not open its DevTools port within 30 seconds${chromeErrors ? `; it said:\n${chromeErrors.slice(-2000)}` : ""}`);
   server.close();
   process.exit(1);
 }
