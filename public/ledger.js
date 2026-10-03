@@ -216,10 +216,15 @@ function bars(usage, series, label) {
 
 // Charts: logical input per day (cache read under new input), output per day with the day's main model as a strip,
 // and this month's running total against last month's. Input and output keep separate scales.
-export function chartsHtml(usage, previous) {
+export function chartsHtml(usage, previous, unreported = {}) {
   const colors = modelColors(usage), count = daysInMonth(usage.month), width = count * 10, byDay = new Map(usage.days.map((day) => [day.day, day]));
   const key = (cls, label) => `<span><i class="${cls}"></i>${label}</span>`;
-  const input = bars(usage, [{ key: 'cache', name: t('ledger.cacheRead'), cls: 'k-cache' }, { key: 'compute', name: t('ledger.newInput'), cls: 'k-new' }], t('ledger.chart.input'));
+  // Without the engine's split into cache read and new input, logical input is one series.
+  const split = !unreported.cache && !unreported.compute;
+  const inputSeries = split
+    ? [{ key: 'cache', name: t('ledger.cacheRead'), cls: 'k-cache' }, { key: 'compute', name: t('ledger.newInput'), cls: 'k-new' }]
+    : [{ key: 'input', name: t('ledger.logicalInput'), cls: 'k-new' }];
+  const input = bars(usage, inputSeries, t('ledger.chart.input'));
   const output = bars(usage, [{ key: 'output', name: t('ledger.output'), cls: 'k-output' }], t('ledger.chart.output'));
   let strip = '';
   for (let number = 1; number <= count; number++) {
@@ -242,7 +247,7 @@ export function chartsHtml(usage, previous) {
   // The legend names both months, since "this month" would be wrong for a past one.
   const prevTotal = compact(prev?.totals?.total ?? 0);
   const lastKey = prev ? key('k-last', esc(prevFirst ? t('ledger.chart.monthFrom', { month: monthName(prev.month), value: prevTotal, day: dayLabel(prevFirst) }) : `${monthName(prev.month)} ${prevTotal}`)) : '';
-  return `<div class="chart-box"><div class="chart-head"><h3>${t('ledger.chart.input')}</h3><div class="keys">${key('k-cache', t('ledger.cacheRead'))}${key('k-new', t('ledger.newInput'))}</div></div>${chartFrame(input.max, input.svg, count)}</div>`
+  return `<div class="chart-box"><div class="chart-head"><h3>${t('ledger.chart.input')}</h3><div class="keys">${inputSeries.map((s) => key(s.cls, s.name)).join('')}</div></div>${chartFrame(input.max, input.svg, count)}</div>`
     + `<div class="chart-pair"><div class="chart-box"><div class="chart-head"><h3>${t('ledger.chart.output')}</h3><small>${t('ledger.chart.strip')}</small></div>${chartFrame(output.max, output.svg, count, stripSvg)}<div class="keys model-keys">${modelKeys}</div></div>`
     + `<div class="chart-box"><div class="chart-head"><h3>${t('ledger.chart.running')}</h3><div class="keys">${key('k-this', esc(`${monthName(usage.month)} ${compact(usage.totals.total)}`))}${lastKey}</div></div>${chartFrame(top, runningSvg, span)}</div></div>`;
 }
