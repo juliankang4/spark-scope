@@ -60,7 +60,10 @@ function renderNode(meta,node,root=$('#nodes')) {
   const state=pending?'notCollected':!ok?'noResponse':node.gpu?.available===false?'noGpuData':node.inferenceProcessReady?'serving':'idle';
   set('state',t(`node.badge.${state}`));el.querySelector('.badge').dataset.level=BADGE_LEVELS[state]??'idle';
   set('connection',pending?t('node.connection.notCollected',{target}):ok?`${target} | ${fixed(node.latencyMs,0)} ms`:t('node.connection.statusUnknown',{target}));
-  const gpu=ok?node.gpu:{};set('gpu',finite(gpu?.utilization)?fixed(gpu.utilization,0)+'%':u);el.querySelector('[data-node="gpu"]').classList.toggle('full',finite(gpu?.utilization)&&gpu.utilization>=99.5);
+  // GPU load: the figure with a small "%", and --load for the designs that draw it as a ring or a bar.
+  const gpu=ok?node.gpu:{},load=finite(gpu?.utilization)?Math.max(0,Math.min(100,gpu.utilization)):null,gauge=el.querySelector('[data-node="gpu"]');
+  const gaugeHtml=load===null?esc(u):`${fixed(gpu.utilization,0)}<small>%</small>`;if(gauge.innerHTML!==gaugeHtml)gauge.innerHTML=gaugeHtml;
+  gauge.classList.toggle('unknown-value',load===null);gauge.classList.toggle('full',load!==null&&gpu.utilization>=99.5);el.style.setProperty('--load',String(load??0));
   const mem=settings.mem,memUnit=memoryUnit(mem),tempUnit=temperatureUnit(settings.temp);
   // The four readings chosen in the settings, orange past their warning level.
   settings.readings.forEach((id,slot)=>{const field=el.querySelector(`[data-reading="${slot}"]`);if(!field)return;const r=readingValue(id,node,settings);field.firstElementChild.textContent=r.text;field.lastElementChild.textContent=r.unit;field.classList.toggle('unknown-value',r.text===u);field.classList.toggle('warn',r.warn)});
@@ -234,6 +237,7 @@ function syncForm(){
 // Labels and panels follow the settings on the page itself.
 function showLayout(){
   document.documentElement.dataset.labels=settings.labels;
+  if(settings.design==='default')delete document.documentElement.dataset.design;else document.documentElement.dataset.design=settings.design;
   $('.engine').hidden=settings.hide.includes('engine');
   const trends=settings.hide.includes('trends'),ledger=settings.hide.includes('ledger');$('.trends').hidden=trends;$('#today-ledger').hidden=ledger;$('.lower').hidden=trends&&ledger;$('.lower').classList.toggle('single',trends!==ledger);
 }

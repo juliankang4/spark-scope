@@ -8,3 +8,9 @@ try {
 } catch {
   document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
+// The design (Default, Console, Soft) is applied here as well, from a settings link or the saved settings.
+try {
+  const linked = new URLSearchParams(location.search).get('design');
+  const saved = linked ?? JSON.parse(localStorage.getItem('spark-scope-settings') ?? '{}').design;
+  if (saved === 'console' || saved === 'soft') document.documentElement.dataset.design = saved;
+} catch {}
