@@ -73,7 +73,7 @@ test('every key the pages name exists in the English table', () => {
   const html = ['public/index.html', 'public/rack/index.html'].map(read).join('\n');
   const htmlKeys = [...html.matchAll(/data-i18n(?:-title|-aria-label)?="([^"]+)"/g)].map((match) => match[1]);
   assert.ok(htmlKeys.length > 50);
-  const scripts = ['public/app.js', 'public/view-data.js', 'public/rack/rack.js', 'public/rack/rack-view.js'].map(read).join('\n');
+  const scripts = ['public/app.js', 'public/view-data.js', 'public/ledger.js', 'public/rack/rack.js', 'public/rack/rack-view.js'].map(read).join('\n');
   const scriptKeys = [...scripts.matchAll(/\bt\(\s*['"]([\w.]+)['"]/g)].map((match) => match[1]);
   assert.ok(scriptKeys.length > 100);
   for (const key of [...htmlKeys, ...scriptKeys]) assert.ok(Object.hasOwn(STRINGS.en, key), `missing key ${key}`);

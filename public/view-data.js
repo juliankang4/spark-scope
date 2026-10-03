@@ -156,6 +156,10 @@ export function validateMonth(payload, requestedMonth) {
     if (sum !== payload.totals[field]) throw new Error('monthly total does not match the daily records');
   }
   if (payload.totals.total !== payload.totals.input + payload.totals.output) throw new Error('invalid token total');
+  // The models of each day and of the month (an older server sends neither; the page then shows no models).
+  const validModels = (list) => list === undefined || (Array.isArray(list) && list.every((model) => typeof model?.modelName === 'string'
+    && ['input', 'compute', 'cache', 'output', 'requests', 'total'].every((field) => finite(model[field]) && model[field] >= 0)));
+  if (!validModels(payload.models) || !payload.days.every((day) => validModels(day.models))) throw new Error('invalid model records');
   return payload;
 }
 // Geometry of the interconnect diagram, or null when there is nothing to draw (one node, or no links configured).
