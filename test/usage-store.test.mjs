@@ -204,6 +204,24 @@ test("an SGLang restart (counters going down) starts a new run instead of losing
   }
 });
 
+test("a clock that went back (a Pi without its RTC after a power cut) does not book a restarted run again on every poll", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-usage-clock-"));
+  const store = new UsageStore(path.join(directory, "usage.sqlite"), { timeZone: "UTC" });
+  const at = Date.parse("2026-10-02T12:00:00Z");
+  try {
+    store.record(sglang({ generationTokensTotal: 1000 }), at);
+    assert.equal(store.record(sglang({ generationTokensTotal: 5000 }), at + 2000).today.output, 4000);
+    // Power cut: the engine restarted and the clock came back an hour early.
+    const early = at - 3_600_000;
+    assert.equal(store.record(sglang({ generationTokensTotal: 100 }), early).today.output, 4100);
+    assert.equal(store.record(sglang({ generationTokensTotal: 150 }), early + 2000).today.output, 4150);
+    assert.equal(store.record(sglang({ generationTokensTotal: 250 }), early + 4000).today.output, 4250);
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("an existing ledger keeps counting into its current session", () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-usage-continue-"));
   const databasePath = path.join(directory, "usage.sqlite");
