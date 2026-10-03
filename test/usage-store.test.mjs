@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { UsageStore } from "../lib/usage-store.mjs";
+import { UsageStore, reportedCounters } from "../lib/usage-store.mjs";
 
 function snapshot(overrides = {}) {
   return {
@@ -280,4 +280,33 @@ test("idle polls do not write to the ledger", async () => {
     store.close();
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("two model servers keep their own sessions, even with the same model, and a new ledger takes a baseline from each", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-usage-servers-"));
+  const store = new UsageStore(path.join(directory, "usage.sqlite"), { timeZone: "UTC" });
+  const at = Date.parse("2026-10-03T01:00:00Z");
+  try {
+    // Both servers had served before the dashboard first ran: neither is booked.
+    store.record(sglang({ generationTokensTotal: 5000 }), at);
+    assert.equal(store.record(sglang({ generationTokensTotal: 800 }), at, { keyPrefix: "b:" }).today.output, 0);
+    // Each server's increase is booked once, although their counters interleave.
+    store.record(sglang({ generationTokensTotal: 5100 }), at + 2000);
+    assert.equal(store.record(sglang({ generationTokensTotal: 850 }), at + 2000, { keyPrefix: "b:" }).today.output, 150);
+    store.record(sglang({ generationTokensTotal: 5150 }), at + 4000);
+    assert.equal(store.record(sglang({ generationTokensTotal: 900 }), at + 4000, { keyPrefix: "b:" }).today.output, 250);
+    // A restart of server b (its counters going down) starts a run of b's own, not of the first server's.
+    assert.equal(store.record(sglang({ generationTokensTotal: 40 }), at + 6000, { keyPrefix: "b:" }).today.output, 290);
+    assert.equal(store.record(sglang({ generationTokensTotal: 5160 }), at + 6000).today.output, 300);
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("the counters shown as reported are those any model server exports", () => {
+  const readings = [snapshot({ promptComputeTokensTotal: null, promptCacheTokensTotal: null }), snapshot({ modelName: "model-b" }), { ok: false }];
+  assert.deepEqual(reportedCounters(readings), { input: true, compute: true, cache: true, output: true, requests: true });
+  assert.deepEqual(reportedCounters(readings.slice(0, 1)), { input: true, compute: false, cache: false, output: true, requests: true });
+  assert.equal(reportedCounters([{ ok: false }]), null);
 });

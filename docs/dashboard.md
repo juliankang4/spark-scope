@@ -35,6 +35,7 @@ The ledger is stored on disk (`SPARK_SCOPE_USAGE_DB`); everything else resets wh
 - It adds up counter increases. Tokens served while the dashboard is down are counted when it returns.
 - After an engine restart the new run counts from its own start. vLLM reports its start time; for SGLang and TensorFold, which do not, a restart is recognised when their counters fall below the last values seen. If such a run restarted while the dashboard was down and has already passed those values, the part of the previous run the dashboard never saw is lost.
 - A counter the engine does not export (vLLM without per-source prompt counters, for example) reads as `unknown` rather than 0.
+- With several [model servers](topology.md#model-servers), every server is counted into the one ledger, each with its own runs, so two servers running the same model never mix their counters. The first server keeps the runs the ledger had before servers were listed; keep the server that used to be `SPARK_SCOPE_API_URL` first.
 - If the ledger file cannot be opened, token counting is switched off and the rest of the dashboard keeps working.
 
 Days begin at midnight in `SPARK_SCOPE_TIME_ZONE` (the server's time zone by default), which the page shows next to the ledger.

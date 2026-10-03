@@ -5,11 +5,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { collectNode, uncollectedNode, InferenceCollector, applyNetworkRates } from "./lib/collectors.mjs";
-import { buildRingLinks, clusterStatus, servingSummary, DEFAULT_LINK_MIN_GBPS, STARTING_MESSAGE } from "./lib/cluster.mjs";
+import { buildRingLinks, clusterStatus, serverState, servingSummary, DEFAULT_LINK_MIN_GBPS, STARTING_MESSAGE } from "./lib/cluster.mjs";
 import { downsampleHistory, summarizeHistory } from "./lib/history.mjs";
 import { hostAllowed, hostRules, SECURITY_HEADERS } from "./lib/http-guard.mjs";
 import { publicState } from "./lib/public-state.mjs";
-import { loadTopology, nodeInterfaces, publicTopology } from "./lib/topology.mjs";
+import { loadTopology, nodeInterfaces, publicTopology, topologyServers } from "./lib/topology.mjs";
 
 // node:sqlite (the token ledger) needs Node 22.13 or later; say so instead of failing on the import.
 const [major, minor] = process.versions.node.split(".").map(Number);
@@ -17,7 +17,7 @@ if (major < 22 || (major === 22 && minor < 13)) {
   console.error(`Spark Scope needs Node.js 22.13 or later; this is ${process.versions.node}. See "Requirements" in README.md.`);
   process.exit(1);
 }
-const { UsageStore } = await import("./lib/usage-store.mjs");
+const { UsageStore, reportedCounters } = await import("./lib/usage-store.mjs");
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_ROOT = path.join(ROOT, "public");
@@ -85,7 +85,14 @@ const HISTORY_LIMIT = Math.ceil(HISTORY_WINDOW_MS / Math.min(config.nodeInterval
 const topology = loadTopology();
 const nodeDefinitions = topology.nodes.map((node) => ({ ...node, interfaces: nodeInterfaces(topology, node.id) }));
 
-const inferenceCollector = new InferenceCollector(config.apiUrl);
+// One inference API per model server: those listed under "servers" in topology.json, or SPARK_SCOPE_API_URL for every
+// node. The first server's sessions keep the ledger's plain keys; the others prefix their id (see usage-store.mjs).
+const servers = topologyServers(topology, config.apiUrl).map((server, index) => ({
+  ...server,
+  collector: new InferenceCollector(server.api),
+  keyPrefix: index === 0 ? "" : `${server.id}:`,
+  lastServedModel: null,
+}));
 // A ledger that cannot be opened (corrupt file, wrong permissions) turns off token counting, not the dashboard.
 let usageStore = null;
 let usageOpenError = null;
@@ -102,6 +109,8 @@ const state = {
   messageKey: "status.starting",
   messageParams: {},
   inference: null,
+  // Per model server: its nodes, its API reading, which of its nodes serve and its inference state (no API URLs).
+  servers: servers.map(({ id, name, nodes, implicit }) => ({ id, name, nodes, implicit: Boolean(implicit), inference: null, serving: null, inferenceState: "unknown" })),
   topology: publicTopology(topology),
   nodes: Object.fromEntries(topology.nodes.map((node) => [node.id, null])),
   ringLinks: {},
@@ -115,8 +124,6 @@ const state = {
 
 let collectingNodes = false;
 let collectingInference = false;
-// The model of the last successful poll: a restart in between (failed polls) does not hide a model switch.
-let lastServedModel = null;
 // Ledger errors repeat every poll; log a message when it changes and at most every ten minutes otherwise.
 let lastUsageError = { message: null, at: 0 };
 // Full node collection errors go to the log when they change; the browser only gets a short reason.
@@ -126,20 +133,44 @@ const refusedHosts = new Set();
 
 function refreshClusterStatus() {
   state.ringLinks = buildRingLinks(state.nodes, topology, { minGbps: config.linkMinGbps });
-  state.serving = servingSummary(state.nodes, state.inference, topology);
-  Object.assign(state, clusterStatus(state.nodes, state.inference, state.ringLinks, topology));
+  for (const server of state.servers) {
+    const members = new Set(server.nodes);
+    server.serving = servingSummary(state.nodes, server.inference, { nodes: topology.nodes.filter((meta) => members.has(meta.id)) });
+    server.inferenceState = serverState(server, state.nodes, topology).inferenceState;
+  }
+  // inference and serving are the first server's, for pages and scripts written for one server.
+  state.inference = state.servers[0].inference;
+  state.serving = state.servers[0].serving;
+  Object.assign(state, clusterStatus(state.nodes, state.servers, state.ringLinks, topology));
   state.updatedAt = new Date().toISOString();
 }
 
+// One server's chart fields, null while its API does not answer.
+function historyFields(inference) {
+  return {
+    outputTokensPerSecond: inference?.ok ? inference.outputTokensPerSecond ?? null : null,
+    promptTokensPerSecond: inference?.ok ? inference.promptTokensPerSecond ?? null : null,
+    runningRequests: inference?.ok ? inference.runningRequests ?? null : null,
+    queue: inference?.ok ? inference.waitingRequests ?? null : null,
+  };
+}
+
 function addHistoryPoint() {
-  const inference = state.inference;
-  if (!inference) return;
+  if (state.servers.every((server) => !server.inference)) return;
+  const each = state.servers.map((server) => historyFields(server.inference));
+  // The chart fields are the sum over the servers that answered (with one server, its own values).
+  const sum = (field) => {
+    const values = each.map((fields) => fields[field]).filter(Number.isFinite);
+    return values.length ? values.reduce((total, value) => total + value, 0) : null;
+  };
   const point = {
     at: Date.now(),
-    outputTokensPerSecond: inference.ok ? inference.outputTokensPerSecond : null,
-    promptTokensPerSecond: inference.ok ? inference.promptTokensPerSecond : null,
-    runningRequests: inference.ok ? inference.runningRequests : null,
-    queue: inference.ok ? inference.waitingRequests : null,
+    outputTokensPerSecond: sum("outputTokensPerSecond"),
+    promptTokensPerSecond: sum("promptTokensPerSecond"),
+    runningRequests: sum("runningRequests"),
+    queue: sum("queue"),
+    // With several servers, each one's own fields by server id.
+    ...(state.servers.length > 1 ? { servers: Object.fromEntries(state.servers.map((server, index) => [server.id, each[index]])) } : {}),
     // Per node id: { temperature, memoryAvailableBytes }. Unreachable or uncollected nodes stay null.
     nodes: Object.fromEntries(topology.nodes.map(({ id }) => {
       const node = state.nodes[id];
@@ -182,17 +213,25 @@ async function collectInference() {
   if (collectingInference) return;
   collectingInference = true;
   try {
-    const next = await inferenceCollector.collect();
-    if (next.ok && next.modelName) {
-      if (lastServedModel && lastServedModel !== next.modelName) state.history = [];
-      lastServedModel = next.modelName;
-    }
-    state.inference = next;
+    const readings = await Promise.all(servers.map((server) => server.collector.collect()));
+    readings.forEach((next, index) => {
+      const server = servers[index];
+      // The model of the server's last successful poll: a restart in between (failed polls) does not hide a switch,
+      // and the chart starts again for the new model.
+      if (next.ok && next.modelName) {
+        if (server.lastServedModel && server.lastServedModel !== next.modelName) state.history = [];
+        server.lastServedModel = next.modelName;
+      }
+      state.servers[index].inference = next;
+    });
     try {
+      const now = Date.now();
+      const booked = usageStore ? readings.map((next, index) => (next.ok ? usageStore.record(next, now, { keyPrefix: servers[index].keyPrefix }) : null)).filter(Boolean) : [];
       if (!usageStore) {
         state.usage = unavailableUsage();
-      } else if (next.ok) {
-        state.usage = usageStore.record(next);
+      } else if (booked.length) {
+        // Today's totals cover every server; the counters shown as reported are those any server exports.
+        state.usage = { ...booked.at(-1), reported: reportedCounters(readings) };
       } else {
         const { session, modelName, processStartedAt } = state.usage;
         state.usage = { ...usageStore.summary(), session, modelName, processStartedAt };
@@ -362,7 +401,9 @@ server.listen(config.port, config.host, () => {
     console.log("Warning: listening beyond localhost. Spark Scope has no authentication; expose it only on a network you trust.");
     console.log(`Accepted host names: localhost, IP addresses, ${hosts.short}, ${hosts.short}.local, ${hosts.short}.<tailnet>.ts.net${config.allowedHosts ? `, ${config.allowedHosts}` : ""} (SPARK_SCOPE_ALLOWED_HOSTS adds more).`);
   }
-  console.log(`Inference API: ${config.apiUrl}`);
+  console.log(servers.length === 1 && servers[0].implicit
+    ? `Inference API: ${servers[0].api}`
+    : `Model servers: ${servers.map((server) => `${server.id}=${server.api} (${server.nodes.join(", ")})`).join("; ")}`);
   console.log(usageStore ? `Token ledger: ${config.usageDbPath} (days in ${usageStore.timeZone})` : usageOpenError);
   console.log(`Topology: ${topology.source} (${topology.nodes.map((node) => `${node.name}=${!node.collect ? "not collected" : node.local ? "local" : `ssh ${node.host}`}`).join(", ")})`);
 });

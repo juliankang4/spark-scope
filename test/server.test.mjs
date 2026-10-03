@@ -10,9 +10,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // Starts the real server on a free port with a node that is never contacted and an inference URL that refuses
 // connections, so nothing leaves this machine.
-async function startServer(directory, extraEnv = {}) {
+async function startServer(directory, extraEnv = {}, layout = { nodes: [{ id: "1", name: "spark-1", host: "spark-1", collect: false }], links: [] }) {
   const topology = path.join(directory, "topology.json");
-  writeFileSync(topology, JSON.stringify({ nodes: [{ id: "1", name: "spark-1", host: "spark-1", collect: false }], links: [] }));
+  writeFileSync(topology, JSON.stringify(layout));
   const child = spawn(process.execPath, [path.join(ROOT, "server.mjs")], {
     env: {
       ...process.env,
@@ -190,6 +190,63 @@ async function rawRequest(base, lines) {
     socket.on("error", reject);
   });
 }
+
+// A stand-in vLLM server for one model; set(generated) changes its output counter.
+async function fakeVllm(model) {
+  const { createServer } = await import("node:http");
+  let generated = 1000;
+  const server = createServer((request, response) => {
+    if (request.url === "/metrics") {
+      response.end(`vllm:num_requests_running{model_name="${model}"} 1\nvllm:num_requests_waiting{model_name="${model}"} 0\nvllm:generation_tokens_total{model_name="${model}"} ${generated}\nvllm:prompt_tokens_total{model_name="${model}"} 5000\nprocess_start_time_seconds 1790000000\n`);
+    } else if (request.url === "/v1/models") {
+      response.end(JSON.stringify({ data: [{ id: model }] }));
+    } else {
+      response.end("ok");
+    }
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return { url: `http://127.0.0.1:${server.address().port}`, set: (value) => { generated = value; }, close: () => new Promise((resolve) => server.close(resolve)) };
+}
+
+async function waitFor(base, check, label) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const state = await (await fetch(`${base}/api/state`)).json();
+    if (check(state)) return state;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  throw new Error(`timed out waiting for ${label}`);
+}
+
+test("model servers listed in topology.json are each read, judged and booked, and their URLs stay on the server", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-server-servers-"));
+  const [a, b] = [await fakeVllm("big-model"), await fakeVllm("small-model")];
+  const layout = {
+    nodes: [{ id: "1", host: "spark-1", collect: false }, { id: "2", host: "spark-2", collect: false }],
+    links: [],
+    servers: [{ id: "a", api: a.url, nodes: ["1"] }, { id: "b", name: "Small", api: b.url, nodes: ["2"] }],
+  };
+  const { child, base, output } = await startServer(directory, { SPARK_SCOPE_API_INTERVAL_MS: "500" }, layout);
+  try {
+    const first = await waitFor(base, (state) => state.servers?.every((server) => server.inference?.ok), "both servers");
+    assert.deepEqual(first.servers.map((server) => [server.id, server.name, server.nodes, server.inference.modelName]), [["a", null, ["1"], "big-model"], ["b", "Small", ["2"], "small-model"]]);
+    // inference is the first server's, for pages and scripts written for one server.
+    assert.equal(first.inference.modelName, "big-model");
+    assert.deepEqual(first.topology.servers, [{ id: "a", name: null, nodes: ["1"] }, { id: "b", name: "Small", nodes: ["2"] }]);
+    assert.doesNotMatch(JSON.stringify(first), new RegExp(`${a.url}|${b.url}`));
+    assert.match(output(), /Model servers: a=http:\/\/127\.0\.0\.1:\d+ \(1\); b=http:\/\/127\.0\.0\.1:\d+ \(2\)/);
+    // A new ledger takes a baseline from each server; then both servers' output is booked.
+    a.set(1100);
+    b.set(1030);
+    const booked = await waitFor(base, (state) => state.usage?.today?.output === 130, "output from both servers");
+    assert.equal(booked.servers[1].inference.ok, true);
+    const history = (await (await fetch(`${base}/api/state?minutes=15`)).json()).history;
+    assert.ok(history.length > 0 && history.every((point) => point.servers && "a" in point.servers && "b" in point.servers));
+  } finally {
+    child.kill();
+    await Promise.all([a.close(), b.close()]);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test("an inference URL with a password, or without a scheme, stops the server with a message that does not repeat it", async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-server-url-"));

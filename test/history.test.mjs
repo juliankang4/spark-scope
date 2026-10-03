@@ -24,3 +24,11 @@ test("the active average counts only samples with requests running", () => {
   assert.deepEqual(stats, { activeOutputTokensPerSecond: 70, activeSamples: 2, windowMinutes: 15 });
   assert.equal(summarizeHistory([point(0, 0, 0, 40)]).activeOutputTokensPerSecond, null);
 });
+
+test("with several model servers, each server's own fields are averaged next to the totals", () => {
+  const points = Array.from({ length: 4 }, (_, i) => ({ ...point(i * 1000, 30, 2, 50), servers: { a: { outputTokensPerSecond: 20 + i, promptTokensPerSecond: null, runningRequests: 1, queue: 0 }, b: { outputTokensPerSecond: i < 2 ? null : 10, promptTokensPerSecond: null, runningRequests: 1, queue: 0 } } }));
+  const down = downsampleHistory(points, 2);
+  assert.deepEqual(down.map((p) => p.servers.a.outputTokensPerSecond), [20.5, 22.5]);
+  assert.deepEqual(down.map((p) => p.servers.b.outputTokensPerSecond), [null, 10]);
+  assert.equal(downsampleHistory(points.map(({ servers, ...rest }) => rest), 2)[0].servers, undefined);
+});

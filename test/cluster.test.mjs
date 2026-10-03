@@ -279,3 +279,37 @@ test('every status message carries a stable key whose English text is the messag
   assert.equal(results[6].message, '3 failed system services need attention');
   assert.equal(results[15].message, 'Nodes and inference API healthy (1 not collected)');
 });
+
+test('with several model servers each is judged on its own nodes: a stopped one is idle, one that does not answer needs attention', () => {
+  const topology = normalizeTopology({ ...rawExample(4), servers: [
+    { id: 'a', api: 'http://spark-1:8000', nodes: ['1', '2'] },
+    { id: 'b', name: 'Small', api: 'http://spark-3:8000', nodes: ['3', '4'] },
+  ] });
+  const api = (ok) => (ok ? { ok: true, engine: 'SGLang', modelName: 'big-model' } : { ok: false, error: 'fetch failed' });
+  const servers = (a, b) => [{ id: 'a', name: null, nodes: ['1', '2'], inference: api(a) }, { id: 'b', name: 'Small', nodes: ['3', '4'], inference: api(b) }];
+  const links = (nodes) => buildRingLinks(nodes, topology);
+  const both = fourNodes();
+  const healthy = clusterStatus(both, servers(true, true), links(both), topology);
+  assert.equal(healthy.status, 'healthy');
+  assert.equal(healthy.message, 'Nodes and 2 model servers healthy');
+  assert.equal(healthy.messageKey, 'status.healthyServers');
+  // Group b switched off (no processes, no API) while a serves: idle by choice, and its nodes are not "missing" a process.
+  const bOff = { ...fourNodes(), 3: node('3', { base: 20, proc: false }), 4: node('4', { base: 30, proc: false }) };
+  const idle = clusterStatus(bOff, servers(true, false), links(bOff), topology);
+  assert.equal(idle.status, 'healthy');
+  assert.equal(idle.inferenceState, 'serving');
+  assert.equal(idle.message, 'Nodes healthy, model server Small idle');
+  assert.deepEqual(idle.messageParams, { idle: ['Small'], count: 1 });
+  // Group b's processes run but its API does not answer.
+  const attention = clusterStatus(both, servers(true, false), links(both), topology);
+  assert.equal(attention.status, 'degraded');
+  assert.equal(attention.message, 'Model server Small needs attention');
+  // Without a configured name a server is called by its model, then by its id.
+  const aDown = clusterStatus(both, servers(false, true), links(both), topology);
+  assert.equal(aDown.message, 'Model server a needs attention');
+  // Every group stopped: the cluster has no inference process, as with one server.
+  const off = Object.fromEntries(['1', '2', '3', '4'].map((id, i) => [id, node(id, { base: i * 10, proc: false })]));
+  const stopped = clusterStatus(off, servers(false, false), links(off), topology);
+  assert.equal(stopped.inferenceState, 'stopped');
+  assert.equal(stopped.messageKey, 'status.noInferenceProcess');
+});

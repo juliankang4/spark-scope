@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadTopology, normalizeTopology, nodeInterfaces, rdmaDevice, publicTopology, DEFAULT_TOPOLOGY_PATH } from "../lib/topology.mjs";
+import { loadTopology, normalizeTopology, nodeInterfaces, rdmaDevice, publicTopology, topologyServers, DEFAULT_TOPOLOGY_PATH } from "../lib/topology.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const example = (count) => loadTopology(path.join(ROOT, "examples", `topology.${count}-node.json`), { fallback: false });
@@ -146,4 +146,30 @@ test("without SPARK_SCOPE_TOPOLOGY the user's own topology is preferred over the
   } finally {
     rmSync(config, { recursive: true, force: true });
   }
+});
+
+test("model servers name their API and nodes; each node serves in at most one, and the pages never see the URLs", () => {
+  const nodes = [{ id: "1", host: "spark-1" }, { id: "2", host: "spark-2" }, { id: "3", host: "spark-3" }];
+  const topology = normalizeTopology({ nodes, links: [], servers: [
+    { id: "a", api: "http://spark-1:8000/", nodes: ["1", "2"] },
+    { id: "b", name: "Small model", api: "http://spark-3:30000", nodes: ["3"] },
+  ] });
+  assert.deepEqual(topology.servers, [
+    { id: "a", name: null, api: "http://spark-1:8000", nodes: ["1", "2"] },
+    { id: "b", name: "Small model", api: "http://spark-3:30000", nodes: ["3"] },
+  ]);
+  assert.deepEqual(publicTopology(topology).servers, [{ id: "a", name: null, nodes: ["1", "2"] }, { id: "b", name: "Small model", nodes: ["3"] }]);
+  assert.doesNotMatch(JSON.stringify(publicTopology(topology)), /8000|30000/);
+  // Without "servers": one server on every node at SPARK_SCOPE_API_URL.
+  const single = normalizeTopology({ nodes, links: [] });
+  assert.equal(single.servers, null);
+  assert.deepEqual(topologyServers(single, "http://127.0.0.1:8000/"), [{ id: "default", name: null, api: "http://127.0.0.1:8000", nodes: ["1", "2", "3"], implicit: true }]);
+  const bad = (servers) => () => normalizeTopology({ nodes, links: [], servers });
+  assert.throws(bad([]), /non-empty array/);
+  assert.throws(bad([{ id: "a", api: "http://admin:secret@spark-1:8000", nodes: ["1"] }]), /without a user name or password/);
+  assert.throws(bad([{ id: "a", api: "spark-1:8000", nodes: ["1"] }]), /http:\/\/ or https:\/\//);
+  assert.throws(bad([{ id: "a", api: "http://spark-1:8000", nodes: ["9"] }]), /unknown node "9"/);
+  assert.throws(bad([{ id: "a", api: "http://spark-1:8000", nodes: [] }]), /at least one node/);
+  assert.throws(bad([{ id: "a", api: "http://spark-1:8000", nodes: ["1"] }, { id: "b", api: "http://spark-2:8000", nodes: ["1", "2"] }]), /node 1 is in servers a and b/);
+  assert.throws(bad([{ id: "a", api: "http://spark-1:8000", nodes: ["1"] }, { id: "a", api: "http://spark-2:8000", nodes: ["2"] }]), /duplicate server id a/);
 });

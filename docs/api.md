@@ -19,10 +19,11 @@ The full dashboard state, gzip-compressed when the client accepts it. `history=0
 | `topology` | Nodes and links, without interface names. |
 | `nodes` | Node readings keyed by node id. A failed node carries a short `error` such as `timed out` or `SSH authentication failed`; the full message is in the server log. |
 | `ringLinks` | Links keyed by link id; `state` is `up`, `partial`, `down`, `pending` or `unknown`. |
-| `inference` | The inference metrics the pages show, for vLLM, SGLang and TensorFold, including `prefillUpdatedAt` (when new prefills last completed, since the prefill rates are held between them). Also sent under its earlier name `vllm` for scripts written against earlier versions; that alias will be removed in a later release. |
-| `serving`, `inferenceState` | Which nodes serve, and the inference state. |
-| `usage` | Today's token totals. |
-| `history`, `historyStats` | Chart samples for the requested range. |
+| `servers` | One entry per model server ([Model servers](topology.md#model-servers)): `id`, `name`, `nodes`, `implicit` (true for the single server at `SPARK_SCOPE_API_URL`), and its own `inference`, `serving` and `inferenceState`. |
+| `inference` | The first server's inference metrics, for vLLM, SGLang and TensorFold, including `prefillUpdatedAt` (when new prefills last completed, since the prefill rates are held between them). Also sent under its earlier name `vllm` for scripts written against earlier versions; that alias will be removed in a later release. |
+| `serving`, `inferenceState` | Which of the first server's nodes serve, and the inference state of the whole cluster: `serving` while any server serves, `stopped` when every server is. |
+| `usage` | Today's token totals, over every server. |
+| `history`, `historyStats` | Chart samples for the requested range. The output, prompt, running and queue fields are totals over the servers; with several servers each sample also has every server's own under `servers`. |
 | `status`, `message` | The cluster status and its message in English. |
 | `messageKey`, `messageParams` | The same message as a stable key, such as `status.nodeConnection`, and its values, such as `{"connected": 3, "count": 4}`. The pages show a known key in their own language and `message` otherwise. |
 | `startedAt`, `updatedAt` | When the server started and when this state was built. |
