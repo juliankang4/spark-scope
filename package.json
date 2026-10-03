@@ -1,6 +1,6 @@
 {
   "name": "spark-scope",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Read-only dashboard and rack panel for NVIDIA DGX Spark-class nodes (DGX Spark, ASUS Ascent GX10, MSI EdgeXpert) and their vLLM, SGLang or TensorFold server",
   "keywords": [
     "dgx-spark",
