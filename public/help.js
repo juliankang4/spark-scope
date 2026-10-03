@@ -51,22 +51,25 @@ export function hide() {
   pinned = false;
 }
 
-// Event delegation, so buttons in cards and tables that are rebuilt on every poll work without rebinding.
-const helpTarget = (event) => event.target instanceof Element ? event.target.closest('button[data-help]') : null;
-document.addEventListener('mouseover', (event) => { const button = helpTarget(event); if (button && !pinned) show(button); });
-document.addEventListener('mouseout', (event) => { const button = helpTarget(event); if (button && button === owner && !pinned && !button.contains(event.relatedTarget)) hide(); });
-document.addEventListener('focusin', (event) => { const button = helpTarget(event); if (button && !pinned) show(button); });
-document.addEventListener('focusout', (event) => { const button = helpTarget(event); if (button && button === owner && !pinned) hide(); });
-document.addEventListener('click', (event) => {
-  const button = helpTarget(event);
-  if (button) {
-    event.preventDefault();
-    if (button === owner && pinned) hide(); else show(button, true);
-  } else if (owner && !tip?.contains(event.target)) {
-    hide();
-  }
-});
-// Escape closes an open explanation first; inside the settings dialog it does not close the dialog as well.
-document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && owner) { event.preventDefault(); hide(); } });
-addEventListener('scroll', () => { if (owner) hide(); }, { capture: true, passive: true });
-addEventListener('resize', () => { if (owner) hide(); });
+// Event delegation, so buttons in cards and tables that are rebuilt on every poll work without rebinding. Only in a
+// browser: the tests import helpButton() through ledger.js.
+if (typeof document !== 'undefined') {
+  const helpTarget = (event) => event.target instanceof Element ? event.target.closest('button[data-help]') : null;
+  document.addEventListener('mouseover', (event) => { const button = helpTarget(event); if (button && !pinned) show(button); });
+  document.addEventListener('mouseout', (event) => { const button = helpTarget(event); if (button && button === owner && !pinned && !button.contains(event.relatedTarget)) hide(); });
+  document.addEventListener('focusin', (event) => { const button = helpTarget(event); if (button && !pinned) show(button); });
+  document.addEventListener('focusout', (event) => { const button = helpTarget(event); if (button && button === owner && !pinned) hide(); });
+  document.addEventListener('click', (event) => {
+    const button = helpTarget(event);
+    if (button) {
+      event.preventDefault();
+      if (button === owner && pinned) hide(); else show(button, true);
+    } else if (owner && !tip?.contains(event.target)) {
+      hide();
+    }
+  });
+  // Escape closes an open explanation first; inside the settings dialog it does not close the dialog as well.
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && owner) { event.preventDefault(); hide(); } });
+  addEventListener('scroll', () => { if (owner) hide(); }, { capture: true, passive: true });
+  addEventListener('resize', () => { if (owner) hide(); });
+}

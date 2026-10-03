@@ -99,20 +99,69 @@ function history(topology, nowMs, { serving, unreachable }) {
   return points;
 }
 
-export function usageMonth(month, nowMs) {
-  const days = [];
+// Synthetic model names for the token ledger (the render check accepts them on the Korean pages as data).
+export const LEDGER_MODELS = ["example-model", "example-model-fp8", "example-vision-12b", "example-coder-32b", "example-reasoner-70b"];
+// The ledger the render check walks through: records start on the 23rd of the first month, the second month is
+// complete with all five models, and the third is the current month, three days in.
+export const LEDGER_SCENARIO = { start: "2027-04-23", now: Date.parse("2027-06-03T12:00:00Z"), months: ["2027-04", "2027-05", "2027-06"] };
+
+// The models that served on a day of the month, the larger one first on the days with a switch.
+function modelsOn(dayOfMonth) {
+  if (dayOfMonth <= 6) return [0];
+  if (dayOfMonth === 7) return [0, 1];
+  if (dayOfMonth <= 14) return [1];
+  if (dayOfMonth <= 20) return [2];
+  if (dayOfMonth === 21) return [2, 3];
+  if (dayOfMonth <= 27) return [0];
+  return [4];
+}
+
+// One day of made-up use: logical input is 60 to 100 times the output and mostly cache reads, like a chat or agent load.
+function usageDay(day) {
+  const n = Date.parse(`${day}T00:00:00Z`) / 86_400_000;
+  const wave = 0.55 + 0.45 * Math.sin(n * 1.7) * Math.cos(n * 0.37);
+  const output = Math.round(180_000 + 2_400_000 * wave * wave);
+  const input = Math.round(output * (60 + 40 * Math.abs(Math.sin(n * 0.9))));
+  const cache = Math.round(input * (0.88 + 0.1 * Math.abs(Math.cos(n * 1.3))));
+  const requests = Math.round(output / (700 + 600 * Math.abs(Math.sin(n * 0.5))));
+  return { input, compute: input - cache, cache, output, requests };
+}
+
+const FIELDS = ["input", "compute", "cache", "output", "requests"];
+const withTotal = (row) => ({ ...row, total: row.input + row.output });
+
+// /api/usage for one month. start is the ledger's first day (by default the first of the month nine months back);
+// days before it, after today and a few idle days have no record; today and the month's last day always have one.
+export function usageMonth(month, nowMs, { start } = {}) {
   const today = new Date(nowMs).toISOString().slice(0, 10);
+  const back = new Date(nowMs);
+  const firstDay = start ?? new Date(Date.UTC(back.getUTCFullYear(), back.getUTCMonth() - 9, 1)).toISOString().slice(0, 10);
   const [year, monthNumber] = month.split("-").map(Number);
   const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  const days = [];
+  const models = new Map();
   for (let d = 1; d <= lastDay; d++) {
     const day = `${month}-${String(d).padStart(2, "0")}`;
     if (day > today) break;
-    if (d % 6 === 0 && day !== today) continue; // a few days without use stay empty rather than zero; today always has a row
-    const cache = 400_000 + d * 31_000, compute = 900_000 + d * 52_000, output = 160_000 + d * 9_500, requests = 120 + d * 7;
-    days.push({ day, input: cache + compute, compute, cache, output, requests, total: cache + compute + output });
+    if (day < firstDay || (d % 9 === 4 && day !== today && d !== lastDay)) continue;
+    const whole = usageDay(day), picks = modelsOn(d);
+    // On a switch day the second model gets a small share.
+    const parts = picks.map((index, k) => {
+      const share = picks.length === 1 ? 1 : k === 0 ? 0.85 : 0.15;
+      return { modelName: LEDGER_MODELS[index], ...withTotal(Object.fromEntries(FIELDS.map((key) => [key, Math.round(whole[key] * share)]))) };
+    });
+    const totals = Object.fromEntries(FIELDS.map((key) => [key, parts.reduce((sum, part) => sum + part[key], 0)]));
+    days.push({ day, ...withTotal(totals), models: parts });
+    for (const part of parts) {
+      const model = models.get(part.modelName) ?? { modelName: part.modelName, days: 0, ...Object.fromEntries(FIELDS.map((key) => [key, 0])) };
+      model.days += 1;
+      for (const key of FIELDS) model[key] += part[key];
+      models.set(part.modelName, model);
+    }
   }
-  const totals = days.reduce((sum, day) => Object.fromEntries(Object.keys(sum).map((key) => [key, sum[key] + day[key]])), { input: 0, compute: 0, cache: 0, output: 0, requests: 0, total: 0 });
-  return { persistent: true, timeZone: "UTC", month, day: today, days, totals, firstMonth: month, lastMonth: month, updatedAt: new Date(nowMs).toISOString(), error: null };
+  const totals = withTotal(Object.fromEntries(FIELDS.map((key) => [key, days.reduce((sum, day) => sum + day[key], 0)])));
+  const modelRows = [...models.values()].map(withTotal).sort((a, b) => b.total - a.total);
+  return { persistent: true, timeZone: "UTC", month, day: today, days, totals, models: modelRows, firstDay, firstMonth: firstDay.slice(0, 7), lastMonth: today.slice(0, 7), updatedAt: new Date(nowMs).toISOString(), error: null };
 }
 
 export function fixtureState(count, mode, nowMs = Date.now(), { longNames = false } = {}) {

@@ -116,6 +116,57 @@ test("a month returns its daily rows oldest first with period totals", () => {
   }
 });
 
+test("a month lists the models of each day, largest first, and each model's month totals with its days", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-usage-models-"));
+  const store = new UsageStore(path.join(directory, "usage.sqlite"), { timeZone: "UTC" });
+  // Counters of one engine run; each call books the increase since the last one.
+  const run = (modelName, processStartedAt) => {
+    let last = { input: 0, compute: 0, cache: 0, output: 0, requests: 0 };
+    return (add, at) => {
+      last = Object.fromEntries(Object.keys(last).map((key) => [key, last[key] + (add[key] ?? 0)]));
+      store.record(snapshot({
+        modelName, processStartedAt,
+        promptTokensTotal: last.input, promptComputeTokensTotal: last.compute, promptCacheTokensTotal: last.cache,
+        generationTokensTotal: last.output, completedRequestsTotal: last.requests,
+      }), Date.parse(at));
+    };
+  };
+  try {
+    const a = run("model-a", "2026-08-31T00:00:00.000Z");
+    a({}, "2026-08-31T23:00:00Z"); // baseline only
+    a({ input: 1000, compute: 400, cache: 600, output: 50, requests: 2 }, "2026-09-01T10:00:00Z");
+    a({ input: 300, compute: 100, cache: 200, output: 10, requests: 1 }, "2026-09-02T09:00:00Z");
+    // Switched to model-b on 2 September: that day has both models, the larger one first.
+    const b = run("model-b", "2026-09-02T12:00:00.000Z");
+    b({ input: 2000, compute: 500, cache: 1500, output: 80, requests: 4 }, "2026-09-02T13:00:00Z");
+    // model-a again later the same day, as a new run: still one entry for model-a that day.
+    const a2 = run("model-a", "2026-09-02T18:00:00.000Z");
+    a2({ input: 100, compute: 100, cache: 0, output: 5, requests: 1 }, "2026-09-02T19:00:00Z");
+    b({ input: 10, compute: 10, cache: 0, output: 1, requests: 1 }, "2026-09-03T08:00:00Z");
+
+    const september = store.month("2026-09", Date.parse("2026-09-03T09:00:00Z"));
+    assert.deepEqual(september.days.map((day) => [day.day, day.models.map((model) => model.modelName)]), [
+      ["2026-09-01", ["model-a"]],
+      ["2026-09-02", ["model-b", "model-a"]],
+      ["2026-09-03", ["model-b"]],
+    ]);
+    const second = september.days[1];
+    assert.deepEqual(second.models[1], { modelName: "model-a", input: 400, compute: 200, cache: 200, output: 15, requests: 2, total: 415 });
+    // A day's totals are the sum of its models.
+    assert.deepEqual({ ...second, models: undefined }, { day: "2026-09-02", input: 2400, compute: 700, cache: 1700, output: 95, requests: 6, total: 2495, models: undefined });
+    assert.deepEqual(september.models, [
+      { modelName: "model-b", days: 2, input: 2010, compute: 510, cache: 1500, output: 81, requests: 5, total: 2091 },
+      { modelName: "model-a", days: 2, input: 1400, compute: 600, cache: 800, output: 65, requests: 4, total: 1465 },
+    ]);
+    assert.equal(september.totals.total, 2091 + 1465);
+    assert.equal(september.firstDay, "2026-09-01");
+    assert.deepEqual(store.month("2026-10").models, []);
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("calendar days follow the configured time zone, and default to the server's own", () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-usage-zone-"));
   const tokyo = new UsageStore(path.join(directory, "tokyo.sqlite"), { timeZone: "Asia/Tokyo" });

@@ -109,6 +109,39 @@ test("the server serves the dashboard, the rack panel, the fonts and the JSON AP
   }
 });
 
+test("/api/usage returns each day's models and the month's per-model totals next to the daily totals", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-server-usage-"));
+  const { UsageStore } = await import("../lib/usage-store.mjs");
+  const store = new UsageStore(path.join(directory, "usage.sqlite"), { timeZone: "UTC" });
+  const sample = (modelName, output, at) => store.record({
+    ok: true, modelName, processStartedAt: `start-${modelName}`, promptTokensTotal: output * 10, promptComputeTokensTotal: output * 4,
+    promptCacheTokensTotal: output * 6, generationTokensTotal: output, completedRequestsTotal: output / 10,
+  }, Date.parse(at));
+  sample("model-a", 0, "2026-09-01T08:00:00Z");
+  sample("model-a", 100, "2026-09-01T09:00:00Z");
+  sample("model-b", 50, "2026-09-02T09:00:00Z");
+  store.close();
+  const { child, base } = await startServer(directory);
+  try {
+    const month = await (await fetch(`${base}/api/usage?month=2026-09`)).json();
+    // The fields older pages read are unchanged.
+    assert.deepEqual(month.days.map((day) => [day.day, day.output, day.input, day.total]), [["2026-09-01", 100, 1000, 1100], ["2026-09-02", 50, 500, 550]]);
+    assert.deepEqual(month.totals, { input: 1500, compute: 600, cache: 900, output: 150, requests: 15, total: 1650 });
+    assert.equal(month.firstMonth, "2026-09");
+    // New: the models of each day and the month per model.
+    assert.deepEqual(month.days.map((day) => day.models.map((model) => model.modelName)), [["model-a"], ["model-b"]]);
+    assert.deepEqual(month.models.map((model) => [model.modelName, model.days, model.input, model.output, model.requests]), [["model-a", 1, 1000, 100, 10], ["model-b", 1, 500, 50, 5]]);
+    assert.equal(month.firstDay, "2026-09-01");
+    const empty = await (await fetch(`${base}/api/usage?month=2026-08`)).json();
+    assert.deepEqual([empty.days, empty.models, empty.totals.total], [[], [], 0]);
+  } finally {
+    const exited = new Promise((resolve) => child.on("exit", resolve));
+    child.kill("SIGTERM");
+    await exited;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("poll intervals must be whole numbers within limits; '2s' is refused instead of read as 2 ms", async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-server-interval-"));
   try {

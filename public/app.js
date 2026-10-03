@@ -1,7 +1,8 @@
 import { COLORS, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue } from './view-data.js';
 import { READING_IDS, rackQuery, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 import { t, setLanguage, translatePage, serverText, LANGUAGE_NAMES } from './i18n.js';
-import { hide as hideHelp, helpButton } from './help.js';
+import { hide as hideHelp } from './help.js';
+import { kpiHtml, statementHtml, calendarHtml, chartsHtml, modelTableHtml, ledgerCsv, previousMonth } from './ledger.js';
 const $ = selector => document.querySelector(selector);
 // Display settings (units, clock, chart range, refresh, language) from this browser; a settings link replaces them
 // and is then taken out of the address, so a reload does not apply it again.
@@ -118,7 +119,7 @@ function renderCharts(state) {
   }
 }
 function renderToday(usage) {
-  for(const selector of ['[data-usage]','[data-today]'])document.querySelectorAll(selector).forEach(el=>{const key=el.dataset.usage||el.dataset.today;const value=usage?.error||usage?.reported?.[key]===false?null:usage?.today?.[key];el.textContent=key==='requests'?fixed(value,0):compact(value);el.title=finite(value)?value.toLocaleString('en-US'):''});
+  document.querySelectorAll('[data-usage]').forEach(el=>{const key=el.dataset.usage;const value=usage?.error||usage?.reported?.[key]===false?null:usage?.today?.[key];el.textContent=key==='requests'?fixed(value,0):compact(value);el.title=finite(value)?value.toLocaleString('en-US'):''});
   document.querySelectorAll('[data-ledger-zone]').forEach(el=>{el.textContent=ledgerTimeZone?t('ledger.zone',{timeZone:ledgerTimeZone}):''});
 }
 function renderState(state) {
@@ -172,53 +173,89 @@ async function refresh() {
   }finally{collecting=false;if(requestedRange!==range)void refresh()}
 }
 
+// Month buttons for the six latest months (oldest on the left); older months are in a list before them. A phone
+// gets the list alone, with every month.
+const narrowQuery=matchMedia('(max-width: 760px)');
 function rebuildMonths() {
-  const current=ledgerToday().slice(0,7),choices=monthOptions(earliestMonth,current);
+  const current=ledgerToday().slice(0,7),choices=monthOptions(earliestMonth,current),count=narrowQuery.matches?0:6;
   if(!choices.includes(selectedMonth))choices.push(selectedMonth);
-  $('#token-month').innerHTML=choices.sort().reverse().map(month=>`<option value="${month}"${month===selectedMonth?' selected':''}>${monthLabel(month)}</option>`).join('');
+  choices.sort().reverse();
+  const recent=choices.slice(0,count).reverse(),older=choices.slice(count),name=month=>month.slice(0,4)===current.slice(0,4)?monthName(month):monthLabel(month);
+  const placeholder=older.includes(selectedMonth)?'':`<option value="" selected disabled>${t('ledger.earlier')}</option>`;
+  const list=older.length?`<select class="month-older" aria-label="${t(count?'ledger.earlierLabel':'ledger.monthSelectLabel')}">${placeholder}${older.map(month=>`<option value="${month}"${month===selectedMonth?' selected':''}>${monthLabel(month)}</option>`).join('')}</select>`:'';
+  setHtml('#token-months',list+recent.map(month=>`<button type="button" data-month="${month}" aria-pressed="${month===selectedMonth}">${name(month)}</button>`).join(''));
 }
+// Markup is replaced only when it changed, so a poll does not move the focus or restart a hover.
+function setHtml(selector,html){const el=$(selector);if(el.innerHTML!==html)el.innerHTML=html}
 // A counter the engine does not export (usage.reported[key] === false) reads as unknown, not as 0.
 let unreported={};
-function metricCell(key,value,tag='td') { if(unreported[key]&&!value)return `<${tag} data-metric="${key}" class="unknown-value">${unknown()}</${tag}>`; return `<${tag} data-metric="${key}" data-count="${value}" title="${value.toLocaleString('en-US')}">${key==='requests'?fixed(value,0):compact(value)}</${tag}>`; }
-// The month view as last drawn, so a language change can draw it again.
+// The ledger view (statement, calendar or charts), the day picked in the calendar, and the month as last drawn.
+let ledgerView='statement',pickedDay=null,shownMonth=null;
+// Past months change rarely; the month before the selected one (for the comparison) is fetched again after 5 minutes.
+const pastMonths=new Map();
 let redrawMonth=()=>{};
-function renderMonth(usage) {
-  redrawMonth=()=>renderMonth(usage);
+function renderMonth(usage,previous) {
+  redrawMonth=()=>renderMonth(usage,previous);shownMonth=usage;
   if(usage.timeZone)ledgerTimeZone=usage.timeZone;
   unreported=Object.fromEntries(Object.entries(usage.reported??{}).filter(([,seen])=>seen===false).map(([key])=>[key,true]));
-  earliestMonth=usage.firstMonth;rebuildMonths();const current=selectedMonth===usage.day.slice(0,7),month=monthName(selectedMonth);
-  text('#month-title',t(current?'ledger.monthToDate':'ledger.monthTotal',{month}));text('#month-period',current?`${dayLabel(selectedMonth+'-01')} – ${dayLabel(usage.day)}`:monthLabel(selectedMonth));
-  $('#month-period').classList.remove('month-load-error');$('#today-tokens').hidden=!current;
-  const metrics=[['ledger.totalTokens','total'],['ledger.cacheRead','cache'],['ledger.newInput','compute'],['ledger.output','output'],['ledger.logicalInput','input'],['ledger.requests','requests']];
-  const metricsHtml=metrics.map(([label,key])=>`<div class="${key==='total'?'total-tokens':''}"><small>${t(label)}${key==='total'?helpButton('help.totalTokens'):''}</small>${metricCell(key,usage.totals[key],'b')}</div>`).join('');
-  if($('#month-metrics').innerHTML!==metricsHtml)$('#month-metrics').innerHTML=metricsHtml;
-  const days=[...usage.days].sort((a,b)=>b.day.localeCompare(a.day));const fields=['cache','compute','output','input','requests'];
-  $('#token-days').innerHTML=days.length?days.map(day=>`<tr><th scope="row">${esc(dayLabel(day.day))}</th>${fields.map(k=>metricCell(k,day[k])).join('')}</tr>`).join(''):`<tr><td colspan="6">${t('ledger.noUsage')}</td></tr>`;
-  $('#token-month-total').innerHTML=`<tr><th scope="row">${t('ledger.monthTotalRow')}</th>${fields.map(k=>metricCell(k,usage.totals[k])).join('')}</tr>`;
-  const number=Number(selectedMonth.slice(5)),lastDay=current?Number(usage.day.slice(8)):new Date(Date.UTC(Number(selectedMonth.slice(0,4)),number,0)).getUTCDate();const recent=[];for(let d=Math.max(1,lastDay-6);d<=lastDay;d++){const date=selectedMonth+'-'+String(d).padStart(2,'0');recent.push({day:date,value:usage.days.find(row=>row.day===date)?.output??null})}
-  const max=Math.max(1,...recent.map(p=>p.value).filter(finite));$('#token-chart').innerHTML=recent.map(row=>`<div class="day-bar" style="--h:${finite(row.value)?row.value/max*85:0}%" title="${finite(row.value)?t('ledger.bar.output',{day:dayLabel(row.day),count:fixed(row.value,0)}):t('ledger.bar.noRecord',{day:dayLabel(row.day)})}"><i></i><span>${dayLabel(row.day)}</span></div>`).join('');
+  earliestMonth=usage.firstMonth;rebuildMonths();const current=selectedMonth===usage.day.slice(0,7);
+  text('#month-period',[monthLabel(selectedMonth),current?t('ledger.through',{day:dayLabel(usage.day)}):null,usage.timeZone?t('ledger.zone',{timeZone:usage.timeZone}):null].filter(Boolean).join(' | '));
+  $('#month-period').classList.remove('month-load-error');
+  setHtml('#month-metrics',kpiHtml(usage,previous,unreported));
+  // The calendar opens on today in the current month, otherwise on the month's last day with records.
+  if(!pickedDay?.startsWith(selectedMonth))pickedDay=current?usage.day:usage.days.at(-1)?.day??`${selectedMonth}-01`;
+  const focused=document.activeElement?.closest?.('#ledger-panel [data-day]')?.dataset.day;
+  $('#ledger-panel').dataset.month=usage.month;
+  setHtml('#ledger-panel',ledgerView==='calendar'?calendarHtml(usage,previous,pickedDay,unreported):ledgerView==='charts'?chartsHtml(usage,previous):statementHtml(usage,unreported));
+  if(focused)$(`#ledger-panel [data-day="${focused}"]`)?.focus();
+  setHtml('#model-table',modelTableHtml(usage,unreported));
+  const csv=$('#token-csv'),label=t('ledger.csvLabel',{month:monthLabel(selectedMonth)});csv.disabled=false;csv.title=label;csv.setAttribute('aria-label',label);
   renderToday(latest?.usage);
 }
 // key names the message shown in place of the month (loading, or an error).
 function clearMonth(key,isError=false) {
-  redrawMonth=()=>clearMonth(key,isError);const message=t(key);
-  text('#month-title',t('ledger.monthTotal',{month:monthName(selectedMonth)}));text('#month-period',message);$('#month-period').classList.toggle('month-load-error',isError);
-  $('#month-metrics').innerHTML='';$('#token-days').innerHTML=`<tr><td colspan="6">${esc(message)}</td></tr>`;$('#token-month-total').innerHTML='';$('#token-chart').innerHTML='';$('#today-tokens').hidden=true;
+  redrawMonth=()=>clearMonth(key,isError);shownMonth=null;delete $('#ledger-panel').dataset.month;const message=t(key);
+  text('#month-period',message);$('#month-period').classList.toggle('month-load-error',isError);
+  $('#month-metrics').innerHTML='';$('#ledger-panel').innerHTML=`<p class="ledger-note">${esc(message)}</p>`;$('#model-table').innerHTML='';$('#token-csv').disabled=true;
+}
+async function fetchMonth(month,signal){const res=await fetch(`/api/usage?month=${encodeURIComponent(month)}`,{cache:'no-store',signal});if(!res.ok)throw new Error('HTTP '+res.status);return validateMonth(await res.json(),month)}
+// The month before, for the comparison and the running total; without it the month is still drawn.
+async function previousData(month,signal){
+  const prev=previousMonth(month),kept=pastMonths.get(prev);
+  if(earliestMonth&&prev<earliestMonth)return null;
+  if(kept&&Date.now()-kept.at<300_000)return kept.data;
+  try{const data=await fetchMonth(prev,signal);pastMonths.set(prev,{data,at:Date.now()});return data}catch{return kept?.data??null}
 }
 async function refreshMonth(force=false) {
   if(!force&&(monthController||Date.now()-monthLoadedAt<10000))return;
   const sequence=++monthSequence,month=selectedMonth;monthController?.abort();const controller=new AbortController();monthController=controller;const timer=setTimeout(()=>controller.abort(),8000);
-  try{const res=await fetch('/api/usage?month='+encodeURIComponent(month),{cache:'no-store',signal:controller.signal});if(!res.ok)throw new Error('HTTP '+res.status);const payload=validateMonth(await res.json(),month);if(sequence===monthSequence){renderMonth(payload);monthLoadedAt=Date.now()}}catch{if(sequence===monthSequence)clearMonth('ledger.loadError',true)}finally{clearTimeout(timer);if(sequence===monthSequence)monthController=null}
+  try{const [payload,previous]=await Promise.all([fetchMonth(month,controller.signal),previousData(month,controller.signal)]);if(sequence===monthSequence){renderMonth(payload,previous);monthLoadedAt=Date.now()}}catch{if(sequence===monthSequence)clearMonth('ledger.loadError',true)}finally{clearTimeout(timer);if(sequence===monthSequence)monthController=null}
 }
+function pickMonth(month){if(!/^\d{4}-\d{2}$/.test(month))return;monthPicked=true;selectedMonth=month;pickedDay=null;monthLoadedAt=0;rebuildMonths();clearMonth('ledger.loading');void refreshMonth(true)}
+$('#token-months').addEventListener('click',event=>{const button=event.target.closest('button[data-month]');if(button)pickMonth(button.dataset.month)});
+$('#token-months').addEventListener('change',event=>{if(event.target.matches('select'))pickMonth(event.target.value)});
+onMediaChange(narrowQuery,rebuildMonths);
+function showLedgerView(view,focus=false){
+  ledgerView=view;
+  document.querySelectorAll('[data-ledger-tab]').forEach(tab=>{const on=tab.dataset.ledgerTab===view;tab.setAttribute('aria-selected',String(on));tab.tabIndex=on?0:-1;if(on){$('#ledger-panel').setAttribute('aria-labelledby',tab.id);if(focus)tab.focus()}});
+  redrawMonth();
+}
+document.querySelectorAll('[data-ledger-tab]').forEach(tab=>{tab.addEventListener('click',()=>showLedgerView(tab.dataset.ledgerTab));tab.addEventListener('keydown',event=>{const tabs=[...document.querySelectorAll('[data-ledger-tab]')],index=tabs.indexOf(tab);const next={ArrowRight:index+1,ArrowLeft:index-1,Home:0,End:tabs.length-1}[event.key];if(next===undefined)return;event.preventDefault();showLedgerView(tabs[(next+tabs.length)%tabs.length].dataset.ledgerTab,true)})});
+$('#ledger-panel').addEventListener('click',event=>{const day=event.target.closest('[data-day]');if(day&&!day.disabled){pickedDay=day.dataset.day;redrawMonth()}});
+// The CSV is built here from the month on screen and saved through a temporary Blob URL.
+$('#token-csv').addEventListener('click',()=>{
+  if(!shownMonth)return;
+  const url=URL.createObjectURL(new Blob([ledgerCsv(shownMonth,unreported)],{type:'text/csv;charset=utf-8'})),link=document.createElement('a');
+  link.href=url;link.download=`spark-scope-tokens-${shownMonth.month}.csv`;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+});
 function selectTab(btn,updateHash=true) {
-  document.querySelectorAll('[role=tab]').forEach(b=>{b.setAttribute('aria-selected',String(b===btn));b.tabIndex=b===btn?0:-1;$('#'+b.getAttribute('aria-controls')).hidden=b!==btn});
+  document.querySelectorAll('.top [role=tab]').forEach(b=>{b.setAttribute('aria-selected',String(b===btn));b.tabIndex=b===btn?0:-1;$('#'+b.getAttribute('aria-controls')).hidden=b!==btn});
   const tokens=btn.id==='tab-tokens';if(updateHash)location.hash=tokens?'tokens':'scope';if(tokens)void refreshMonth();
 }
-document.querySelectorAll('[role=tab]').forEach(btn=>{btn.addEventListener('click',()=>selectTab(btn));btn.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?$('#tab-scope'):e.key==='End'?$('#tab-tokens'):btn.id==='tab-scope'?$('#tab-tokens'):$('#tab-scope');selectTab(next);next.focus()}})});
+document.querySelectorAll('.top [role=tab]').forEach(btn=>{btn.addEventListener('click',()=>selectTab(btn));btn.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?$('#tab-scope'):e.key==='End'?$('#tab-tokens'):btn.id==='tab-scope'?$('#tab-tokens'):$('#tab-scope');selectTab(next);next.focus()}})});
 window.addEventListener('hashchange',()=>selectTab($(location.hash==='#tokens'?'#tab-tokens':'#tab-scope'),false));
 function showRange(){document.querySelectorAll('[data-range]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.range)===range)))}
 document.querySelectorAll('[data-range]').forEach(btn=>btn.addEventListener('click',()=>{range=Number(btn.dataset.range);showRange();void refresh()}));
-$('#token-month').addEventListener('change',()=>{monthPicked=true;selectedMonth=$('#token-month').value;monthLoadedAt=0;clearMonth('ledger.loading');void refreshMonth(true)});
 // ---- settings dialog ----
 const dialog=$('#settings'),form=dialog.querySelector('form'),opener=$('#settings-open');
 let previewId=null;

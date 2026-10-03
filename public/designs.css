@@ -46,6 +46,12 @@ html[data-design=console] .plot{background:var(--screen) linear-gradient(transpa
 html[data-design=console] .big{font:700 40px var(--num-font)}
 html[data-design=console] .settings{border:1px solid var(--green)}
 html[data-design=console] .settings-head,html[data-design=console] .top{border-bottom-width:1px}
+/* Token ledger: headings and view tabs in the same terminal style. */
+html[data-design=console] .ledger-head h2::before{content:'## ';color:var(--muted)}
+html[data-design=console] .ledger-tabs button,html[data-design=console] .cal .dow{text-transform:uppercase;letter-spacing:1px;font-size:12px}
+html[data-design=console] .cal .dow{font-size:10px}
+html[data-design=console] .chip{border-style:dashed}
+html[data-design=console] .chart-box{background:var(--screen) linear-gradient(transparent 50%,rgba(126,231,135,.025) 50%) 0 0/100% 4px}
 
 /* ===== Soft: rounded widgets, light and dark ===== */
 html[data-design=soft]{--text-font:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,'Helvetica Neue',sans-serif;--num-font:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',Roboto,'Helvetica Neue',sans-serif;
@@ -103,3 +109,23 @@ html[data-design=soft] .pills input:checked+span{background:var(--paper);color:v
 html[data-design=soft] .settings-foot button,html[data-design=soft] button.plain,html[data-design=soft] .settings-close{border-radius:999px}
 html[data-design=soft] .settings-preview .nodes{border:0}
 html[data-design=soft] .help-tip{border-radius:10px}
+/* Token ledger: rounded figures, buttons, days and charts. */
+html[data-design=soft] .months{border:0;background:var(--hover);border-radius:999px;padding:2px}
+html[data-design=soft] .months>*{border:0;border-radius:999px}
+html[data-design=soft] .months select{background:transparent}
+html[data-design=soft] .months button[aria-pressed=true]{background:var(--paper);color:var(--ink);box-shadow:0 1px 2px #0000001a}
+html[data-design=soft] .csv-button{border-radius:999px}
+html[data-design=soft] .kpis{border:0;border-radius:14px;background:var(--screen)}
+html[data-design=soft] .kpi{box-shadow:1px 0 0 var(--paper),0 1px 0 var(--paper)}
+html[data-design=soft] .kpi,html[data-design=soft] .kpi b{letter-spacing:-.3px}
+html[data-design=soft] .statement tr.week>*{background:var(--hover)}
+html[data-design=soft] .statement tr.week>:first-child{border-radius:8px 0 0 8px}
+html[data-design=soft] .statement tr.week>:last-child{border-radius:0 8px 8px 0}
+html[data-design=soft] .statement .bar-col i,html[data-design=soft] .share-bar,html[data-design=soft] .share-bar i{border-radius:999px}
+html[data-design=soft] .chip{border:0;border-radius:999px;background:var(--hover);padding:3px 8px}
+html[data-design=soft] .chip i,html[data-design=soft] .model-name i,html[data-design=soft] .keys i:not(.k-this):not(.k-last){border-radius:50%}
+html[data-design=soft] .cal-day{border:0;border-radius:10px}
+html[data-design=soft] .cal-day.empty{border:1px dashed var(--line)}
+html[data-design=soft] .cal-day .switch{border-radius:50%}
+html[data-design=soft] .day-detail,html[data-design=soft] .chart-box{border:0;border-radius:14px;background:var(--screen)}
+html[data-design=soft] .split{border:0;border-radius:999px;overflow:hidden}

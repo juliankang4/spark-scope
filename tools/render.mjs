@@ -14,7 +14,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { fixtureState, usageMonth, MODES } from "./fixtures.mjs";
+import { fixtureState, usageMonth, MODES, LEDGER_MODELS, LEDGER_SCENARIO } from "./fixtures.mjs";
 import { SECURITY_HEADERS } from "../lib/http-guard.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -35,7 +35,10 @@ function findChrome() {
 }
 
 // ---- fixture server: the real public/ files, /api/state from fixtures ----
+// ledger: serve the ledger scenario on its own clock (LEDGER_SCENARIO in fixtures.mjs) instead of today's date.
 let current = { count: 4, mode: "serving", longNames: false };
+const ledgerShift = LEDGER_SCENARIO.now - Date.now();
+const fixtureNow = () => Date.now() + (current.ledger ? ledgerShift : 0);
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript; charset=utf-8", ".woff2": "font/woff2" };
 // The server's own security headers, so a page that breaks the Content-Security-Policy shows up as a console error.
 const server = createServer((request, response) => {
@@ -43,14 +46,14 @@ const server = createServer((request, response) => {
   const url = new URL(request.url, "http://localhost");
   if (url.pathname === "/api/state") {
     if (current.mode === "lost") { response.writeHead(503).end("{}"); return; }
-    const state = fixtureState(current.count, current.mode, Date.now(), { longNames: current.longNames });
+    const state = fixtureState(current.count, current.mode, fixtureNow(), { longNames: current.longNames });
     const minutes = Number(url.searchParams.get("minutes") || 60);
-    state.history = state.history.filter((point) => point.at >= Date.now() - minutes * 60_000);
+    state.history = state.history.filter((point) => point.at >= fixtureNow() - minutes * 60_000);
     response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(state));
     return;
   }
   if (url.pathname === "/api/usage") {
-    response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(usageMonth(url.searchParams.get("month"), Date.now())));
+    response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(usageMonth(url.searchParams.get("month"), fixtureNow(), current.ledger ? { start: LEDGER_SCENARIO.start } : {})));
     return;
   }
   const file = path.join(PUBLIC, url.pathname.endsWith("/") ? `${url.pathname}index.html` : url.pathname);
@@ -114,7 +117,8 @@ const send = (method, params = {}, sessionId) => new Promise((resolve, reject) =
   socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
 });
 
-async function openPage({ width, height, colorScheme = "dark" }) {
+// shift moves the page's clock (Date) by that many milliseconds, to match the ledger scenario's fixture server.
+async function openPage({ width, height, colorScheme = "dark", shift = 0 }) {
   const { targetId } = await send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
   const errors = [];
@@ -131,6 +135,9 @@ async function openPage({ width, height, colorScheme = "dark" }) {
   await call("Log.enable");
   await call("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 600 });
   await call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }, { name: "prefers-color-scheme", value: colorScheme }] });
+  if (shift) await call("Page.addScriptToEvaluateOnNewDocument", { source: `(() => { const Real = Date, shift = ${shift};
+    function Shifted(...args) { return new.target ? (args.length ? new Real(...args) : new Real(Real.now() + shift)) : new Real(Real.now() + shift).toString(); }
+    Shifted.prototype = Real.prototype; Shifted.now = () => Real.now() + shift; Shifted.parse = Real.parse; Shifted.UTC = Real.UTC; globalThis.Date = Shifted; })();` });
   const evaluate = async (expression) => (await call("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result.value;
   const go = async (url) => {
     await call("Page.navigate", { url });
@@ -217,7 +224,7 @@ const CHECK_WEB = `(() => {
   if (document.documentElement.dataset.labels !== "full") for (const el of document.querySelectorAll(".reading small")) {
     if (el.getClientRects().length && el.scrollWidth > el.clientWidth + 1) issues.push("reading label cut: " + el.innerText.trim().slice(0, 40));
   }
-  for (const el of document.querySelectorAll("#scope h1, #scope h2, .identity h1, .badge, .role span, .reading b, .extra span, .links td, .trend p span, .legend div, .status .sub span, #tokens h2, #tokens h3, .month-metrics small, .month-metrics b, .history th, .history td, .day-bar span")) {
+  for (const el of document.querySelectorAll("#scope h1, #scope h2, .identity h1, .badge, .role span, .reading b, .extra span, .links td, .trend p span, .legend div, .status .sub span, #tokens h2, #tokens h3, .kpi small, .kpi b, .kpi em, .months > *, .ledger-tabs button, .statement th, .statement td, .model-table th, .model-table td, .cal-day b, .day-detail dt, .day-detail dd, .keys span, .y-ticks span")) {
     if (!el.getClientRects().length) continue;
     if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).textOverflow !== "ellipsis") issues.push("text wider than its box: " + el.textContent.trim().slice(0, 40));
   }
@@ -231,6 +238,46 @@ const CHECK_WEB = `(() => {
     if (box.x < -1 || box.y < -1 || box.x + box.width > view.width + 1 || box.y + box.height > view.height + 1) issues.push("diagram drawn outside its view box");
   }
   return issues;
+})()`;
+
+// Token ledger: the figures, the table by model and the chosen view as the scenario expects; the day axis of every
+// chart spans the whole month.
+const CHECK_LEDGER = (view, expect) => `(() => {
+  const issues = [], expect = ${JSON.stringify(expect)};
+  const kpis = [...document.querySelectorAll("#month-metrics .kpi")];
+  if (kpis.length !== expect.kpis) issues.push("figures: " + kpis.length + ", expected " + expect.kpis);
+  const models = document.querySelectorAll("#model-table tbody tr:not(.empty)").length;
+  if (models !== expect.models) issues.push("models: " + models + ", expected " + expect.models);
+  let summary = kpis.map((kpi) => kpi.querySelector("b").textContent).join(" / ") + " | models " + models;
+  if ("${view}" === "statement") {
+    const weeks = document.querySelectorAll(".statement tr.week").length, columns = document.querySelectorAll(".statement thead th").length;
+    if (weeks !== expect.weeks) issues.push("weeks: " + weeks + ", expected " + expect.weeks);
+    for (const row of document.querySelectorAll(".statement tbody tr:not(.empty), .statement tfoot tr")) if (row.children.length !== columns) issues.push("row with " + row.children.length + " cells: " + row.innerText.slice(0, 30));
+    // Each figure ends where its column heading ends.
+    const heads = [...document.querySelectorAll(".statement thead th")].map((th) => th.getBoundingClientRect());
+    for (const row of document.querySelectorAll(".statement tbody tr:not(.empty)")) [...row.children].forEach((cell, i) => { const r = cell.getBoundingClientRect(); if (r.width && Math.abs(r.right - heads[i].right) > 1) issues.push("misaligned column " + i); });
+    summary += " | weeks " + weeks + ", rows " + document.querySelectorAll(".statement tbody th").length;
+  } else if ("${view}" === "calendar") {
+    const days = document.querySelectorAll(".cal-day").length, picked = document.querySelector(".cal-day[aria-pressed=true]");
+    if (days !== expect.days) issues.push("calendar days: " + days + ", expected " + expect.days);
+    if (!picked) issues.push("no day selected");
+    if (!document.querySelector(".day-detail h3")?.textContent) issues.push("no day details");
+    for (const cell of document.querySelectorAll(".cal-day")) for (const part of cell.children) { const a = part.getBoundingClientRect(), b = cell.getBoundingClientRect(); if (a.width && (a.right > b.right + 1 || a.bottom > b.bottom + 1)) issues.push("calendar text outside its day: " + part.textContent); }
+    summary += " | days " + days + ", changed " + document.querySelectorAll(".cal-day .switch").length + ", picked " + (picked?.dataset.day ?? "none");
+  } else {
+    const charts = [...document.querySelectorAll(".lchart")];
+    if (charts.length !== 3) issues.push("charts: " + charts.length);
+    charts.forEach((chart, index) => {
+      // The running total's axis also covers a longer last month.
+      const box = chart.querySelector("svg").viewBox.baseVal, last = Number([...chart.querySelectorAll(".x-ticks span")].at(-1)?.textContent);
+      if (index < 2 ? box.width !== expect.days * 10 || last !== expect.days : box.width < expect.days * 10 || last !== box.width / 10) issues.push("day axis does not span the month: " + box.width / 10 + " days, last label " + last);
+      const area = chart.getBoundingClientRect();
+      for (const tick of chart.querySelectorAll(".x-ticks span, .y-ticks span")) { const r = tick.getBoundingClientRect(); if (r.left < area.left - 2 || r.right > area.right + 2) issues.push("chart label outside its chart: " + tick.textContent); }
+      if (!chart.querySelector("rect:not(.future-track), path")) issues.push("empty chart");
+    });
+    summary += " | bars " + document.querySelectorAll(".lchart rect").length;
+  }
+  return { issues, summary };
 })()`;
 
 // Settings dialog: it stays inside the window, nothing in it is wider than its box, and the preview card fits.
@@ -253,7 +300,7 @@ const CHECK_SETTINGS = `(() => {
 // (names, hosts, hardware, models, engines, containers, time zones) are text that missed the string table.
 const TERMS = "GPU CPU NVMe NIC ACPI TSOC TS0E TS0P TS1E TS1P TGPU TUNC Xid NO MEMORY TP rank TTFT TPOT KV cache Prefill Decode Spec acceptance tok API QSFP SPARK SCOPE Spark Scope MHz GiB GB TiB Gb SSH RAM nvidia smi ms English rack URL DECODE PREFILL CSV Wh";
 function dataWords(state) {
-  const values = [state.usage?.timeZone, state.usage?.modelName, state.inference?.modelName, state.inference?.engine, state.serving?.engine];
+  const values = [state.usage?.timeZone, state.usage?.modelName, state.inference?.modelName, state.inference?.engine, state.serving?.engine, ...LEDGER_MODELS];
   for (const node of state.topology?.nodes ?? []) values.push(node.id, node.name, node.host, node.hardware);
   for (const node of Object.values(state.nodes ?? {})) values.push(node?.container?.name, node?.inference?.engine);
   for (const link of state.topology?.links ?? []) values.push(link.id, link.label);
@@ -570,7 +617,7 @@ try {
     await web.shoot(name, { fullPage: true });
     report(name, [`ring value offset: ${look.dx.toFixed(1)}, ${look.dy.toFixed(1)} px`], problems);
     await web.evaluate("document.querySelector('#tab-tokens').click()");
-    await web.waitFor("document.querySelectorAll('#token-days tr').length > 1");
+    await web.waitFor("document.querySelectorAll('#ledger-panel .statement tbody tr').length > 1");
     await new Promise((resolve) => setTimeout(resolve, 300));
     await web.shoot(`web-${label}-${design}-${scheme}-tokens.png`, { fullPage: true });
     report(`web-${label}-${design}-${scheme}-tokens.png`, [], [...await web.evaluate(CHECK_WEB), ...web.errors.splice(0)]);
@@ -637,12 +684,12 @@ try {
     }
     current = { count: 4, mode: "serving", longNames: false };
     await web.go(`${base}/?lang=ko#tokens`);
-    await web.waitFor("document.querySelectorAll('#token-days tr th').length > 0");
+    await web.waitFor("document.querySelectorAll('#ledger-panel .statement tbody th').length > 0");
     await new Promise((resolve) => setTimeout(resolve, 300));
     const ledger = await web.evaluate(`(() => ({
-      title: document.querySelector('#month-title').textContent,
+      title: document.querySelector('#ledger-panel tfoot th').textContent,
       period: document.querySelector('#month-period').textContent,
-      month: document.querySelector('#token-month').selectedOptions[0]?.textContent,
+      month: document.querySelector('#token-months [aria-pressed=true]')?.textContent,
     }))()`);
     const ledgerName = `web-${label}-tokens-ko.png`;
     await web.shoot(ledgerName, { fullPage: true });
@@ -676,6 +723,61 @@ try {
       report(name, section === "dashboard" ? [`before: ${before.join(" / ")}`, `after: ${after.join(" / ")}`] : [], [...issues, ...(section === "dashboard" ? switched : []), ...await englishLeft(web, fixtureState(4, "serving")), ...web.errors.splice(0)]);
     }
     await checkHelp(web, label, "-ko", () => englishLeft(web, fixtureState(4, "serving")));
+    await web.evaluate("localStorage.clear()");
+    await web.close();
+  }
+
+  // The token ledger over the scenario's three months (fixtures.mjs): records starting on the 23rd, a complete month
+  // with five models, and the current month three days in. Every month and view (Statement, Calendar, Charts) in the
+  // default design on a desktop (light) and a phone (dark); the complete month's three views in Korean and in the
+  // other designs. Page and fixture server share its clock.
+  const LEDGER_EXPECT = {
+    "2027-04": { kpis: 4, models: 2, weeks: 2, days: 30 },
+    "2027-05": { kpis: 4, models: 5, weeks: 6, days: 31 },
+    "2027-06": { kpis: 6, models: 1, weeks: 1, days: 30 },
+  };
+  const [, fullMonth] = LEDGER_SCENARIO.months;
+  const SIZES = { desktop: [1440, 1000], phone: [390, 844] };
+  const LEDGER_CASES = [
+    ["default", "light", "desktop", "en", LEDGER_SCENARIO.months], ["default", "dark", "phone", "en", LEDGER_SCENARIO.months],
+    ["default", "light", "desktop", "ko", [fullMonth]], ["default", "dark", "phone", "ko", [fullMonth]],
+    ["console", "dark", "desktop", "en", [fullMonth]], ["soft", "light", "desktop", "en", [fullMonth]], ["soft", "dark", "phone", "en", [fullMonth]],
+  ];
+  for (const [design, scheme, label, lang, months] of LEDGER_CASES) {
+    const [width, height] = SIZES[label];
+    const web = await openPage({ width, height, colorScheme: scheme, shift: ledgerShift });
+    current = { count: 4, mode: "serving", longNames: false, ledger: true };
+    await web.go(`${base}/?design=${design}&lang=${lang}#tokens`);
+    for (const month of months) {
+      const expect = LEDGER_EXPECT[month];
+      // A month button on a desktop, the month list on a phone.
+      await web.evaluate(`(() => { const button = document.querySelector('#token-months [data-month="${month}"]'), list = document.querySelector('#token-months select');
+        if (button) button.click(); else { list.value = "${month}"; list.dispatchEvent(new Event("change", { bubbles: true })); } })()`);
+      await web.waitFor(`document.querySelector('#ledger-panel').dataset.month === "${month}"`);
+      for (const view of ["statement", "calendar", "charts"]) {
+        await web.evaluate(`document.querySelector('[data-ledger-tab="${view}"]').click()`);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        const found = await web.evaluate(CHECK_LEDGER(view, expect));
+        const name = `ledger-${design}-${scheme}-${label}-${month}-${view}${lang === "ko" ? "-ko" : ""}.png`;
+        await web.shoot(name, { fullPage: true });
+        const problems = [...found.issues, ...await web.evaluate(CHECK_WEB), ...(lang === "ko" ? await englishLeft(web, fixtureState(4, "serving")) : []), ...web.errors.splice(0)];
+        report(name, [found.summary], problems);
+      }
+    }
+    // Once: the CSV button saves the month on screen (June), one row per day and model under the header.
+    if (design === "default" && scheme === "light" && label === "desktop" && lang === "en") {
+      const file = path.join(OUT, `spark-scope-tokens-${LEDGER_SCENARIO.months.at(-1)}.csv`);
+      rmSync(file, { force: true });
+      await send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: OUT });
+      await web.evaluate("document.querySelector('#token-csv').click()");
+      for (let i = 0; i < 50 && !existsSync(file); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+      const lines = existsSync(file) ? readFileSync(file, "utf8").trimEnd().split("\r\n") : [];
+      const expected = usageMonth(LEDGER_SCENARIO.months.at(-1), LEDGER_SCENARIO.now, { start: LEDGER_SCENARIO.start }).days.reduce((count, day) => count + day.models.length, 0);
+      const problems = [...web.errors.splice(0)];
+      if (lines[0] !== "day,model,cache_read,new_input,logical_input,output,requests" || lines.length !== expected + 1) problems.push(`CSV: ${lines.length} lines, expected ${expected + 1}: ${lines[0] ?? "no file"}`);
+      report(path.basename(file), [lines[1] ?? ""], problems);
+      await send("Browser.setDownloadBehavior", { behavior: "default" });
+    }
     await web.evaluate("localStorage.clear()");
     await web.close();
   }
