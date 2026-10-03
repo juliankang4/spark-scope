@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.3 (2026-10-03)
+
+### Added
+
+- Model servers: nodes that serve in separate groups (two nodes used one by one, four as 2 + 2, three as 2 + 1) are listed under `servers` in `topology.json`, each with its own API ([#32](https://github.com/juliankang4/spark-scope/pull/32), [#33](https://github.com/juliankang4/spark-scope/pull/33)):
+  - a row per server above the chart, and its server on each node card;
+  - All at once (a line and an engine panel per server, the total on top) or One at a time, in the settings;
+  - a chip per server on the rack panel's band, `?server=` to follow one;
+  - one token ledger for every server;
+  - `npm run demo -- --servers 2` shows them on made-up data.
+- Keyboard shortcuts: `S` Scope, `L` token ledger, `M` mini window, `,` settings, `?` the list of them ([#33](https://github.com/juliankang4/spark-scope/pull/33)).
+
+### Fixed
+
+- The mini window's `M` did nothing while a Korean keyboard layout was on ([#33](https://github.com/juliankang4/spark-scope/pull/33)).
+
 ## 0.1.2 (2026-10-03)
 
 ### Added
