@@ -10,7 +10,7 @@ The server is set with environment variables, all optional. Display preferences 
 |---|---|---|
 | `SPARK_SCOPE_HOST` | `127.0.0.1` | Listen address. Set `0.0.0.0` (or a specific address) to serve other machines; see [Security](../README.md#security). |
 | `SPARK_SCOPE_PORT` | `8787` | Listen port. |
-| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | Base URL of the OpenAI-compatible inference server. The dashboard reads `/health`, `/metrics` and `/v1/models`. vLLM listens on 8000 by default, SGLang on 30000. |
+| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | Base URL of the OpenAI-compatible inference server. The dashboard reads `/health`, `/metrics` and `/v1/models`. vLLM listens on 8000 by default, SGLang on 30000, TensorFold on 8080. |
 | `SPARK_SCOPE_TOPOLOGY` | `~/.config/spark-scope/topology.json` if it exists, otherwise `topology.json` next to `server.mjs` | Topology file. When set explicitly, a missing file is an error. |
 | `SPARK_SCOPE_USAGE_DB` | `$XDG_DATA_HOME/spark-scope/usage.sqlite` (`~/.local/share/...`) | Token ledger database. The directory is created if needed. |
 | `SPARK_SCOPE_TIME_ZONE` | the server's time zone | IANA time zone (for example `America/Los_Angeles`) that decides where ledger days begin. The page shows it next to the ledger. |
@@ -35,6 +35,11 @@ As a service, the same variables go on `Environment=` lines in the unit ([Runnin
   - prefill time uses SGLang's time-to-first-token histogram (it includes queue time), and TPOT its inter-token latency histogram;
   - the cache hit rate is cached prompt tokens over all prompt tokens since start;
   - speculative acceptance is SGLang's recent-window gauge rather than a lifetime ratio.
+- **TensorFold**: it repeats its readings under vLLM's names with a `tensorfold:` prefix, which fill the same fields; on CUDA its `/health` adds a few counters. Its metrics are always on. Differences:
+  - output speed comes from `/health`'s count of reply tokens, which includes replies still streaming, because TensorFold adds a reply's tokens to its counter only when the request finishes (the Mac server has no such count, so there the speed rises when replies end);
+  - the cache hit rate and the prefill rates come from `/health`'s totals for finished requests, and read `unknown` on the Mac server;
+  - KV cache is how full the running streams' context windows are on average, not the share of cache memory in use;
+  - TPOT reads `unknown`: TensorFold has no per-token latency histogram.
 - Other engines (llama.cpp, Ollama, TensorRT-LLM, Triton) are recognised by process or image name on the node cards, but their throughput and token metrics are not read.
 
 The engine label comes from the metric names or the GPU process name, and the number of serving nodes from how many nodes run a GPU process; neither is assumed. In multi-node serving, point `SPARK_SCOPE_API_URL` at the node that hosts the API.
