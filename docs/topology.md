@@ -41,6 +41,26 @@
 | `label` | no | Display label. Defaults to `<node>–<node>`, plus `#1`, `#2` for parallel cables. |
 | `cabled` | no | `false` for a cable that is not installed yet: dark ports read "not cabled yet" instead of "down" and do not degrade the status. |
 
+## Model servers
+
+When nodes serve in separate groups (two cabled nodes each running its own model, four as 2 + 2, three as 2 + 1), list one model server per group under `servers`. Each has its own inference API and takes the place of `SPARK_SCOPE_API_URL`:
+
+```json
+"servers": [
+  { "id": "a", "api": "http://spark-1:8000", "nodes": ["1", "2"] },
+  { "id": "b", "name": "Small model", "api": "http://spark-3:30000", "nodes": ["3"] }
+]
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `id` | yes | Short unique id (letters, digits, `_`, `-`; up to 16). |
+| `name` | no | Display name. Without it the server is called by the model it serves, then by its id. |
+| `api` | yes | Base URL of that server's OpenAI-compatible API, `http://` or `https://` and without a user name or password. The dashboard reads its `/health`, `/metrics` and `/v1/models`. |
+| `nodes` | yes | The node ids it runs on. A node serves in at most one server. |
+
+Each server is judged on its own nodes: a node only needs an inference process while its own server's API serves, and a server that is switched off (no process, no API) while another serves reads as idle, not as a fault. A node in no server is watched for its hardware only. Links stay physical: a cable between two groups is still checked. Without `servers`, one server covers every node at `SPARK_SCOPE_API_URL`.
+
 ## Interfaces and link states
 
 On a DGX Spark-class machine each QSFP port of the ConnectX-7 appears as two network interfaces on different PCIe domains. Port 0 is `enp1s0f0np0` (plane A) and `enP2p1s0f0np0` (plane B); port 1 is `enp1s0f1np1` and `enP2p1s0f1np1`. Check yours with `ip -br link` or `ibdev2netdev`, and find which port a cable uses with `cat /sys/class/net/<interface>/carrier` while plugging it in. Traffic is read from the matching RoCE counters (`rocep1s0f0` and so on) when RDMA devices exist, otherwise from the interface statistics. Links run at 200 Gb/s per plane on these machines; a lower negotiated speed is flagged as slow (see `SPARK_SCOPE_LINK_MIN_GBPS`).
