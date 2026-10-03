@@ -1,7 +1,8 @@
 import {
-  orderedNodes, nodeLinks, nodeView, reasonText, clusterView, seriesPoints, timePaths, valueRange, tempRangeLabel, f1, compact, freeLabel, panelWidth, bayLayout, BRAND,
+  orderedNodes, nodeLinks, nodeView, reasonText, clusterView, seriesPoints, timePaths, valueRange, tempRangeLabel, f1, compact, freeLabel, panelWidth, bayLayout, BRAND, degrees, degreeUnit, bayColor, bayColorStyle,
 } from "./rack-view.js";
 import { t, setLanguage, queryLanguage, translatePage } from "../i18n.js";
+import { settingsFromQuery, DEFAULTS } from "../settings.js";
 
 const POLL_MS = 2000;
 const TEMP_POLL_MS = 30_000;
@@ -15,7 +16,9 @@ const TRACE_W = 178;
 const TRACE_H = 150;
 // The panel is laid out at BW x 480 logical pixels and scaled to the window. "?width=" changes BW (default 1920).
 const BW = panelWidth(location.search);
-// "?lang=ko" shows the panel in Korean; the kiosk has no keyboard, so the address is the only setting.
+// "?lang=ko" shows the panel in Korean; the kiosk has no keyboard, so the address is the only setting. The same
+// address takes the web page's temp, mem, colors and motion settings (the settings dialog builds the kiosk URL).
+const options = settingsFromQuery(location.search)?.settings ?? DEFAULTS;
 setLanguage(queryLanguage(location.search));
 translatePage();
 document.getElementById("cl-line1").textContent = t("rack.cluster.waitingBrand", { brand: BRAND });
@@ -64,7 +67,7 @@ function tempTrace(id, toMs) {
   const { line, area } = timePaths(points, { fromMs: toMs - TEMP_WINDOW_MS, toMs, width: TRACE_W, height: TRACE_H, min, max, gapMs: TEMP_GAP_MS });
   return {
     svg: `<svg width="${TRACE_W}" height="${TRACE_H}" viewBox="0 0 ${TRACE_W} ${TRACE_H}" preserveAspectRatio="none" aria-hidden="true"><path d="${area}" fill="var(--trace-fill)"/><path d="${line}" fill="none" stroke="var(--trace)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/></svg>`,
-    range: tempRangeLabel(points),
+    range: tempRangeLabel(points, options.temp),
   };
 }
 
@@ -82,12 +85,14 @@ function syncBays(metas) {
 // detail is the part of the label that may be cut short with an ellipsis in a very narrow bay.
 const meter = (label, value, pct, warn = false, detail = "") => `<div class="meter"><div><span>${label}${detail ? `<em> ${detail}</em>` : ""}</span><b>${value}</b></div><div class="bar"><i class="${warn ? "warn" : ""}" style="width:${pct === null ? 0 : Math.max(0, Math.min(100, pct))}%"></i></div></div>`;
 
-function renderBay(meta, toMs) {
+function renderBay(meta, toMs, index) {
   const links = nodeLinks(latest, meta.id);
   const view = nodeView(meta, latest.nodes?.[meta.id], { inferenceOk: Boolean(latest?.inference?.ok), lastOkAt: lastOkAt[meta.id], nowMs: toMs, links });
   const target = view.local ? t("node.target.local") : view.host ? `SSH ${view.host}` : t("node.target.noHost");
   const el = bays.querySelector(`[data-node="${CSS.escape(meta.id)}"]`);
   el.className = `bay ${view.level}`;
+  // With "?colors=", the bay's bars and temperature trace take the node's colour; the stripe keeps its state colour.
+  el.style.cssText = bayColorStyle(bayColor(options.colors, index));
   const head = `<span class="stripe"></span><header><div class="name">${escapeHtml(view.name)}<small>${escapeHtml(view.role)}</small></div><div class="reason" title="${escapeHtml(view.reasons.join(", "))}"><span class="lamp ${view.level}"></span><span>${escapeHtml(reasonText(view))}</span></div></header>`;
   // Peer names next to the dots only while they are short; long ids leave just the coloured dots.
   const named = view.links.every((link) => link.tag.length <= 6);
@@ -105,15 +110,15 @@ function renderBay(meta, toMs) {
   const trace = tempTrace(meta.id, toMs);
   el.innerHTML = `${head}
     <div class="main">
-      <div class="temp">${trace.svg}<b class="num halo">${view.temp === null ? "—" : Math.round(view.temp)}<sup>°C</sup></b></div>
+      <div class="temp">${trace.svg}<b class="num halo${view.temp !== null && Math.round(degrees(view.temp, options.temp)) >= 100 ? " triple" : ""}">${view.temp === null ? "—" : Math.round(degrees(view.temp, options.temp))}<sup>${degreeUnit(options.temp)}</sup></b></div>
       <div class="meters">
         ${meter(t("rack.meter.gpuLoad"), `${view.load ?? "—"}%`, view.load)}
-        ${meter("RAM", `${view.memUsedPct ?? "—"}%`, view.memUsedPct, false, t("rack.meter.free", { free: freeLabel(view.memFreeGiB) }))}
-        ${meter(t("rack.meter.disk"), `${view.diskPct ?? "—"}%`, view.diskPct, view.diskWarn, t("rack.meter.free", { free: freeLabel(view.diskFreeGiB) }))}
+        ${meter("RAM", `${view.memUsedPct ?? "—"}%`, view.memUsedPct, false, t("rack.meter.free", { free: freeLabel(view.memFreeGiB, options.mem) }))}
+        ${meter(t("rack.meter.disk"), `${view.diskPct ?? "—"}%`, view.diskPct, view.diskWarn, t("rack.meter.free", { free: freeLabel(view.diskFreeGiB, options.mem) }))}
       </div>
       <div class="cap"><span class="cap-label">${t("rack.caption.gpuTemp")} </span>${t("rack.caption.range", { range: trace.range })}</div>
     </div>
-    <div class="foot"><span>${t("rack.power", { watts: f1(view.power) })}</span>${view.tsoc === null ? "" : `<span class="tsoc">TSOC ${f1(view.tsoc)}°C</span>`}${dots}</div>`;
+    <div class="foot"><span>${t("rack.power", { watts: f1(view.power) })}</span>${view.tsoc === null ? "" : `<span class="tsoc">TSOC ${f1(degrees(view.tsoc, options.temp))}${degreeUnit(options.temp)}</span>`}${dots}</div>`;
 }
 
 // The band moves left between polls with one CSS transition per poll (composited), instead of a script that moves
@@ -124,9 +129,9 @@ const BAND_SHIFT = (POLL_MS / BAND_WINDOW_MS) * BW;
 function glideBand() {
   bandSvg.style.transition = "none";
   bandSvg.style.transform = "translateX(0px)";
-  if (reduceMotion.matches || screen.classList.contains("stale")) return;
+  if (reduceMotion.matches || options.motion === "still" || screen.classList.contains("stale")) return;
   void bandSvg.getBoundingClientRect();
-  bandSvg.style.transition = `transform ${POLL_MS}ms steps(${Math.max(1, Math.round(BAND_SHIFT))}, end)`;
+  bandSvg.style.transition = `transform ${POLL_MS}ms ${options.motion === "smooth" ? "linear" : `steps(${Math.max(1, Math.round(BAND_SHIFT))}, end)`}`;
   bandSvg.style.transform = `translateX(${(-BAND_SHIFT).toFixed(2)}px)`;
 }
 
@@ -169,7 +174,7 @@ function renderBays() {
   const toMs = Date.parse(latest.updatedAt) || Date.now();
   const metas = orderedNodes(latest);
   syncBays(metas);
-  for (const meta of metas) renderBay(meta, toMs);
+  metas.forEach((meta, index) => renderBay(meta, toMs, index));
 }
 
 function render() {
@@ -184,7 +189,7 @@ async function poll() {
   polling = true;
   let state = null;
   try {
-    state = await getJson("/api/state?minutes=15&history=0");
+    state = await getJson("/api/state?minutes=15&history=0&from=rack");
   } catch {
     renderCluster(true);
   }
@@ -212,7 +217,7 @@ async function poll() {
 // Every 30 s: the 60-minute history for the temperature traces and the band's earlier samples.
 async function pollTemps() {
   try {
-    const state = await getJson("/api/state?minutes=60");
+    const state = await getJson("/api/state?minutes=60&from=rack");
     tempHistory = state.history ?? [];
     if (latest) renderBays();
   } catch {

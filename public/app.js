@@ -1,5 +1,5 @@
 import { COLORS, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue } from './view-data.js';
-import { READING_IDS, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
+import { READING_IDS, rackQuery, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 import { t, setLanguage, translatePage, serverText, LANGUAGE_NAMES } from './i18n.js';
 import { hide as hideHelp, helpButton } from './help.js';
 const $ = selector => document.querySelector(selector);
@@ -249,6 +249,7 @@ function renderPreview({rows=true}={}){
   $('#about-version').textContent=latest?.version??unknown();
   $('#about-engine').textContent=(latest?.serving?.engine??unknown())+every(intervals?.apiMs);
   $('#about-nodes').textContent=metas.length?t('settings.about.nodeCount',{count:metas.length})+every(intervals?.nodeMs):unknown();
+  renderRack();
 }
 // Every change applies at once: saved, drawn on the page behind the dialog and in the preview. While the server is
 // not answering, the last data is drawn again under the "not responding" state, so its text follows a new language too.
@@ -316,6 +317,26 @@ dialog.addEventListener('close',()=>{hideHelp();opener.setAttribute('aria-expand
 dialog.addEventListener('click',event=>{if(event.target===dialog)dialog.close()});
 $('#settings-reset').addEventListener('click',()=>{const before=settings;settings=parseSettings(null);themeChoice=null;saveTheme(store,null);applyTheme();applySettings(changes(before))});
 // The clipboard needs HTTPS or localhost; on plain HTTP the link is shown selected, ready to copy by hand.
+// ---- rack panel settings ----
+// Shown only where a rack panel is in use: one has polled this server within 7 days (rackSeenAt), or on request.
+const RACK_SEEN_MS=7*24*3600_000;let rackForced=false;
+const rackSeen=()=>{const at=Date.parse(latest?.rackSeenAt??'');return Number.isFinite(at)&&Date.now()-at<RACK_SEEN_MS?at:null};
+function renderRack(){
+  const seen=rackSeen(),visible=rackForced||seen!==null;
+  dialog.querySelector('[data-section="rack"]').hidden=!visible;$('#rack-hint').hidden=visible;
+  if(!visible&&dialog.querySelector('[data-section="rack"]').getAttribute('aria-current')==='true')showSection('dashboard');
+  text('#rack-seen',seen!==null?t('settings.rack.seen',{time:eventTime(seen,Date.now(),{hour12:hour12()})}):t('settings.rack.notSeen'));
+  const query=rackQuery(settings),url=`${location.origin}/rack/${query?`?${query}`:''}`,field=$('#kiosk-url');if(field.value!==url)field.value=url;
+}
+$('#rack-show').addEventListener('click',()=>{rackForced=true;renderRack();showSection('rack')});
+// The same clipboard rule as the settings link: on plain HTTP the URL is left selected for copying by hand.
+$('#kiosk-copy').addEventListener('click',async()=>{
+  const field=$('#kiosk-url'),button=$('#kiosk-copy');let copied=false;
+  try{await navigator.clipboard.writeText(field.value);copied=true}catch{}
+  field.focus();field.select();button.textContent=t(copied?'settings.rack.copied':'settings.rack.copyManually');
+  setTimeout(()=>{button.textContent=t('settings.rack.copy')},2500);
+});
+
 $('#settings-copy').addEventListener('click',async()=>{
   const query=settingsQuery(settings,themeChoice),url=location.origin+location.pathname+(query?`?${query}`:''),field=$('#settings-link'),button=$('#settings-copy');
   field.value=url;field.hidden=false;let copied=false;

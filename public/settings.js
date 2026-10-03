@@ -51,6 +51,8 @@ const FIELDS = {
   diskWarn: level(95, 50, 100),
   memWarn: level(2, 0, 64),
   colors: colorList,
+  // The rack panel's bottom band: one-pixel steps (default), a smooth glide, or still between polls.
+  motion: choice('step', ['step', 'smooth', 'still']),
 };
 export const DEFAULTS = Object.freeze(Object.fromEntries(Object.entries(FIELDS).map(([key, field]) => [key, field.fallback])));
 const same = (a, b) => (Array.isArray(a) ? Array.isArray(b) && a.join(',') === b.join(',') : a === b);
@@ -100,8 +102,10 @@ export function settingsQuery(settings, theme) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(changedSettings(settings))) params.set(key, FIELDS[key].write ? FIELDS[key].write(value) : String(value));
   if (theme === 'light' || theme === 'dark') params.set('theme', theme);
-  return params.toString();
+  return readable(params);
 }
+// Commas are allowed in a query string, so the lists stay readable ("readings=temp,power,disk,clock").
+const readable = (params) => params.toString().replace(/%2C/g, ',');
 // null when the address has no settings; otherwise the full setup it describes (invalid values read as defaults).
 export function settingsFromQuery(search) {
   const params = new URLSearchParams(search);
@@ -117,4 +121,13 @@ export function withoutSettingsQuery(search) {
   for (const key of [...Object.keys(FIELDS), 'theme']) params.delete(key);
   const rest = params.toString();
   return rest ? `?${rest}` : '';
+}
+
+// The part of the settings a rack panel reads from its own address (it has no keyboard and no storage of its own):
+// units, language, node colours and band motion. Used to build the kiosk URL shown in the settings.
+export const RACK_FIELDS = ['temp', 'mem', 'lang', 'colors', 'motion'];
+export function rackQuery(settings) {
+  const changed = changedSettings(settings), params = new URLSearchParams();
+  for (const key of RACK_FIELDS) if (key in changed) params.set(key, FIELDS[key].write ? FIELDS[key].write(changed[key]) : String(changed[key]));
+  return readable(params);
 }

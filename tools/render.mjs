@@ -247,7 +247,7 @@ const CHECK_SETTINGS = `(() => {
 
 // Korean pages: English words on screen that are neither technical terms kept in English nor data from the fixture
 // (names, hosts, hardware, models, engines, containers, time zones) are text that missed the string table.
-const TERMS = "GPU CPU NVMe NIC ACPI TSOC TS0E TS0P TS1E TS1P TGPU TUNC Xid NO MEMORY TP rank TTFT TPOT KV cache Prefill Decode Spec acceptance tok API QSFP SPARK SCOPE Spark Scope MHz GiB GB TiB Gb SSH RAM nvidia smi ms English";
+const TERMS = "GPU CPU NVMe NIC ACPI TSOC TS0E TS0P TS1E TS1P TGPU TUNC Xid NO MEMORY TP rank TTFT TPOT KV cache Prefill Decode Spec acceptance tok API QSFP SPARK SCOPE Spark Scope MHz GiB GB TiB Gb SSH RAM nvidia smi ms English rack URL";
 function dataWords(state) {
   const values = [state.usage?.timeZone, state.usage?.modelName, state.inference?.modelName, state.inference?.engine, state.serving?.engine];
   for (const node of state.topology?.nodes ?? []) values.push(node.id, node.name, node.host, node.hardware);
@@ -345,6 +345,26 @@ try {
     report(name, [...result.bays, `truncated: ${result.truncated.join(" / ") || "none"}`], [...result.issues, ...rack.errors.splice(0)]);
   }
   current = { count: 4, mode: "serving", longNames: false };
+  // The rack panel's own settings from its address: °F, GB, node colours and a still band.
+  for (const [count, mode] of [[4, "serving"], [4, "fault"], [6, "serving"]]) {
+    current = { count, mode, longNames: false };
+    await rack.go(`${base}/rack/?temp=f&mem=gb&colors=purple,ff8800&motion=still`);
+    await rack.waitFor("document.querySelectorAll('.bay').length > 0 && !document.querySelector('.bay:empty')");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const result = await rack.evaluate(CHECK_RACK);
+    const look = await rack.evaluate(`(() => ({
+      units: [...document.querySelectorAll(".temp sup")].map((el) => el.textContent).join(" ") + " | " + [...document.querySelectorAll(".meter span em")].map((el) => el.textContent).slice(0, 2).join(" "),
+      bars: [...document.querySelectorAll(".bay")].slice(0, 3).map((bay) => getComputedStyle(bay.querySelector(".bar i") ?? bay).backgroundColor),
+      band: getComputedStyle(document.querySelector("#band-svg")).transitionDuration,
+    }))()`);
+    const problems = [...result.issues, ...rack.errors.splice(0)];
+    if (!/°F/.test(look.units) || !/GB|TB/.test(look.units)) problems.push("units not applied: " + look.units);
+    if (count === 4 && mode === "serving" && (look.bars[0] !== "rgb(195, 166, 239)" || look.bars[1] !== "rgb(255, 136, 0)")) problems.push("node colours not applied: " + look.bars.join(" / "));
+    if (look.band !== "0s") problems.push("band still moves: " + look.band);
+    const name = `rack-${count}-node-${mode}-options.png`;
+    await rack.shoot(name);
+    report(name, [`units: ${look.units}`, `bars: ${look.bars.join(" / ")}`], problems);
+  }
   // A wider bar display (2560 x 480) with the width parameter.
   const wide = await openPage({ width: 2560, height: 480 });
   current = { count: 4, mode: "serving" };
@@ -454,6 +474,17 @@ try {
     await web.evaluate(`document.querySelector('[data-section="units"]').click(); document.querySelector('#preview-nodes .reading[data-slot="2"]').click()`);
     const picked = await web.evaluate("[document.querySelector('[data-section=card]').getAttribute('aria-current'), document.activeElement?.dataset.slot ?? null, Boolean(document.querySelector('.slots label.flash'))]");
     report(`web-${label}-settings-preview-pick`, [`section current: ${picked[0]}, focused slot: ${picked[1]}, highlighted: ${picked[2]}`], picked[0] === "true" && picked[1] === "2" && picked[2] ? [] : ["selecting a preview reading did not open its slot"]);
+    // Rack settings: hidden until a rack panel has been seen, shown on request, with the kiosk URL.
+    await web.evaluate(`document.querySelector('[data-section="dashboard"]').click()`);
+    const before = await web.evaluate("[document.querySelector('[data-section=rack]').hidden, document.querySelector('#rack-hint').hidden]");
+    await web.evaluate("document.querySelector('#rack-show').click()");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const rackIssues = await web.evaluate(CHECK_SETTINGS);
+    const kiosk = await web.evaluate("document.querySelector('#kiosk-url').value");
+    if (!before[0] || before[1]) rackIssues.push("rack settings shown before a rack panel was seen");
+    if (!/\/rack\/$/.test(kiosk)) rackIssues.push("kiosk URL: " + kiosk);
+    await web.shoot(`web-${label}-settings-rack.png`);
+    report(`web-${label}-settings-rack.png`, [`kiosk: ${kiosk}`], [...rackIssues, ...web.errors.splice(0)]);
     await checkHelp(web, label, "");
     await web.go(`${base}/?temp=f&mem=gb&clock=12&range=15`);
     await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && /\\d/.test(document.querySelector('#updated-at').textContent)");

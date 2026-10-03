@@ -22,13 +22,34 @@ export function f1(value) {
 // Token counts in the web page's format (1.5K, 9.55M, 1.06B); a dash when unknown.
 export const compact = (value) => compactCount(value, "—");
 
-// Free space for a bar label: 2.5 TiB, 319 GiB, 7.7 GiB. The unit is chosen after rounding (999.6 GiB reads 1.0 TiB).
-export function freeLabel(gib) {
+// Free space for a bar label: 2.5 TiB, 319 GiB, 7.7 GiB, or in decimal units with "?mem=gb" (2.7 TB, 343 GB, 8.3 GB).
+// The unit is chosen after rounding (999.6 GiB reads 1.0 TiB).
+export function freeLabel(gib, unit = "gib") {
   if (!finite(gib)) return "—";
-  if (Math.round(gib) >= 1000) return `${(gib / 1024).toFixed(1)} TiB`;
-  if (Number(gib.toFixed(1)) >= 10) return `${Math.round(gib)} GiB`;
-  return `${gib.toFixed(1)} GiB`;
+  const decimal = unit === "gb", value = decimal ? gib * 2 ** 30 / 1e9 : gib, step = decimal ? 1000 : 1024;
+  const [small, large] = decimal ? ["GB", "TB"] : ["GiB", "TiB"];
+  if (Math.round(value) >= 1000) return `${(value / step).toFixed(1)} ${large}`;
+  if (Number(value.toFixed(1)) >= 10) return `${Math.round(value)} ${small}`;
+  return `${value.toFixed(1)} ${small}`;
 }
+
+// Node colours on the always-dark rack panel: the palette's dark values (as in styles.css), or a custom #rrggbb.
+// null without a choice, so the panel keeps its single data colour.
+export const RACK_PALETTE = { blue: "#7cbbeb", orange: "#f5ac7c", green: "#75cbae", ink: "#eeeeee", purple: "#c3a6ef", gold: "#dcc06a", magenta: "#f093c8", umber: "#c4b5a7", red: "#f29791" };
+export function bayColor(colors, index) {
+  const choice = colors?.[index];
+  return RACK_PALETTE[choice] ?? (/^#[0-9a-f]{6}$/i.test(choice ?? "") ? choice : null);
+}
+// The bar and temperature-trace colours of one bay, from its node colour.
+export function bayColorStyle(hex) {
+  if (!hex) return "";
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return `--data:${hex};--trace:rgba(${r},${g},${b},.55);--trace-fill:rgba(${r},${g},${b},.10)`;
+}
+
+// A temperature in the rack's unit ("?temp=f"), as a number; null stays null.
+export const degrees = (celsius, unit = "c") => (finite(celsius) ? (unit === "f" ? celsius * 9 / 5 + 32 : celsius) : null);
+export const degreeUnit = (unit = "c") => (unit === "f" ? "°F" : "°C");
 
 // A 24-hour wall-clock time in the viewer's locale and time zone (both overridable, for tests).
 export function clockTime(value, { seconds = false, timeZone, locale } = {}) {
@@ -302,12 +323,12 @@ export function valueRange(points, floorMin, floorMax, pad = 2) {
   return [Math.min(floorMin, Math.floor(Math.min(...values) - pad)), Math.max(floorMax, Math.ceil(Math.max(...values) + pad))];
 }
 
-export function tempRangeLabel(points) {
-  const values = points.map((point) => point.value).filter(finite);
+export function tempRangeLabel(points, unit = "c") {
+  const values = points.map((point) => point.value).filter(finite).map((value) => degrees(value, unit));
   if (!values.length) return t("rack.tempRange.noData");
   const low = Math.round(Math.min(...values));
   const high = Math.round(Math.max(...values));
-  return low === high ? `${low}°C` : `${low}–${high}°C`;
+  return low === high ? `${low}${degreeUnit(unit)}` : `${low}–${high}${degreeUnit(unit)}`;
 }
 
 // Logical panel width from "?width=" (800 to 3840, default 1920). The panel is laid out 480 px tall and
