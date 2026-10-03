@@ -1,4 +1,4 @@
-import { COLORS, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue } from './view-data.js';
+import { COLORS, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, pickedServer, viewInference } from './view-data.js';
 import { READING_IDS, rackQuery, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 import { t, setLanguage, translatePage, serverText, LANGUAGE_NAMES } from './i18n.js';
 import { hide as hideHelp } from './help.js';
@@ -14,7 +14,7 @@ if(linked){settings=linked.settings;themeChoice=linked.theme;saveSettings(store,
 setLanguage(settings.lang);translatePage();document.querySelectorAll('[data-language-name]').forEach(el=>{el.textContent=LANGUAGE_NAMES[el.dataset.languageName]});
 const hour12=()=>settings.clock==='12';
 const clock=(value,options={})=>clockTime(value,{...options,hour12:hour12()});
-let latest = null, shown = null, metas = [], lastTopology = null, range = settings.range, collecting = false, monthSequence = 0, monthLoadedAt = 0, monthController = null;
+let latest = null, shown = null, metas = [], servers = [], lastTopology = null, range = settings.range, collecting = false, monthSequence = 0, monthLoadedAt = 0, monthController = null;
 // The full history is fetched every 30 s and when the range changes; polls in between add their own sample to it.
 const HISTORY_REFRESH_MS = 30_000;
 let history = [], historyAt = 0, historyRange = null;
@@ -49,7 +49,7 @@ const extraFields=()=>[[t('node.freeDisk'),'disk'],[t('node.processMemory'),'pro
 function cardHtml(meta) {
   const u=unknown();
   const index=Math.max(0,metas.findIndex(item=>item.id===meta.id));
-  return `<article class="node" data-node-id="${esc(meta.id)}" style="--node:${nodeColor(settings.colors,index)}"><header><h2 data-node="title">${esc(meta.name)}</h2><span class="badge" data-node="state">${t('node.badge.checking')}</span></header><div class="role"><span data-node="role"></span><span data-node="connection"></span></div><div class="instrument"><div class="gauge"><svg viewBox="0 0 114 72" aria-hidden="true"><path class="track" d="M10 62 A47 47 0 0 1 104 62"/><path class="needle" pathLength="100" stroke-dasharray="0 100" d="M10 62 A47 47 0 0 1 104 62"/></svg><strong data-node="gpu">${u}</strong><span>${t('node.gpuLoad')}</span></div><div class="readings">${settings.readings.map((id,slot)=>`<div class="reading" data-slot="${slot}"><small><span class="full">${t(`node.reading.${id}`)}</span><span class="short">${t(`node.readingShort.${id}`)}</span></small><b data-reading="${slot}"><span>${u}</span><em></em></b></div>`).join('')}</div></div>${settings.bars.includes('unified')?`<div class="mem" data-bar="unified"><div class="memline"><span>${t('node.unifiedMemoryUsage')}</span><span data-node="memory-used">${u}</span></div><div class="meter"><i style="width:0"></i></div></div>`:''}${settings.bars.includes('disk')?`<div class="mem" data-bar="disk"><div class="memline"><span>${t('node.rootFilesystem')}</span><span data-node="disk-used">${u}</span></div><div class="meter"><i style="width:0"></i></div></div>`:''}<details><summary data-node="kernel-summary">${t('node.kernelChecking')}</summary><div class="extra">${extraFields().map(([label,field,optional])=>`<span${optional?' data-optional hidden':''}>${label} <b data-node="${field}">${u}</b></span>`).join('')}<span class="wide" data-optional hidden>ACPI <b data-node="zones">${u}</b></span><span class="wide" data-optional hidden>${t('node.container')} <b data-node="container">${u}</b></span><span class="wide" data-node="kernel-last"></span><span class="wide" data-node="last-update"></span></div></details></article>`;
+  return `<article class="node" data-node-id="${esc(meta.id)}" style="--node:${nodeColor(settings.colors,index)}"><header><h2 data-node="title">${esc(meta.name)}</h2><span class="badge" data-node="state">${t('node.badge.checking')}</span></header><div class="role"><span class="server-tag" data-server-tag hidden></span><span data-node="role"></span><span data-node="connection"></span></div><div class="instrument"><div class="gauge"><svg viewBox="0 0 114 72" aria-hidden="true"><path class="track" d="M10 62 A47 47 0 0 1 104 62"/><path class="needle" pathLength="100" stroke-dasharray="0 100" d="M10 62 A47 47 0 0 1 104 62"/></svg><strong data-node="gpu">${u}</strong><span>${t('node.gpuLoad')}</span></div><div class="readings">${settings.readings.map((id,slot)=>`<div class="reading" data-slot="${slot}"><small><span class="full">${t(`node.reading.${id}`)}</span><span class="short">${t(`node.readingShort.${id}`)}</span></small><b data-reading="${slot}"><span>${u}</span><em></em></b></div>`).join('')}</div></div>${settings.bars.includes('unified')?`<div class="mem" data-bar="unified"><div class="memline"><span>${t('node.unifiedMemoryUsage')}</span><span data-node="memory-used">${u}</span></div><div class="meter"><i style="width:0"></i></div></div>`:''}${settings.bars.includes('disk')?`<div class="mem" data-bar="disk"><div class="memline"><span>${t('node.rootFilesystem')}</span><span data-node="disk-used">${u}</span></div><div class="meter"><i style="width:0"></i></div></div>`:''}<details><summary data-node="kernel-summary">${t('node.kernelChecking')}</summary><div class="extra">${extraFields().map(([label,field,optional])=>`<span${optional?' data-optional hidden':''}>${label} <b data-node="${field}">${u}</b></span>`).join('')}<span class="wide" data-optional hidden>ACPI <b data-node="zones">${u}</b></span><span class="wide" data-optional hidden>${t('node.container')} <b data-node="container">${u}</b></span><span class="wide" data-node="kernel-last"></span><span class="wide" data-node="last-update"></span></div></details></article>`;
 }
 function buildNodes() { $('#nodes').innerHTML=metas.map(cardHtml).join(''); }
 function renderNode(meta,node,root=$('#nodes')) {
@@ -58,6 +58,8 @@ function renderNode(meta,node,root=$('#nodes')) {
   const pending=meta.collect===false||node?.collected===false,ok=Boolean(node?.ok);el.classList.toggle('is-unknown',!ok);
   const target=meta.local?t('node.target.local'):meta.host??t('node.target.noHost');
   set('title',meta.name);set('role',[roleName(meta.role),meta.hardware].filter(Boolean).join(' | '));
+  // With several model servers, the server this node serves in, in that server's colour.
+  const tag=el.querySelector('[data-server-tag]'),server=servers.length>1?serverOfNode(servers,meta.id):null;tag.hidden=!server;if(server){tag.textContent=serverName(server);tag.style.setProperty('--server',serverColor(server))}
   const state=pending?'notCollected':!ok?'noResponse':node.gpu?.available===false?'noGpuData':node.inferenceProcessReady?'serving':'idle';
   set('state',t(`node.badge.${state}`));el.querySelector('.badge').dataset.level=BADGE_LEVELS[state]??'idle';
   set('connection',pending?t('node.connection.notCollected',{target}):ok?`${target} | ${fixed(node.latencyMs,0)} ms`:t('node.connection.statusUnknown',{target}));
@@ -99,10 +101,24 @@ function renderLinks(state) {
   const paths=links.reduce((sum,link)=>sum+(link.planes??['a','b']).length,0),count=$('#fabric-count');
   count.setAttribute('x',layout.caption.x);count.setAttribute('y',layout.caption.y);count.textContent=`${t('fabric.cables',{count:links.length})} | ${t('fabric.paths',{count:paths})}`;
 }
+// The output chart's points: the totals over the servers, or the picked server's own in "one at a time".
+function chartSeries(state) {
+  const history=state.history||[];if(!severalServers(state)||settings.servers!=='one')return history;
+  const id=pickedServer(modelServers(state),settings.server).id;
+  return history.map(point=>({at:point.at,outputTokensPerSecond:null,runningRequests:null,queue:null,...point.servers?.[id]}));
+}
+// The mean output over the samples with requests running, as the server computes it for the totals.
+function activeAverage(points){const rates=points.filter(point=>point.runningRequests>0&&finite(point.outputTokensPerSecond)).map(point=>point.outputTokensPerSecond);return rates.length?rates.reduce((sum,rate)=>sum+rate,0)/rates.length:null}
 function renderCharts(state) {
-  const history=state.history||[],end=Date.now(),start=end-range*60_000;
-  const rates=history.map(p=>p.outputTokensPerSecond).filter(finite),avg=state.historyStats?.activeOutputTokensPerSecond;
+  const all=state.history||[],history=chartSeries(state),end=Date.now(),start=end-range*60_000;
+  const several=severalServers(state),each=several&&settings.servers!=='one';
+  const avg=several&&!each?activeAverage(history.filter(point=>point.at>=start)):state.historyStats?.activeOutputTokensPerSecond;text('#avg',fixed(avg));
+  const rates=history.map(p=>p.outputTokensPerSecond).filter(finite);
   const max=Math.max(1,...rates,finite(avg)?avg:0)*1.15;
+  // "All at once": a line per server in its colour, with the total drawn neutral on top.
+  $('#server-lines').innerHTML=each?modelServers(state).map(server=>`<path d="${chartPath(all.map(point=>({at:point.at,value:point.servers?.[server.id]?.outputTokensPerSecond??null})),'value',{start,end,min:0,max,top:4,bottom:22})}" fill="none" stroke="${serverColor(server)}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`).join(''):'';
+  $('#output-line').setAttribute('stroke',each?'var(--ink)':'var(--blue)');$('.legend div:first-child i').style.background=each?'var(--ink)':'';
+  text('#legend-output',t(each?'chart.legend.total':'chart.legend.output'));
   const d=chartPath(history,'outputTokensPerSecond',{start,end,min:0,max,top:4,bottom:22});$('#output-line').setAttribute('d',d);$('#output-fill').setAttribute('d','');
   $('#avg-line').setAttribute('d',finite(avg)?chartPath([{at:start,value:avg},{at:end,value:avg}],'value',{start,end,min:0,max,top:4,bottom:22}):'');
   const queueMax=Math.max(1,...history.map(p=>p.queue).filter(finite));$('#queue-line').setAttribute('d',chartPath(history,'queue',{start,end,min:0,max:queueMax,top:120,bottom:4}));
@@ -113,8 +129,8 @@ function renderCharts(state) {
     // Values are picked per node id from each sample, so an id never collides with the sample's own fields (such as "at").
     const field=kind==='temp'?'temperature':'memoryAvailableBytes',scale=kind==='mem'?2**30:1,ids=metas.map(meta=>meta.id);
     const pick=id=>point=>{const v=point.nodes?.[id]?.[field];return finite(v)?v/scale:null};
-    const values=history.flatMap(point=>ids.map(id=>pick(id)(point))).filter(finite),low=kind==='temp'&&values.length?Math.min(...values)-2:0,high=values.length?Math.max(...values)+(kind==='temp'?2:5):1;
-    $('#'+kind+'-chart').innerHTML=ids.map((id,index)=>`<path d="${chartPath(history,pick(id),{start,end,width:320,height:80,min:low,max:high})}" fill="none" stroke="${nodeColor(settings.colors,index)}" stroke-width="2" vector-effect="non-scaling-stroke"/>`).join('');
+    const values=all.flatMap(point=>ids.map(id=>pick(id)(point))).filter(finite),low=kind==='temp'&&values.length?Math.min(...values)-2:0,high=values.length?Math.max(...values)+(kind==='temp'?2:5):1;
+    $('#'+kind+'-chart').innerHTML=ids.map((id,index)=>`<path d="${chartPath(all,pick(id),{start,end,width:320,height:80,min:low,max:high})}" fill="none" stroke="${nodeColor(settings.colors,index)}" stroke-width="2" vector-effect="non-scaling-stroke"/>`).join('');
     renderLegend(kind,state.nodes);
   }
 }
@@ -134,31 +150,65 @@ function renderState(state) {
 function drawState(state) {
   latest=state;shown=state;lastTopology=state.topology??lastTopology;
   if(state.usage?.timeZone&&state.usage.timeZone!==ledgerTimeZone){ledgerTimeZone=state.usage.timeZone;if(!monthPicked&&selectedMonth!==ledgerToday().slice(0,7)){selectedMonth=ledgerToday().slice(0,7);monthLoadedAt=0;rebuildMonths();if(!$('#tokens').hidden)void refreshMonth(true)}}
-  syncNodes(nodeOrder(state));$('#shell').classList.remove('stale');
-  const v=state.inference,stopped=state.inferenceState==='stopped',nodes=state.nodes||{};
+  servers=modelServers(state);syncNodes(nodeOrder(state));$('#shell').classList.remove('stale');
+  const v=state.inference,stopped=state.inferenceState==='stopped',nodes=state.nodes||{},several=servers.length>1,focus=viewInference(state,settings);
   const online=metas.filter(m=>nodes[m.id]?.ok).length,serving=metas.filter(m=>nodes[m.id]?.ok&&nodes[m.id]?.inferenceProcessReady).length,count=metas.length;
   $('.status').className='status '+(state.status==='healthy'?'':stopped?'stopped':'error');text('#status-title',serverText(state.messageKey,state.messageParams,state.message)||t('statusbar.checkingStatus'));
   const watts=metas.map(m=>nodes[m.id]).filter(n=>n?.ok&&finite(n.gpu?.powerWatts)).map(n=>n.gpu.powerWatts);
-  $('#status-desc').innerHTML=`<span>${t('statusbar.nodes',{online,count})}</span><span>${t('statusbar.processes',{serving,count})}</span><span>${t(v?.ok?'statusbar.apiUp':'statusbar.apiNoResponse')}</span>${watts.length?`<span>${t('statusbar.gpuPower',{watts:fixed(watts.reduce((sum,w)=>sum+w,0),1)})}${watts.length<count?` ${t('statusbar.gpuPowerPartial',{reporting:watts.length,count})}`:''}</span>`:''}`;
-  text('#updated-at',clock(state.updatedAt));text('#model-title',v?.modelName||t(stopped?'header.inferenceStopped':'header.modelUnknown'));text('#model-meta',serving?t('header.engineRunning',{engine:state.serving?.engine??t('header.engineFallback'),count:serving}):t('header.liveMonitor',{count}));
-  document.title=v?.modelName?`${v.modelName} | Spark Scope`:'Spark Scope';
-  const empty=stopped?t('common.stopped'):unknown(),value=(number,formatter=fixed)=>v?.ok?formatter(number):empty;
-  text('#speed',value(v?.outputTokensPerSecond));text('#legend-speed',value(v?.outputTokensPerSecond));text('#avg',fixed(state.historyStats?.activeOutputTokensPerSecond));text('#queue',value(v?.waitingRequests,n=>fixed(n,0)));
-  document.querySelectorAll('[data-field]').forEach(el=>{const key=el.dataset.field;let result=empty;if(v?.ok){if(key==='requests')result=`${fixed(v.runningRequests,0)} / ${fixed(v.waitingRequests,0)}`;else if(key.endsWith('RecentSeconds'))result=recentLatency(v,key);else if(key.endsWith('Seconds'))result=duration(v[key]);else if(key.endsWith('Percent'))result=fixed(v[key],1,'%');else result=tokenRate(v[key])}el.textContent=result});
+  $('#status-desc').innerHTML=`<span>${t('statusbar.nodes',{online,count})}</span><span>${t('statusbar.processes',{serving,count})}</span><span>${several?t('statusbar.apis',{answering:servers.filter(server=>server.inference?.ok).length,count:servers.length}):t(v?.ok?'statusbar.apiUp':'statusbar.apiNoResponse')}</span>${watts.length?`<span>${t('statusbar.gpuPower',{watts:fixed(watts.reduce((sum,w)=>sum+w,0),1)})}${watts.length<count?` ${t('statusbar.gpuPowerPartial',{reporting:watts.length,count})}`:''}</span>`:''}`;
+  text('#updated-at',clock(state.updatedAt));
+  if(several){const names=servers.map(serverName).join(' | ');text('#model-title',names);text('#model-meta',t('header.servers',{count:servers.length,nodes:count}));document.title=`${names} | Spark Scope`}
+  else{text('#model-title',v?.modelName||t(stopped?'header.inferenceStopped':'header.modelUnknown'));text('#model-meta',serving?t('header.engineRunning',{engine:state.serving?.engine??t('header.engineFallback'),count:serving}):t('header.liveMonitor',{count}));document.title=v?.modelName?`${v.modelName} | Spark Scope`:'Spark Scope'}
+  // The big figure and the legend follow the total over the servers, or the picked one in "one at a time".
+  const focusStopped=several&&settings.servers==='one'?pickedServer(servers,settings.server).inferenceState==='stopped':stopped;
+  const empty=focusStopped?t('common.stopped'):unknown(),value=(number,formatter=fixed)=>focus?.ok?formatter(number):empty;
+  text('#speed',value(focus?.outputTokensPerSecond));text('#legend-speed',value(focus?.outputTokensPerSecond));text('#queue',value(focus?.waitingRequests,n=>fixed(n,0)));
+  renderServers(state);renderEngines(state);$('#servers-choice').hidden=!several;
   metas.forEach(meta=>renderNode(meta,nodes[meta.id]));renderLinks(state);renderCharts(state);renderToday(state.usage);
   if(dialog.open)renderPreview();
 }
 // p95 over the requests that finished in the last 5 minutes; with none it says so instead of a value. The value
 // since the engine started is added to the explanation behind the row's "?" button.
-function recentLatency(v,key) {
-  const el=document.querySelector(`[data-field="${key}"]`),overall=v[key.replace('Recent','')];
+function recentLatency(el,v,key) {
+  const overall=v[key.replace('Recent','')];
   const help=el.previousElementSibling?.querySelector('.help');if(help)help.dataset.helpNote=finite(overall)?t('engine.sinceStart',{value:duration(overall)}):'';
   return finite(v[key])?duration(v[key]):v.latencyWindowSeconds>0?t('engine.noRequests'):unknown();
 }
+// ---- model servers ----
+const serverColor=server=>nodeColor(settings.colors,serverColorIndex(server,metas));
+// The servers whose engine panel shows: every one in "all at once", the picked one in "one at a time".
+const shownServers=state=>{const list=modelServers(state);return list.length>1&&settings.servers==='one'?[pickedServer(list,settings.server)]:list};
+// One engine panel per shown server (copies of the first), each named after its server when there are several.
+function renderEngines(state) {
+  const list=shownServers(state),box=$('#engines'),template=box.firstElementChild;
+  while(box.children.length<list.length)box.append(template.cloneNode(true));
+  while(box.children.length>list.length)box.lastElementChild.remove();
+  [...box.children].forEach((block,index)=>{
+    const server=list[index],caption=block.querySelector('.engine-for');block.dataset.server=server.id;caption.hidden=!severalServers(state);
+    if(!caption.hidden){caption.querySelector('i').style.background=serverColor(server);caption.querySelector('span').textContent=[serverName(server),server.serving?.engine].filter(Boolean).join(' | ')}
+    fillEngine(block,server.inference,server.inferenceState==='stopped');
+  });
+}
+function fillEngine(block,v,stopped) {
+  const empty=stopped?t('common.stopped'):unknown();
+  block.querySelectorAll('[data-field]').forEach(el=>{const key=el.dataset.field;let result=empty;if(v?.ok){if(key==='requests')result=`${fixed(v.runningRequests,0)} / ${fixed(v.waitingRequests,0)}`;else if(key.endsWith('RecentSeconds'))result=recentLatency(el,v,key);else if(key.endsWith('Seconds'))result=duration(v[key]);else if(key.endsWith('Percent'))result=fixed(v[key],1,'%');else result=tokenRate(v[key])}el.textContent=result});
+}
+// One row per model server: its model, nodes, state, output and queue. In "one at a time" a row picks the server
+// that the chart and the engine panel follow.
+function renderServers(state) {
+  const box=$('#servers'),list=modelServers(state);box.hidden=list.length<2;if(list.length<2)return;
+  const pick=settings.servers==='one'?pickedServer(list,settings.server).id:null;
+  setHtml('#servers',list.map(server=>{
+    const v=server.inference,key=!v?'checking':v.ok?'serving':server.inferenceState==='stopped'?'idle':'down';
+    const cells=`<i style="background:${serverColor(server)}"></i><b>${esc(serverName(server))}</b><span>${t('servers.nodes',{count:server.nodes.length})}</span><span class="server-state" data-state="${key}">${t(`servers.state.${key}`)}</span><span class="num" data-value>${v?.ok?`${fixed(v.outputTokensPerSecond)} tok/s`:unknown()}</span><span class="num" data-value>${t('servers.queue',{queue:v?.ok?fixed(v.waitingRequests,0):unknown()})}</span>`;
+    return pick?`<button type="button" class="server-row" data-server="${esc(server.id)}" aria-pressed="${server.id===pick}">${cells}</button>`:`<div class="server-row">${cells}</div>`;
+  }).join(''));
+}
+$('#servers').addEventListener('click',event=>{const row=event.target.closest('button[data-server]');if(!row||row.dataset.server===settings.server)return;const before=settings;settings=parseSettings({...settings,server:row.dataset.server});applySettings(changes(before))});
 function failedState() {
   latest=null;
   $('#shell').classList.add('stale');$('.status').className='status error';text('#status-title',t('statusbar.serverDown'));text('#status-desc',t('statusbar.serverDownDetail'));
-  metas.forEach(meta=>renderNode(meta,null));renderLinks(null);renderToday(null);renderLegend('temp',null);renderLegend('mem',null);for(const id of ['speed','legend-speed','avg','queue'])text('#'+id,unknown());document.querySelectorAll('[data-field]').forEach(el=>el.textContent=unknown());$('#plot-note').hidden=false;$('#plot-note').textContent=t('chart.note.reconnecting');
+  metas.forEach(meta=>renderNode(meta,null));renderLinks(null);renderToday(null);renderLegend('temp',null);renderLegend('mem',null);for(const id of ['speed','legend-speed','avg','queue'])text('#'+id,unknown());document.querySelectorAll('[data-field],#servers [data-value]').forEach(el=>el.textContent=unknown());$('#plot-note').hidden=false;$('#plot-note').textContent=t('chart.note.reconnecting');
 }
 async function refresh() {
   if(collecting)return;collecting=true;const requestedRange=range,full=historyRange!==requestedRange||Date.now()-historyAt>=HISTORY_REFRESH_MS;
@@ -282,7 +332,7 @@ function syncForm(){
 function showLayout(){
   document.documentElement.dataset.labels=settings.labels;
   if(settings.design==='default')delete document.documentElement.dataset.design;else document.documentElement.dataset.design=settings.design;
-  $('.engine').hidden=settings.hide.includes('engine');
+  $('#engines').hidden=settings.hide.includes('engine');
   const trends=settings.hide.includes('trends'),ledger=settings.hide.includes('ledger');$('.trends').hidden=trends;$('#today-ledger').hidden=ledger;$('.lower').hidden=trends&&ledger;$('.lower').classList.toggle('single',trends!==ledger);
 }
 // One node's card drawn with the current settings and live data, the update time on the chosen clock, and About.

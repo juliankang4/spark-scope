@@ -38,6 +38,8 @@ Each bay header shows its most severe condition:
 
 The band shows the cluster title (Serving, Ready, Inference stopped, Inference down, Nodes unreachable), the model with its engine, node and link counts and up to two notes.
 
+With [several model servers](topology.md#model-servers) the band's output is the total over the servers and the model line becomes a chip per server: a lamp for its state, its name and its output, or idle or not answering. Each bay names its server, and a bay only misses an inference process while its own server's API serves. `?server=<id>` makes the band follow one server as if it were the only one; the bays keep every node.
+
 ## Address options
 
 The kiosk has no keyboard and no settings of its own, so the panel reads its options from its address. The settings dialog on the web page builds this address for you (Rack panel section, Kiosk URL). Options combine, as in `/rack/?width=819&lang=ko&temp=f`.

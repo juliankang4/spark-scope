@@ -371,3 +371,25 @@ test("in Korean the bays and the band use the Korean table, and the server messa
   assert.equal(clusterView(state).lines[0], "example-model | SGLang | 4 nodes");
   assert.equal(clusterView({ ...state, serving: { engine: "SGLang", parallel: 1, label: "SGLang" } }).lines[0], "example-model | SGLang");
 });
+
+test('with several model servers the band adds up their output and shows a chip each; ?server= follows one', async () => {
+  const { rackFocus, serverChips } = await import('../public/rack/rack-view.js');
+  const servers = [
+    { id: 'a', name: null, nodes: ['1', '2'], inference: { ok: true, modelName: 'big-model', outputTokensPerSecond: 40.04, runningRequests: 2, waitingRequests: 0 }, serving: { engine: 'vLLM', parallel: 2, label: 'vLLM | 2 nodes' }, inferenceState: 'serving' },
+    { id: 'b', name: 'Small', nodes: ['3', '4'], inference: { ok: false, error: 'fetch failed' }, serving: { engine: null }, inferenceState: 'stopped' },
+  ];
+  const state = { ...ringState(), status: 'healthy', inferenceState: 'serving', servers, inference: servers[0].inference, nodes: {}, usage: { today: { total: 10, requests: 1 } } };
+  const all = rackFocus(state);
+  assert.equal(all.inference.outputTokensPerSecond, 40.04);
+  const view = clusterView(all, { clock });
+  assert.deepEqual(view.chips, [{ name: 'big-model', level: 'good', text: '40.0 tok/s' }, { name: 'Small', level: 'idle', text: 'idle' }]);
+  assert.equal(view.lines[0], '');
+  assert.deepEqual(serverChips([{ id: 'c', inference: { ok: false } }]), [{ name: 'c', level: 'crit', text: 'not answering' }]);
+  // ?server=b: the band follows that server alone, with its own model line and no chips.
+  const one = rackFocus(state, 'a');
+  assert.equal(one.focusServer, 'a');
+  assert.equal(clusterView(one, { clock }).chips, null);
+  // One server: the state is used as it is.
+  const single = { ...state, servers: [servers[0]] };
+  assert.equal(rackFocus(single), single);
+});

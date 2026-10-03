@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeTopology, publicTopology, nodeInterfaces } from "../lib/topology.mjs";
-import { buildRingLinks, clusterStatus, servingSummary } from "../lib/cluster.mjs";
+import { buildRingLinks, clusterStatus, serverState, servingSummary } from "../lib/cluster.mjs";
 import { publicState } from "../lib/public-state.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -27,11 +27,19 @@ function rawTopology(count) {
 
 // longNames: the longest ids (16 characters) and long display names, to check truncation in every view.
 const longId = (id) => `gb10-rack-node-${id}`.slice(0, 16);
-function topologyFor(count, { longNames = false } = {}) {
+// servers: split the nodes into that many model servers, the first ones larger (4 nodes as 2 + 2, 3 as 2 + 1).
+function topologyFor(count, { longNames = false, servers = 0 } = {}) {
   const raw = rawTopology(count);
   if (longNames) {
     for (const node of raw.nodes) Object.assign(node, { id: longId(node.id), name: `spark-cluster-node-${node.id}-tokyo` });
     for (const link of raw.links) for (const end of link.ends) end.node = longId(end.node);
+  }
+  if (servers > 1 && count >= servers) {
+    const ids = raw.nodes.map((node) => node.id);
+    raw.servers = Array.from({ length: servers }, (_, k) => {
+      const from = Math.round((k * count) / servers), to = Math.round(((k + 1) * count) / servers);
+      return { id: String.fromCharCode(97 + k), api: `http://spark-${k + 1}:8000`, nodes: ids.slice(from, to) };
+    });
   }
   return normalizeTopology(raw);
 }
@@ -79,18 +87,36 @@ function nodeSample(topology, meta, index, { nowMs, ok, proc, darkNics, hot }) {
   };
 }
 
+// One server's chart fields at a moment; later servers run a smaller, slower model.
+function serverHistory(t, wave, serving, k) {
+  const busy = serving && t > -48 + k * 9;
+  const scale = 1 / (1 + k * 1.4);
+  return {
+    outputTokensPerSecond: serving ? (busy ? (52 + 14 * (k ? -wave : wave)) * scale : 0) : null,
+    promptTokensPerSecond: serving ? 2800 * scale : null,
+    runningRequests: serving ? (busy ? 2 : 0) : null,
+    queue: serving ? (wave > 0.6 && !k ? 1 : 0) : null,
+  };
+}
+
+// serving: per model server, whether its API serves (one value for a single server).
 function history(topology, nowMs, { serving, unreachable }) {
   const points = [];
+  const servers = topology.servers ?? [{ id: "default" }];
+  const servingOf = Array.isArray(serving) ? serving : [serving];
   for (let at = nowMs - 60 * 60_000; at <= nowMs; at += 10_000) {
     const t = (at - nowMs) / 60_000;
     const wave = Math.sin(t / 3) * 0.5 + Math.sin(t / 7.3) * 0.5;
-    const busy = serving && t > -48;
+    const busy = servingOf[0] && t > -48;
+    const each = servers.map((server, k) => serverHistory(t, wave, servingOf[k], k));
+    const sum = (field) => { const values = each.map((fields) => fields[field]).filter((value) => value !== null); return values.length ? values.reduce((a, b) => a + b, 0) : null; };
     points.push({
       at,
-      outputTokensPerSecond: serving ? (busy ? 52 + 14 * wave : 0) : null,
-      promptTokensPerSecond: serving ? 2800 : null,
-      runningRequests: serving ? (busy ? 2 : 0) : null,
-      queue: serving ? (wave > 0.6 ? 1 : 0) : null,
+      outputTokensPerSecond: sum("outputTokensPerSecond"),
+      promptTokensPerSecond: sum("promptTokensPerSecond"),
+      runningRequests: sum("runningRequests"),
+      queue: sum("queue"),
+      ...(topology.servers ? { servers: Object.fromEntries(servers.map((server, k) => [server.id, each[k]])) } : {}),
       nodes: Object.fromEntries(topology.nodes.map((meta, index) => [meta.id, unreachable.has(meta.id) && t > -6
         ? { temperature: null, memoryAvailableBytes: null }
         : { temperature: (busy ? 56 : 42) + index * 2 + 3 * wave, memoryAvailableBytes: (busy ? 10 : 100) * GIB + index * GIB }])),
@@ -164,8 +190,9 @@ export function usageMonth(month, nowMs, { start } = {}) {
   return { persistent: true, timeZone: "UTC", month, day: today, days, totals, models: modelRows, firstDay, firstMonth: firstDay.slice(0, 7), lastMonth: today.slice(0, 7), updatedAt: new Date(nowMs).toISOString(), error: null };
 }
 
-export function fixtureState(count, mode, nowMs = Date.now(), { longNames = false } = {}) {
-  const topology = topologyFor(count, { longNames });
+// servers: split the nodes into that many model servers; offGroup: the last one is switched off (no process, no API).
+export function fixtureState(count, mode, nowMs = Date.now(), { longNames = false, servers = 0, offGroup = false } = {}) {
+  const topology = topologyFor(count, { longNames, servers });
   const fault = mode === "fault" ? FAULTS[count] : {};
   const nodeId = (id) => (longNames ? longId(id) : id);
   const unreachable = new Set((fault.unreachable ?? []).map(nodeId));
@@ -174,8 +201,10 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
     for (const end of topology.links.find((link) => link.id === id).ends) for (const plane of ["a", "b"]) if (end[plane]) darkNics.add(`${end.node}:${end[plane]}`);
   }
   const proc = mode !== "idle";
+  const groups = topology.servers ?? [{ id: "default", name: null, nodes: topology.nodes.map((meta) => meta.id), implicit: true }];
+  const offIds = new Set(offGroup && topology.servers ? groups.at(-1).nodes : []);
   const nodes = Object.fromEntries(topology.nodes.map((meta, index) => [meta.id,
-    nodeSample(topology, meta, index, { nowMs, ok: !unreachable.has(meta.id), proc, darkNics, hot: (fault.hot ?? []).map(nodeId).includes(meta.id) })]));
+    nodeSample(topology, meta, index, { nowMs, ok: !unreachable.has(meta.id), proc: proc && !offIds.has(meta.id), darkNics, hot: (fault.hot ?? []).map(nodeId).includes(meta.id) })]));
   const apiUp = proc && !fault.apiDown;
   const inference = apiUp
     ? {
@@ -187,18 +216,33 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
       prefillUpdatedAt: new Date(Math.floor(nowMs / 12_000) * 12_000).toISOString(),
     }
     : { ok: false, updatedAt: new Date(nowMs).toISOString(), error: "fetch failed" };
+  // Later servers run a smaller model at lower rates; in "fault" the second server's API does not answer either.
+  const down = { ok: false, updatedAt: new Date(nowMs).toISOString(), error: "fetch failed" };
+  const readings = groups.map((group, k) => {
+    if (!k) return inference;
+    if (!proc || (offGroup && k === groups.length - 1) || (mode === "fault" && k === 1)) return down;
+    const scale = 1 / (1 + k * 1.4);
+    return { ...inference, ok: true, modelName: k === 1 ? "example-coder-32b" : `example-model-${k}`, outputTokensPerSecond: 61.3 * scale, promptTokensPerSecond: 2950 * scale, promptComputeTokensPerSecond: 2104 * scale, promptCacheTokensPerSecond: 846 * scale, kvCachePercent: 31.2, prefixCacheHitPercent: 63.4, runningRequests: 1, waitingRequests: 1, error: null };
+  });
+  const serverList = groups.map((group, k) => ({ id: group.id, name: group.name ?? null, nodes: group.nodes, implicit: Boolean(group.implicit), inference: readings[k] }));
+  for (const server of serverList) {
+    const members = new Set(server.nodes);
+    server.serving = servingSummary(nodes, server.inference, { nodes: topology.nodes.filter((meta) => members.has(meta.id)) });
+    server.inferenceState = serverState(server, nodes, topology).inferenceState;
+  }
   const ringLinks = buildRingLinks(nodes, topology);
   const month = usageMonth(new Date(nowMs).toISOString().slice(0, 7), nowMs);
   const today = month.days.find((day) => day.day === month.day) ?? { input: 0, compute: 0, cache: 0, output: 0, requests: 0, total: 0 };
   // Shaped by the server's own publicState(), so the pages see exactly what /api/state would send.
   return publicState({
-    ...clusterStatus(nodes, inference, ringLinks, topology),
+    ...clusterStatus(nodes, serverList, ringLinks, topology),
     inference,
+    servers: serverList,
     topology: publicTopology(topology),
     nodes,
     ringLinks,
-    serving: servingSummary(nodes, inference, topology),
-    history: history(topology, nowMs, { serving: apiUp, unreachable }),
+    serving: serverList[0].serving,
+    history: history(topology, nowMs, { serving: readings.map((reading) => reading.ok), unreachable }),
     historyStats: { activeOutputTokensPerSecond: apiUp ? 54.8 : null, activeSamples: apiUp ? 280 : 0, windowMinutes: 60 },
     usage: { persistent: true, timeZone: "UTC", day: month.day, modelName: "example-model", today, error: null },
     startedAt: new Date(nowMs - 3 * 3600_000).toISOString(),

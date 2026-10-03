@@ -394,3 +394,41 @@ test('the kiosk URL carries only what a rack panel reads, with readable lists', 
   assert.deepEqual(parseSettings({ motion: 'bounce' }).motion, 'step');
   assert.deepEqual(settingsFromQuery('?motion=smooth').settings.motion, 'smooth');
 });
+
+test('with several model servers the pages add up their output, or follow the picked one', async () => {
+  const { modelServers, severalServers, serverName, serverOfNode, pickedServer, combinedInference, viewInference, livePoint } = await import('../public/view-data.js');
+  const at = '2026-10-03T01:00:00.000Z', later = '2026-10-03T01:00:01.000Z';
+  const a = { id: 'a', name: null, nodes: ['1', '2'], inference: { ok: true, engine: 'vLLM', modelName: 'big-model', outputTokensPerSecond: 40, promptTokensPerSecond: 1000, runningRequests: 2, waitingRequests: 1, kvCachePercent: 20, ttftP95RecentSeconds: 0.4, prefixCacheHitPercent: 50, updatedAt: at }, inferenceState: 'serving' };
+  const b = { id: 'b', name: 'Small', nodes: ['3'], inference: { ok: true, engine: 'SGLang', modelName: 'small-model', outputTokensPerSecond: 20, promptTokensPerSecond: 500, runningRequests: 1, waitingRequests: 0, kvCachePercent: 35, ttftP95RecentSeconds: 0.9, updatedAt: later }, inferenceState: 'serving' };
+  const state = { servers: [a, b], inference: a.inference, nodes: { 1: { ok: true, gpu: { temperature: 50 } } }, topology: { nodes: [{ id: '1' }, { id: '2' }, { id: '3' }] } };
+  assert.equal(severalServers(state), true);
+  assert.deepEqual([serverName(a), serverName(b), serverName({ id: 'c', inference: { ok: false } })], ['big-model', 'Small', 'c']);
+  assert.equal(serverOfNode(state.servers, '3').id, 'b');
+  assert.equal(serverOfNode(state.servers, '9'), null);
+  assert.equal(pickedServer(state.servers, 'b').id, 'b');
+  assert.equal(pickedServer(state.servers, 'gone').id, 'a');
+  const all = combinedInference(state.servers);
+  assert.deepEqual([all.ok, all.modelName, all.engine, all.outputTokensPerSecond, all.runningRequests, all.waitingRequests, all.kvCachePercent, all.ttftP95RecentSeconds, all.prefixCacheHitPercent, all.updatedAt],
+    [true, 'big-model | Small', 'vLLM + SGLang', 60, 3, 1, 35, 0.9, null, later]);
+  // A server that does not answer adds nothing; with none answering the reading is not ok.
+  assert.equal(combinedInference([a, { ...b, inference: { ok: false, error: 'fetch failed' } }]).outputTokensPerSecond, 40);
+  assert.equal(combinedInference([{ ...a, inference: { ok: false, error: 'fetch failed' } }]).ok, false);
+  assert.equal(viewInference(state, { servers: 'all' }).outputTokensPerSecond, 60);
+  assert.equal(viewInference(state, { servers: 'one', server: 'b' }).outputTokensPerSecond, 20);
+  // One server, or a payload from an older server without servers[]: the state's own reading.
+  assert.equal(viewInference({ inference: a.inference }, { servers: 'one', server: 'b' }), a.inference);
+  assert.deepEqual(modelServers({ inference: a.inference, topology: { nodes: [{ id: '1' }] } }).map((server) => [server.id, server.nodes, server.implicit]), [['default', ['1'], true]]);
+  // The live chart sample: totals, each server's own, and the newest server time.
+  const point = livePoint(state);
+  assert.deepEqual([point.at, point.outputTokensPerSecond, point.queue, point.servers.b.outputTokensPerSecond], [Date.parse(later), 60, 1, 20]);
+  assert.equal(livePoint({ inference: a.inference, nodes: {} }).servers, undefined);
+});
+
+test('the model servers view is a setting that a settings link carries', () => {
+  assert.equal(DEFAULTS.servers, 'all');
+  assert.deepEqual(parseSettings({ servers: 'one', server: 'b' }), { ...DEFAULTS, servers: 'one', server: 'b' });
+  assert.equal(parseSettings({ servers: 'some', server: 'not an id!' }).servers, 'all');
+  assert.equal(parseSettings({ server: 'not an id!' }).server, '');
+  assert.equal(settingsQuery({ ...DEFAULTS, servers: 'one', server: 'b' }, null), 'servers=one&server=b');
+  assert.deepEqual(settingsFromQuery('?servers=one&server=b').settings, { ...DEFAULTS, servers: 'one', server: 'b' });
+});

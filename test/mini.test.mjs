@@ -60,3 +60,17 @@ test('runs export as CSV with one row each and quoted cells where needed', () =>
   assert.equal(lines[1], '2,2026-10-03T09:00:00.000Z,74,96.3,111,6120,1.412,74,"node, ""a""",1.619,7100,52000');
   assert.equal(lines[2], '1,2026-10-03T08:00:00.000Z,61,,0,0,,,,0,0,0');
 });
+
+test('with several model servers the mini window follows them all together, or the picked one with its own history', async () => {
+  const { focusState } = await import('../public/mini/mini-view.js');
+  const a = { id: 'a', nodes: ['a'], inference: { ok: true, modelName: 'big-model', outputTokensPerSecond: 40 }, inferenceState: 'serving' };
+  const b = { id: 'b', nodes: ['b'], inference: { ok: true, modelName: 'small-model', outputTokensPerSecond: 15 }, inferenceState: 'serving' };
+  const history = [{ at: 1, outputTokensPerSecond: 55, servers: { a: { outputTokensPerSecond: 40 }, b: { outputTokensPerSecond: 15 } }, nodes: {} }];
+  const several = { ...state(1000), servers: [a, b], inference: a.inference, history };
+  assert.equal(focusState(several, { servers: 'all' }).inference.outputTokensPerSecond, 55);
+  assert.equal(focusState(several, { servers: 'all' }).history[0].outputTokensPerSecond, 55);
+  const picked = focusState(several, { servers: 'one', server: 'b' });
+  assert.deepEqual([picked.inference.modelName, picked.history[0].outputTokensPerSecond], ['small-model', 15]);
+  const single = state(1000);
+  assert.equal(focusState(single, { servers: 'one', server: 'b' }), single);
+});

@@ -55,6 +55,9 @@ const FIELDS = {
   design: choice('default', ['default', 'console', 'soft']),
   // The rack panel's bottom band: one-pixel steps (default), a smooth glide, or still between polls.
   motion: choice('step', ['step', 'smooth', 'still']),
+  // With several model servers: every server at once, or one at a time (server names the one picked).
+  servers: choice('all', ['all', 'one']),
+  server: { fallback: '', check: (value) => (typeof value === 'string' && /^[0-9A-Za-z_-]{0,16}$/.test(value) ? value : undefined), read: (raw) => raw },
 };
 export const DEFAULTS = Object.freeze(Object.fromEntries(Object.entries(FIELDS).map(([key, field]) => [key, field.fallback])));
 const same = (a, b) => (Array.isArray(a) ? Array.isArray(b) && a.join(',') === b.join(',') : a === b);

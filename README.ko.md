@@ -67,7 +67,7 @@ cd spark-scope
 npm run demo
 ```
 
-이렇게 실행하면 <http://127.0.0.1:8787/>에서 대시보드가, `/rack/`에서 랙 패널이, `/mini/`에서 미니 창이 열립니다. 모두 가상 데이터로 돌아갑니다. `npm run demo -- --nodes 2 --mode fault`는 노드 2대로 장애 상황을 보여 줍니다(모드: `serving`, `fault`, `idle`). 다른 포트를 쓰려면 `--port`를 붙입니다. 아무것도 수집하거나 기록하지 않고, 다른 머신에 접속하지도 않습니다.
+이렇게 실행하면 <http://127.0.0.1:8787/>에서 대시보드가, `/rack/`에서 랙 패널이, `/mini/`에서 미니 창이 열립니다. 모두 가상 데이터로 돌아갑니다. `npm run demo -- --nodes 2 --mode fault`는 노드 2대로 장애 상황을 보여 줍니다(모드: `serving`, `fault`, `idle`). `--servers 2`를 붙이면 노드를 모델 서버 2개로 나누고 `--off`를 더하면 마지막 서버를 끕니다. 다른 포트를 쓰려면 `--port`를 붙입니다. 아무것도 수집하거나 기록하지 않고, 다른 머신에 접속하지도 않습니다.
 
 ### 노드 1대: Spark에서 바로 실행
 
@@ -149,6 +149,17 @@ SGLang 기본 포트를 쓴다면 `SPARK_SCOPE_API_URL=http://127.0.0.1:30000`, 
 ### vLLM, SGLang 또는 TensorFold
 
 `SPARK_SCOPE_API_URL`에 추론 서버 주소를 지정합니다. 여러 노드로 서빙한다면 API가 떠 있는 노드를 가리켜야 합니다. vLLM과 TensorFold는 메트릭이 기본으로 켜져 있습니다. SGLang은 `--enable-metrics`를 붙여 시작해야 합니다. SGLang과 TensorFold는 일부 수치의 측정 방식이 다릅니다. 그 차이는 [추론 엔진](docs/configuration.md#inference-engines) 항목에 정리했습니다. 다른 엔진도 노드 카드에서는 인식하지만 메트릭은 읽지 않습니다.
+
+노드를 그룹으로 나눠 따로 서빙한다면(케이블로 연결한 노드 2대가 각자 자기 모델을 돌리거나, 4대를 2 + 2로, 3대를 2 + 1로 나눈 경우) `SPARK_SCOPE_API_URL` 대신 `topology.json`에 그룹마다 모델 서버를 적고 API와 노드를 지정합니다.
+
+```json
+"servers": [
+  { "id": "a", "api": "http://spark-1:8000", "nodes": ["1", "2"] },
+  { "id": "b", "api": "http://spark-3:30000", "nodes": ["3", "4"] }
+]
+```
+
+그러면 대시보드 하나에서 모든 서버를 봅니다. 차트 위에 서버별 행이 생기고 서버마다 선과 엔진 패널이 하나씩 붙습니다(설정에서 한 번에 하나씩만 볼 수도 있습니다). 랙 패널 하단 띠에는 칩이 표시되고 토큰 원장은 모든 서버가 하나를 함께 씁니다. 필드와 규칙은 [모델 서버](docs/topology.md#model-servers) 항목에 정리했습니다.
 
 ### 서비스로 실행
 

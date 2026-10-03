@@ -46,7 +46,7 @@ const server = createServer((request, response) => {
   const url = new URL(request.url, "http://localhost");
   if (url.pathname === "/api/state") {
     if (current.mode === "lost") { response.writeHead(503).end("{}"); return; }
-    const state = fixtureState(current.count, current.mode, fixtureNow(), { longNames: current.longNames });
+    const state = fixtureState(current.count, current.mode, fixtureNow(), { longNames: current.longNames, servers: current.servers ?? 0, offGroup: current.offGroup ?? false });
     const minutes = Number(url.searchParams.get("minutes") || 60);
     state.history = state.history.filter((point) => point.at >= fixtureNow() - minutes * 60_000);
     response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(state));
@@ -576,7 +576,7 @@ try {
     const card = await web.evaluate(`(() => ({
       readings: [...document.querySelectorAll('#nodes .node:first-child .reading')].map((r) => r.innerText.replace(/\\s+/g, " ")).join(" / "),
       bars: [...document.querySelectorAll('#nodes .node:first-child [data-bar]')].map((b) => b.innerText.replace(/\\s+/g, " ")).join(" / "),
-      hidden: [document.querySelector('.engine').hidden, document.querySelector('.trends').hidden, document.querySelector('.lower').classList.contains('single')],
+      hidden: [document.querySelector('#engines').hidden, document.querySelector('.trends').hidden, document.querySelector('.lower').classList.contains('single')],
       colors: [...document.querySelectorAll('#nodes .node h2')].slice(0, 2).map((h) => getComputedStyle(h, '::before').backgroundColor).concat([...document.querySelectorAll('#fabric-nodes circle')].slice(0, 2).map((c) => getComputedStyle(c).stroke)),
       purple: getComputedStyle(document.documentElement).getPropertyValue('--purple').trim(),
     }))()`);
@@ -723,6 +723,56 @@ try {
       report(name, section === "dashboard" ? [`before: ${before.join(" / ")}`, `after: ${after.join(" / ")}`] : [], [...issues, ...(section === "dashboard" ? switched : []), ...await englishLeft(web, fixtureState(4, "serving")), ...web.errors.splice(0)]);
     }
     await checkHelp(web, label, "-ko", () => englishLeft(web, fixtureState(4, "serving")));
+    await web.evaluate("localStorage.clear()");
+    await web.close();
+  }
+
+  // Nodes in several model servers (topology.json "servers"): the rack band's chips and the bays' server names, the web
+  // page's server list, a line and an engine panel per server ("all at once") or the picked one ("one at a time"),
+  // with a server switched off and with a fault, in English and Korean.
+  const SERVER_CASES = [
+    { count: 2, mode: "serving", label: "2-node-1-1" },
+    { count: 3, mode: "serving", label: "3-node-2-1" },
+    { count: 4, mode: "serving", label: "4-node-2-2" },
+    { count: 4, mode: "serving", offGroup: true, label: "4-node-2-2-off" },
+    { count: 4, mode: "fault", label: "4-node-2-2-fault" },
+  ];
+  const serversRack = await openPage({ width: 1920, height: 480 });
+  for (const item of SERVER_CASES) {
+    for (const query of ["", "?lang=ko", ...(item.label === "4-node-2-2" ? ["?server=b"] : [])]) {
+      current = { count: item.count, mode: item.mode, longNames: false, servers: 2, offGroup: Boolean(item.offGroup) };
+      await serversRack.go(`${base}/rack/${query}`);
+      await serversRack.waitFor("document.querySelectorAll('.bay').length > 0 && !document.querySelector('.bay:empty')");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const result = await serversRack.evaluate(CHECK_RACK);
+      const name = `rack-servers-${item.label}${query === "?lang=ko" ? "-ko" : query ? "-server-b" : ""}.png`;
+      await serversRack.shoot(name);
+      const english = query === "?lang=ko" ? await englishLeft(serversRack, fixtureState(item.count, item.mode, Date.now(), { servers: 2, offGroup: Boolean(item.offGroup) })) : [];
+      report(name, [...result.bays, `band: ${result.band}`, `truncated: ${result.truncated.join(" / ") || "none"}`], [...result.issues, ...english, ...serversRack.errors.splice(0)]);
+    }
+  }
+  await serversRack.close();
+  for (const [label, width, height, scheme] of [["desktop", 1440, 1000, "light"], ["phone", 390, 844, "dark"]]) {
+    const web = await openPage({ width, height, colorScheme: scheme });
+    for (const item of SERVER_CASES) {
+      for (const query of ["", "?servers=one&server=b", "?lang=ko"]) {
+        current = { count: item.count, mode: item.mode, longNames: false, servers: 2, offGroup: Boolean(item.offGroup) };
+        await web.evaluate("localStorage.clear()");
+        await web.go(`${base}/${query}`);
+        await web.waitFor("document.querySelectorAll('#servers .server-row').length > 1 && /\\d/.test(document.querySelector('#updated-at').textContent)");
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const issues = await web.evaluate(CHECK_WEB);
+        const info = await web.evaluate(`(() => ({
+          status: document.querySelector('#status-title').textContent,
+          servers: [...document.querySelectorAll('#servers .server-row')].map((row) => row.innerText.replace(/\\s+/g, ' ')).join(' / '),
+          engines: document.querySelectorAll('#engines .engine-block').length,
+        }))()`);
+        const english = query === "?lang=ko" ? await englishLeft(web, fixtureState(item.count, item.mode, Date.now(), { servers: 2, offGroup: Boolean(item.offGroup) })) : [];
+        const name = `web-${label}-servers-${item.label}${query === "?lang=ko" ? "-ko" : query ? "-one" : ""}.png`;
+        await web.shoot(name, { fullPage: true });
+        report(name, [`status: ${info.status}`, `servers: ${info.servers}`, `engine panels: ${info.engines}`], [...issues, ...english, ...web.errors.splice(0)]);
+      }
+    }
     await web.evaluate("localStorage.clear()");
     await web.close();
   }

@@ -1,6 +1,7 @@
 import {
-  orderedNodes, nodeLinks, nodeView, reasonText, clusterView, seriesPoints, timePaths, valueRange, tempRangeLabel, f1, compact, freeLabel, panelWidth, bayLayout, BRAND, degrees, degreeUnit, bayColor, bayColorStyle,
+  orderedNodes, nodeLinks, nodeView, reasonText, clusterView, seriesPoints, timePaths, valueRange, tempRangeLabel, f1, compact, freeLabel, panelWidth, bayLayout, BRAND, degrees, degreeUnit, bayColor, bayColorStyle, rackFocus,
 } from "./rack-view.js";
+import { modelServers, serverOfNode, serverName } from "../view-data.js";
 import { t, setLanguage, queryLanguage, translatePage } from "../i18n.js";
 import { settingsFromQuery, DEFAULTS } from "../settings.js";
 
@@ -92,7 +93,10 @@ const meter = (label, value, pct, warn = false, detail = "") => `<div class="met
 
 function renderBay(meta, toMs, index) {
   const links = nodeLinks(latest, meta.id);
-  const view = nodeView(meta, latest.nodes?.[meta.id], { inferenceOk: Boolean(latest?.inference?.ok), lastOkAt: lastOkAt[meta.id], nowMs: toMs, links, mem: options.mem });
+  // A node needs an inference process only while its own server's API answers; with several servers the bay names it.
+  const servers = modelServers(latest), server = serverOfNode(servers, meta.id);
+  const view = nodeView(meta, latest.nodes?.[meta.id], { inferenceOk: Boolean(server?.inference?.ok), lastOkAt: lastOkAt[meta.id], nowMs: toMs, links, mem: options.mem });
+  if (servers.length > 1 && server) view.role = `${serverName(server)} | ${view.role}`;
   const target = view.local ? t("node.target.local") : view.host ? `SSH ${view.host}` : t("node.target.noHost");
   const el = bays.querySelector(`[data-node="${CSS.escape(meta.id)}"]`);
   el.className = `bay ${view.level}`;
@@ -159,7 +163,8 @@ function drawBand() {
   // Earlier samples come from the 60-minute history (refreshed every 30 s), up to the first 2-second poll: the history
   // holds 10-second averages, and mixing them with the polls' raw values drew dips and spikes that never happened.
   const historyEnd = Math.min(toMs, (liveOut[0]?.at ?? Infinity) - 1);
-  for (const point of seriesPoints(tempHistory, "outputTokensPerSecond", fromMs - BAND_GAP_MS, historyEnd)) merged.set(point.at, point);
+  const focus = latest?.focusServer, output = focus ? (point) => point.servers?.[focus]?.outputTokensPerSecond : "outputTokensPerSecond";
+  for (const point of seriesPoints(tempHistory, output, fromMs - BAND_GAP_MS, historyEnd)) merged.set(point.at, point);
   for (const point of liveOut) if (point.at >= fromMs - BAND_GAP_MS) merged.set(point.at, point);
   const points = [...merged.values()].sort((a, b) => a.at - b.at);
   const peak = Math.max(0, ...points.map((point) => point.value ?? 0));
@@ -182,7 +187,9 @@ function renderCluster(fetchFailed) {
   if (view.stale && !wasStale) glideBand();
   $("cl-lamp").className = `lamp ${view.level}`;
   $("cl-title").textContent = view.title;
-  $("cl-line1").textContent = view.lines[0] ?? "";
+  // With several servers the first line is a chip per server: its state lamp, its name and its output.
+  if (view.chips) $("cl-line1").innerHTML = view.chips.map((chip) => `<span class="chip"><span class="lamp ${chip.level}"></span>${escapeHtml(chip.name)} <b>${escapeHtml(chip.text)}</b></span>`).join("");
+  else $("cl-line1").textContent = view.lines[0] ?? "";
   $("cl-line2").textContent = view.lines[1] ?? "";
   $("out-value").textContent = f1(view.out);
   $("tok-total").textContent = compact(view.todayTotal);
@@ -214,12 +221,13 @@ async function poll() {
   }
   try {
     if (state) {
-      latest = state;
+      // The band follows every model server together, or the one named by "?server=".
+      latest = rackFocus(state, options.server);
       lastReceivedAt = new Date();
       for (const [id, node] of Object.entries(state.nodes ?? {})) if (node?.ok) lastOkAt[id] = node.updatedAt ?? state.updatedAt;
-      const at = Date.parse(state.inference?.updatedAt ?? state.updatedAt);
+      const live = latest.inference, at = Date.parse(live?.updatedAt ?? state.updatedAt);
       if (Number.isFinite(at) && at !== liveOut[liveOut.length - 1]?.at) {
-        liveOut.push({ at, value: state.inference?.ok && Number.isFinite(state.inference.outputTokensPerSecond) ? state.inference.outputTokensPerSecond : null });
+        liveOut.push({ at, value: live?.ok && Number.isFinite(live.outputTokensPerSecond) ? live.outputTokensPerSecond : null });
         liveOut = liveOut.filter((point) => point.at >= at - BAND_WINDOW_MS - BAND_GAP_MS);
       }
       const serverMs = Date.parse(state.updatedAt);

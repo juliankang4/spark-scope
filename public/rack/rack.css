@@ -68,6 +68,7 @@ html:lang(ko){word-break:keep-all}
 .cl div{display:flex;align-items:center;gap:14px;font-size:34px;font-weight:700}
 #cl-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cl>span{font-size:20px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis}
+.cl .chip{display:inline-flex;align-items:center;gap:8px;margin-right:22px;white-space:nowrap}.cl .chip .lamp{width:11px;height:11px}.cl .chip b{font-weight:600;color:var(--ink)}
 .out{display:flex;align-items:baseline;gap:14px}
 .out b{font-size:104px;line-height:.9}
 .out span{font-size:26px;color:var(--ink2)}
