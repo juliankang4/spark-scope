@@ -136,7 +136,9 @@ function renderBay(meta, toMs, index) {
 // names, then the TSOC reading and the "Links" label go, and only then is the power cut short.
 function fitFoot(bay) {
   const foot = bay.querySelector(".foot");
-  for (const step of ["fit-dots", "fit-tsoc", "fit-label", "fit-first"]) {
+  const steps = ["fit-dots", "fit-tsoc", "fit-label", "fit-first"];
+  foot.classList.remove(...steps);
+  for (const step of steps) {
     if (foot.scrollWidth <= foot.clientWidth) return;
     foot.classList.add(step);
   }
@@ -192,13 +194,10 @@ function renderCluster(fetchFailed) {
   $("cl-line1").classList.toggle("chips", Boolean(view.chips));
   if (view.chips) {
     const line = $("cl-line1");
-    line.classList.remove("tight", "tighter");
     line.innerHTML = view.chips.map((chip) => `<span class="chip"><span class="lamp ${chip.level}"></span><span class="chip-name">${escapeHtml(chip.name)}</span><b>${escapeHtml(chip.value)}${chip.unit ? `<span class="unit"> ${escapeHtml(chip.unit)}</span>` : ""}</b></span>`).join("");
-    // Where even a lamp and a figure do not fit, the figures drop their unit, then the figures go and each chip keeps
-    // its lamp and name (the big figure has the total; the band's job here is which server serves).
-    const cut = () => [...line.children].some((chip) => chip.scrollWidth > chip.clientWidth + 1);
-    if (cut()) line.classList.add("tight");
-    if (cut()) line.classList.add("tighter");
+    fitChips(line);
+    // Text is measured with the fonts at hand; a font that loads after this draw (wider than its fallback) refits.
+    document.fonts?.ready.then(() => fitChips(line));
   } else $("cl-line1").textContent = view.lines[0] ?? "";
   $("cl-line2").textContent = view.lines[1] ?? "";
   $("out-value").textContent = f1(view.out);
@@ -206,11 +205,22 @@ function renderCluster(fetchFailed) {
   $("tok-sub").textContent = view.todayRequests === null ? t("rack.tokensToday") : t("rack.tokensTodayRequests", { count: view.todayRequests.toLocaleString("en-US") });
 }
 
+// Where even a lamp and a figure do not fit, the figures drop their unit, then the figures go and each chip keeps its
+// lamp and name (the big figure has the total; the band's job here is which server serves).
+function fitChips(line) {
+  line.classList.remove("tight", "tighter");
+  const cut = () => [...line.children].some((chip) => chip.scrollWidth > chip.clientWidth + 1);
+  if (cut()) line.classList.add("tight");
+  if (cut()) line.classList.add("tighter");
+}
+
 function renderBays() {
   const toMs = Date.parse(latest.updatedAt) || Date.now();
   const metas = orderedNodes(latest);
   syncBays(metas);
   metas.forEach((meta, index) => renderBay(meta, toMs, index));
+  // The footers were fitted with the fonts at hand; a font that loads after this draw refits them.
+  document.fonts?.ready.then(() => bays.querySelectorAll(".bay").forEach((bay) => { if (bay.querySelector(".foot")) fitFoot(bay); }));
 }
 
 function render() {
@@ -276,9 +286,6 @@ function fit() {
 }
 
 addEventListener("resize", fit);
-// The footer and the band's chips are fitted by measuring text; once the panel's fonts have loaded (wider than the
-// fallback the first draw measured), they are fitted again.
-document.fonts?.addEventListener?.("loadingdone", () => { if (latest) render(); });
 fit();
 await pollTemps();
 await poll();

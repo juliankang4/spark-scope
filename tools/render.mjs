@@ -298,7 +298,7 @@ const CHECK_SETTINGS = `(() => {
 
 // Korean pages: English words on screen that are neither technical terms kept in English nor data from the fixture
 // (names, hosts, hardware, models, engines, containers, time zones) are text that missed the string table.
-const TERMS = "GPU CPU NVMe NIC ACPI TSOC TS0E TS0P TS1E TS1P TGPU TUNC Xid NO MEMORY TP rank TTFT TPOT KV cache Prefill Decode Spec acceptance tok API QSFP SPARK SCOPE Spark Scope MHz GiB GB TiB Gb SSH RAM nvidia smi ms English rack URL DECODE PREFILL CSV Wh";
+const TERMS = "GPU CPU NVMe NIC ACPI TSOC TS0E TS0P TS1E TS1P TGPU TUNC Xid NO MEMORY TP rank TTFT TPOT KV cache Prefill Decode Spec acceptance tok API QSFP SPARK SCOPE Spark Scope MHz GiB GB TiB Gb SSH RAM nvidia smi ms English rack URL DECODE PREFILL CSV Wh Ctrl Cmd Alt";
 function dataWords(state) {
   const values = [state.usage?.timeZone, state.usage?.modelName, state.inference?.modelName, state.inference?.engine, state.serving?.engine, ...LEDGER_MODELS];
   for (const node of state.topology?.nodes ?? []) values.push(node.id, node.name, node.host, node.hardware);
