@@ -26,6 +26,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
+    "demo": "node tools/demo.mjs",
     "test": "node --test"
   },
   "engines": {
