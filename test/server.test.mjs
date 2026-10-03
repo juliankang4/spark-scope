@@ -54,6 +54,12 @@ test("the server serves the dashboard, the rack panel, the fonts and the JSON AP
     const rack = await fetch(`${base}/rack/`);
     assert.equal(rack.status, 200);
     assert.match(await rack.text(), /rack\.js/);
+    const mini = await fetch(`${base}/mini/`);
+    assert.equal(mini.status, 200);
+    assert.match(await mini.text(), /mini\.js/);
+    const miniRedirect = await fetch(`${base}/mini`, { redirect: "manual" });
+    assert.equal(miniRedirect.status, 302);
+    assert.equal(miniRedirect.headers.get("location"), "/mini/");
     const icon = await fetch(`${base}/favicon.ico`);
     assert.equal(icon.status, 200);
     assert.equal(icon.headers.get("content-type"), "image/x-icon");

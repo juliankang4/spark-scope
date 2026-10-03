@@ -259,7 +259,7 @@ function renderPreview({rows=true}={}){
 // not answering, the last data is drawn again under the "not responding" state, so its text follows a new language too.
 function applySettings({rangeChanged=false,refreshChanged=false,langChanged=false}={}){
   saveSettings(store,settings);
-  if(langChanged){setLanguage(settings.lang);translatePage();applyTheme();rebuildMonths();redrawMonth()}
+  if(langChanged){setLanguage(settings.lang);translatePage();applyTheme();rebuildMonths();redrawMonth();showMini()}
   showUnits();showLayout();
   if(rangeChanged){range=settings.range;showRange();void refresh()}
   if(refreshChanged)schedulePolls();
@@ -321,6 +321,35 @@ dialog.addEventListener('close',()=>{hideHelp();opener.setAttribute('aria-expand
 dialog.addEventListener('click',event=>{if(event.target===dialog)dialog.close()});
 $('#settings-reset').addEventListener('click',()=>{const before=settings;settings=parseSettings(null);themeChoice=null;saveTheme(store,null);applyTheme();applySettings(changes(before))});
 // The clipboard needs HTTPS or localhost; on plain HTTP the link is shown selected, ready to copy by hand.
+// ---- mini window ----
+// Chrome and Edge keep it on top of other windows with document picture-in-picture; other browsers get a small window
+// at /mini/. The button (or M) opens it and closes it again.
+const miniButton=$('#mini-open'),MINI_SIZE={width:340,height:560};let mini=null;
+function showMini(){miniButton.setAttribute('aria-pressed',String(Boolean(mini)));miniButton.title=t(mini?'mini.closeTitle':'mini.openTitle');miniButton.setAttribute('aria-label',miniButton.title)}
+async function toggleMini(){
+  if(mini){mini.close();return}
+  if(window.documentPictureInPicture){
+    try{
+      const pip=await window.documentPictureInPicture.requestWindow(MINI_SIZE);
+      for(const href of ['/styles.css','/designs.css','/mini/mini.css']){const link=pip.document.createElement('link');link.rel='stylesheet';link.href=location.origin+href;pip.document.head.append(link)}
+      pip.document.body.className='m-pip';
+      const {mountMini}=await import('./mini/mini-view.js');
+      const view=mountMini(pip.document,pip,{onOpenDashboard:()=>window.focus()});
+      mini={close:()=>pip.close()};
+      pip.addEventListener('pagehide',()=>{view.close();mini=null;showMini()});
+      showMini();return;
+    }catch(error){console.warn('Spark Scope could not open a picture-in-picture window, opening a small window instead:',error)}
+  }
+  const win=window.open('/mini/','spark-scope-mini',`popup,width=${MINI_SIZE.width},height=${MINI_SIZE.height}`);if(!win)return;
+  mini={close:()=>win.close()};showMini();
+  const watch=setInterval(()=>{if(win.closed){clearInterval(watch);mini=null;showMini()}},1000);
+}
+miniButton.addEventListener('click',()=>void toggleMini());
+document.addEventListener('keydown',event=>{
+  if(event.key!=='m'&&event.key!=='M')return;if(event.metaKey||event.ctrlKey||event.altKey||dialog.open||event.target.closest?.('input,select,textarea,[contenteditable]'))return;
+  if(getComputedStyle(miniButton).display!=='none')void toggleMini();
+});
+
 // ---- rack panel settings ----
 // Shown only where a rack panel is in use: one has polled this server within 7 days (rackSeenAt), or on request.
 const RACK_SEEN_MS=7*24*3600_000;let rackForced=false;

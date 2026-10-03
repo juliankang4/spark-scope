@@ -134,6 +134,8 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
       outputTokensPerSecond: 61.3, promptTokensPerSecond: 2950, promptComputeTokensPerSecond: 2104, promptCacheTokensPerSecond: 846,
       prefixCacheHitPercent: 41.2, speculativeAcceptancePercent: 0, kvCachePercent: 12.5, tpotP95Seconds: 0.028, ttftP95Seconds: 0.42, tpotP95RecentSeconds: 0.031, ttftP95RecentSeconds: 0.51, latencyWindowSeconds: 300,
       runningRequests: 2, waitingRequests: 0, updatedAt: new Date(nowMs).toISOString(), error: null,
+      // New prefills complete in one poll out of six, so the mini window shows prefill bursts between decoding.
+      prefillUpdatedAt: new Date(Math.floor(nowMs / 12_000) * 12_000).toISOString(),
     }
     : { ok: false, updatedAt: new Date(nowMs).toISOString(), error: "fetch failed" };
   const ringLinks = buildRingLinks(nodes, topology);

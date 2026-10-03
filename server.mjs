@@ -315,8 +315,8 @@ async function handle(request, response) {
     return;
   }
   // The rack panel (public/rack/) for a bar display or kiosk.
-  if (url.pathname === "/rack") {
-    response.writeHead(302, { Location: `/rack/${url.search}` }).end();
+  if (url.pathname === "/rack" || url.pathname === "/mini") {
+    response.writeHead(302, { Location: `${url.pathname}/${url.search}` }).end();
     return;
   }
   await serveStatic(url.pathname, response);
