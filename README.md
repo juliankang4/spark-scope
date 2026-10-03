@@ -47,6 +47,16 @@ The screenshots use synthetic data from `tools/fixtures.mjs`.
 - For remote nodes: an SSH client on the dashboard machine and key-based SSH access to each node.
 - Optionally an inference server with Prometheus metrics: vLLM (on by default) or SGLang (start it with `--enable-metrics`).
 
+### Try it without a Spark
+
+```bash
+git clone https://github.com/juliankang4/spark-scope.git
+cd spark-scope
+npm run demo
+```
+
+This serves the dashboard at <http://127.0.0.1:8787/>, with the rack panel at `/rack/` and the mini window at `/mini/`, all on made-up data. The engine runs through a request every 20 seconds (a prefill burst, then decoding, then idle) so the charts move. `npm run demo -- --nodes 2 --mode fault` shows two nodes with a fault (modes: `serving`, `fault`, `idle`); `--port` picks another port. Nothing is collected or written, and no other machine is contacted.
+
 ### Quick start: one node, dashboard on the Spark itself
 
 The shipped `topology.json` describes a single node collected locally (`"host": "local"`), so no SSH is involved.
