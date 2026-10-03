@@ -33,7 +33,7 @@ The ledger is stored on disk (`SPARK_SCOPE_USAGE_DB`); everything else resets wh
 
 - A new ledger starts from what the engine reports at that moment: tokens served before the dashboard first ran are not booked.
 - It adds up counter increases. Tokens served while the dashboard is down are counted when it returns.
-- After an engine restart the new run counts from its own start. vLLM reports its start time; for SGLang, which does not, a restart is recognised when its counters fall below the last values seen. If an SGLang run restarted while the dashboard was down and has already passed those values, the part of the previous run the dashboard never saw is lost.
+- After an engine restart the new run counts from its own start. vLLM reports its start time; for SGLang and TensorFold, which do not, a restart is recognised when their counters fall below the last values seen. If such a run restarted while the dashboard was down and has already passed those values, the part of the previous run the dashboard never saw is lost.
 - A counter the engine does not export (vLLM without per-source prompt counters, for example) reads as `unknown` rather than 0.
 - If the ledger file cannot be opened, token counting is switched off and the rest of the dashboard keeps working.
 

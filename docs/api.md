@@ -19,7 +19,7 @@ The full dashboard state, gzip-compressed when the client accepts it. `history=0
 | `topology` | Nodes and links, without interface names. |
 | `nodes` | Node readings keyed by node id. A failed node carries a short `error` such as `timed out` or `SSH authentication failed`; the full message is in the server log. |
 | `ringLinks` | Links keyed by link id; `state` is `up`, `partial`, `down`, `pending` or `unknown`. |
-| `inference` | The inference metrics the pages show, for vLLM and SGLang, including `prefillUpdatedAt` (when new prefills last completed, since the prefill rates are held between them). Also sent under its earlier name `vllm` for scripts written against earlier versions; that alias will be removed in a later release. |
+| `inference` | The inference metrics the pages show, for vLLM, SGLang and TensorFold, including `prefillUpdatedAt` (when new prefills last completed, since the prefill rates are held between them). Also sent under its earlier name `vllm` for scripts written against earlier versions; that alias will be removed in a later release. |
 | `serving`, `inferenceState` | Which nodes serve, and the inference state. |
 | `usage` | Today's token totals. |
 | `history`, `historyStats` | Chart samples for the requested range. |
