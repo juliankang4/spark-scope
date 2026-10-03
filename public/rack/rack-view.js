@@ -252,7 +252,8 @@ export function rackFocus(state, serverId = "") {
   const servers = modelServers(state);
   if (servers.length < 2) return state;
   const picked = servers.find((server) => server.id === serverId);
-  if (picked) return { ...state, inference: picked.inference, serving: picked.serving, inferenceState: picked.inferenceState, focusServer: picked.id };
+  // The model line falls back to usage.modelName (the first server's), so it names the followed server instead.
+  if (picked) return { ...state, inference: picked.inference, serving: picked.serving, inferenceState: picked.inferenceState, usage: { ...state.usage, modelName: serverName(picked) }, focusServer: picked.id };
   return { ...state, inference: combinedInference(servers), servingServers: servers };
 }
 
@@ -260,9 +261,9 @@ export function rackFocus(state, serverId = "") {
 export function serverChips(servers) {
   return servers.map((server) => {
     const v = server.inference;
-    if (v?.ok) return { name: serverName(server), level: "good", text: `${f1(v.outputTokensPerSecond)} tok/s` };
-    if (server.inferenceState === "stopped") return { name: serverName(server), level: "idle", text: t("rack.server.idle") };
-    return { name: serverName(server), level: v ? "crit" : "idle", text: t(v ? "rack.server.down" : "rack.server.checking") };
+    if (v?.ok) return { name: serverName(server), level: "good", value: f1(v.outputTokensPerSecond), unit: "tok/s" };
+    if (server.inferenceState === "stopped") return { name: serverName(server), level: "idle", value: t("rack.server.idle") };
+    return { name: serverName(server), level: v ? "crit" : "idle", value: t(v ? "rack.server.down" : "rack.server.checking") };
   });
 }
 

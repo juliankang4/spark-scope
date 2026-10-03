@@ -736,27 +736,38 @@ try {
     { count: 4, mode: "serving", label: "4-node-2-2" },
     { count: 4, mode: "serving", offGroup: true, label: "4-node-2-2-off" },
     { count: 4, mode: "fault", label: "4-node-2-2-fault" },
+    { count: 4, mode: "serving", servers: 3, label: "4-node-1-2-1" },
+    { count: 4, mode: "serving", longNames: true, offGroup: true, label: "4-node-2-2-long-names-off" },
   ];
-  const serversRack = await openPage({ width: 1920, height: 480 });
-  for (const item of SERVER_CASES) {
-    for (const query of ["", "?lang=ko", ...(item.label === "4-node-2-2" ? ["?server=b"] : [])]) {
-      current = { count: item.count, mode: item.mode, longNames: false, servers: 2, offGroup: Boolean(item.offGroup) };
-      await serversRack.go(`${base}/rack/${query}`);
-      await serversRack.waitFor("document.querySelectorAll('.bay').length > 0 && !document.querySelector('.bay:empty')");
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      const result = await serversRack.evaluate(CHECK_RACK);
-      const name = `rack-servers-${item.label}${query === "?lang=ko" ? "-ko" : query ? "-server-b" : ""}.png`;
-      await serversRack.shoot(name);
-      const english = query === "?lang=ko" ? await englishLeft(serversRack, fixtureState(item.count, item.mode, Date.now(), { servers: 2, offGroup: Boolean(item.offGroup) })) : [];
-      report(name, [...result.bays, `band: ${result.band}`, `truncated: ${result.truncated.join(" / ") || "none"}`], [...result.issues, ...english, ...serversRack.errors.splice(0)]);
+  const serverFixture = (item) => ({ count: item.count, mode: item.mode, longNames: Boolean(item.longNames), servers: item.servers ?? 2, offGroup: Boolean(item.offGroup) });
+  // Every chip on the band keeps its lamp, and its figure while shown, inside the line; only the names may be cut short.
+  const CHECK_CHIPS = `(() => { const line = document.querySelector('#cl-line1').getBoundingClientRect(); return [...document.querySelectorAll('#cl-line1 .chip')].filter((chip) => { const figure = chip.querySelector('b'), last = getComputedStyle(figure).display === 'none' ? chip.querySelector('.lamp') : figure, box = last.getBoundingClientRect(); return box.right > line.right + 1 || box.width < 4; }).map((chip) => 'chip cut off: ' + chip.textContent); })()`;
+  for (const [width, height] of [[1920, 480], [1024, 600]]) {
+    const serversRack = await openPage({ width, height });
+    for (const item of SERVER_CASES) {
+      const queries = width === 1920 ? ["", "?lang=ko", ...(item.label === "4-node-2-2" ? ["?server=b"] : [])] : ["?width=819", "?width=819&lang=ko"];
+      for (const query of queries) {
+        current = serverFixture(item);
+        await serversRack.go(`${base}/rack/${query}`);
+        await serversRack.waitFor("document.querySelectorAll('.bay').length > 0 && !document.querySelector('.bay:empty')");
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const result = await serversRack.evaluate(CHECK_RACK);
+        const chips = await serversRack.evaluate(CHECK_CHIPS);
+        const korean = query.includes("lang=ko");
+        const name = `rack-servers-${item.label}${width === 1024 ? "-1024x600-width-819" : ""}${korean ? "-ko" : query.includes("server=") ? "-server-b" : ""}.png`;
+        await serversRack.shoot(name);
+        const fixture = serverFixture(item);
+        const english = korean ? await englishLeft(serversRack, fixtureState(fixture.count, fixture.mode, Date.now(), fixture)) : [];
+        report(name, [...result.bays, `band: ${result.band}`, `truncated: ${result.truncated.join(" / ") || "none"}`], [...result.issues, ...chips, ...english, ...serversRack.errors.splice(0)]);
+      }
     }
+    await serversRack.close();
   }
-  await serversRack.close();
   for (const [label, width, height, scheme] of [["desktop", 1440, 1000, "light"], ["phone", 390, 844, "dark"]]) {
     const web = await openPage({ width, height, colorScheme: scheme });
     for (const item of SERVER_CASES) {
       for (const query of ["", "?servers=one&server=b", "?lang=ko"]) {
-        current = { count: item.count, mode: item.mode, longNames: false, servers: 2, offGroup: Boolean(item.offGroup) };
+        current = serverFixture(item);
         await web.evaluate("localStorage.clear()");
         await web.go(`${base}/${query}`);
         await web.waitFor("document.querySelectorAll('#servers .server-row').length > 1 && /\\d/.test(document.querySelector('#updated-at').textContent)");
@@ -767,7 +778,8 @@ try {
           servers: [...document.querySelectorAll('#servers .server-row')].map((row) => row.innerText.replace(/\\s+/g, ' ')).join(' / '),
           engines: document.querySelectorAll('#engines .engine-block').length,
         }))()`);
-        const english = query === "?lang=ko" ? await englishLeft(web, fixtureState(item.count, item.mode, Date.now(), { servers: 2, offGroup: Boolean(item.offGroup) })) : [];
+        const fixture = serverFixture(item);
+        const english = query === "?lang=ko" ? await englishLeft(web, fixtureState(fixture.count, fixture.mode, Date.now(), fixture)) : [];
         const name = `web-${label}-servers-${item.label}${query === "?lang=ko" ? "-ko" : query ? "-one" : ""}.png`;
         await web.shoot(name, { fullPage: true });
         report(name, [`status: ${info.status}`, `servers: ${info.servers}`, `engine panels: ${info.engines}`], [...issues, ...english, ...web.errors.splice(0)]);

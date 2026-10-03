@@ -124,7 +124,8 @@ function renderCharts(state) {
   const queueMax=Math.max(1,...history.map(p=>p.queue).filter(finite));$('#queue-line').setAttribute('d',chartPath(history,'queue',{start,end,min:0,max:queueMax,top:120,bottom:4}));
   const label=value=>clock(value,{seconds:false});
   text('#range-start',label(start));text('#range-mid',label((start+end)/2));text('#range-end',label(end));
-  $('#plot-note').hidden=rates.length>0;$('#plot-note').textContent=t(state.inferenceState==='stopped'?'chart.note.stopped':'chart.note.noData');
+  const shownStopped=several&&!each?pickedServer(modelServers(state),settings.server).inferenceState==='stopped':state.inferenceState==='stopped';
+  $('#plot-note').hidden=rates.length>0;$('#plot-note').textContent=t(shownStopped?'chart.note.stopped':'chart.note.noData');
   for(const kind of ['temp','mem']) {
     // Values are picked per node id from each sample, so an id never collides with the sample's own fields (such as "at").
     const field=kind==='temp'?'temperature':'memoryAvailableBytes',scale=kind==='mem'?2**30:1,ids=metas.map(meta=>meta.id);
@@ -191,24 +192,38 @@ function renderEngines(state) {
 }
 function fillEngine(block,v,stopped) {
   const empty=stopped?t('common.stopped'):unknown();
+  // The "since the engine started" notes belong to this panel's server; a reused or copied panel starts without them.
+  block.querySelectorAll('.help[data-help-note]').forEach(button=>{button.dataset.helpNote=''});
   block.querySelectorAll('[data-field]').forEach(el=>{const key=el.dataset.field;let result=empty;if(v?.ok){if(key==='requests')result=`${fixed(v.runningRequests,0)} / ${fixed(v.waitingRequests,0)}`;else if(key.endsWith('RecentSeconds'))result=recentLatency(el,v,key);else if(key.endsWith('Seconds'))result=duration(v[key]);else if(key.endsWith('Percent'))result=fixed(v[key],1,'%');else result=tokenRate(v[key])}el.textContent=result});
 }
 // One row per model server: its model, nodes, state, output and queue. In "one at a time" a row picks the server
-// that the chart and the engine panel follow.
+// that the chart and the engine panel follow. The rows are rebuilt only when the servers or the view change and
+// otherwise updated in place, so a poll never takes the keyboard focus or a click away.
+const serverCell=(row,name,value)=>{const el=row.querySelector(`[data-cell="${name}"]`);if(el.textContent!==value)el.textContent=value};
+function serverState(row,key){serverCell(row,'state',key==='unknown'?unknown():t(`servers.state.${key}`));row.querySelector('[data-cell="state"]').dataset.state=key}
 function renderServers(state) {
   const box=$('#servers'),list=modelServers(state);box.hidden=list.length<2;if(list.length<2)return;
-  const pick=settings.servers==='one'?pickedServer(list,settings.server).id:null;
-  setHtml('#servers',list.map(server=>{
-    const v=server.inference,key=!v?'checking':v.ok?'serving':server.inferenceState==='stopped'?'idle':'down';
-    const cells=`<i style="background:${serverColor(server)}"></i><b>${esc(serverName(server))}</b><span>${t('servers.nodes',{count:server.nodes.length})}</span><span class="server-state" data-state="${key}">${t(`servers.state.${key}`)}</span><span class="num" data-value>${v?.ok?`${fixed(v.outputTokensPerSecond)} tok/s`:unknown()}</span><span class="num" data-value>${t('servers.queue',{queue:v?.ok?fixed(v.waitingRequests,0):unknown()})}</span>`;
-    return pick?`<button type="button" class="server-row" data-server="${esc(server.id)}" aria-pressed="${server.id===pick}">${cells}</button>`:`<div class="server-row">${cells}</div>`;
-  }).join(''));
+  const one=settings.servers==='one',key=`${one}|${list.map(server=>server.id).join(',')}`;
+  if(box.dataset.key!==key){
+    box.dataset.key=key;
+    const cells='<i></i><b data-cell="name"></b><span data-cell="nodes"></span><span class="server-state" data-cell="state"></span><span class="num" data-cell="output"></span><span class="num" data-cell="queue"></span>';
+    box.innerHTML=list.map(server=>one?`<button type="button" class="server-row" data-server="${esc(server.id)}">${cells}</button>`:`<div class="server-row" data-server="${esc(server.id)}">${cells}</div>`).join('');
+  }
+  const pick=one?pickedServer(list,settings.server).id:null;
+  list.forEach((server,index)=>{
+    const row=box.children[index],v=server.inference;
+    row.querySelector('i').style.background=serverColor(server);
+    serverCell(row,'name',serverName(server));serverCell(row,'nodes',t('servers.nodes',{count:server.nodes.length}));
+    serverState(row,!v?'checking':v.ok?'serving':server.inferenceState==='stopped'?'idle':'down');
+    serverCell(row,'output',v?.ok?`${fixed(v.outputTokensPerSecond)} tok/s`:unknown());serverCell(row,'queue',t('servers.queue',{queue:v?.ok?fixed(v.waitingRequests,0):unknown()}));
+    if(one)row.setAttribute('aria-pressed',String(server.id===pick));
+  });
 }
 $('#servers').addEventListener('click',event=>{const row=event.target.closest('button[data-server]');if(!row||row.dataset.server===settings.server)return;const before=settings;settings=parseSettings({...settings,server:row.dataset.server});applySettings(changes(before))});
 function failedState() {
   latest=null;
   $('#shell').classList.add('stale');$('.status').className='status error';text('#status-title',t('statusbar.serverDown'));text('#status-desc',t('statusbar.serverDownDetail'));
-  metas.forEach(meta=>renderNode(meta,null));renderLinks(null);renderToday(null);renderLegend('temp',null);renderLegend('mem',null);for(const id of ['speed','legend-speed','avg','queue'])text('#'+id,unknown());document.querySelectorAll('[data-field],#servers [data-value]').forEach(el=>el.textContent=unknown());$('#plot-note').hidden=false;$('#plot-note').textContent=t('chart.note.reconnecting');
+  metas.forEach(meta=>renderNode(meta,null));renderLinks(null);renderToday(null);renderLegend('temp',null);renderLegend('mem',null);for(const id of ['speed','legend-speed','avg','queue'])text('#'+id,unknown());document.querySelectorAll('[data-field]').forEach(el=>el.textContent=unknown());$('#servers').querySelectorAll('.server-row').forEach(row=>{serverState(row,'unknown');serverCell(row,'output',unknown());serverCell(row,'queue',t('servers.queue',{queue:unknown()}))});$('#plot-note').hidden=false;$('#plot-note').textContent=t('chart.note.reconnecting');
 }
 async function refresh() {
   if(collecting)return;collecting=true;const requestedRange=range,full=historyRange!==requestedRange||Date.now()-historyAt>=HISTORY_REFRESH_MS;

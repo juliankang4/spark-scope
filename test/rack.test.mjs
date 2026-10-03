@@ -382,9 +382,9 @@ test('with several model servers the band adds up their output and shows a chip 
   const all = rackFocus(state);
   assert.equal(all.inference.outputTokensPerSecond, 40.04);
   const view = clusterView(all, { clock });
-  assert.deepEqual(view.chips, [{ name: 'big-model', level: 'good', text: '40.0 tok/s' }, { name: 'Small', level: 'idle', text: 'idle' }]);
+  assert.deepEqual(view.chips, [{ name: 'big-model', level: 'good', value: '40.0', unit: 'tok/s' }, { name: 'Small', level: 'idle', value: 'idle' }]);
   assert.equal(view.lines[0], '');
-  assert.deepEqual(serverChips([{ id: 'c', inference: { ok: false } }]), [{ name: 'c', level: 'crit', text: 'not answering' }]);
+  assert.deepEqual(serverChips([{ id: 'c', inference: { ok: false } }]), [{ name: 'c', level: 'crit', value: 'not answering' }]);
   // ?server=b: the band follows that server alone, with its own model line and no chips.
   const one = rackFocus(state, 'a');
   assert.equal(one.focusServer, 'a');

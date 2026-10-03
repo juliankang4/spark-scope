@@ -28,7 +28,7 @@ html:lang(ko){word-break:keep-all}
 .bay.warn .stripe{background:var(--warn)}.bay.crit .stripe{background:var(--crit)}
 .bay header{display:flex;justify-content:space-between;align-items:center;gap:14px;min-width:0}
 .name{font-size:30px;font-weight:700;letter-spacing:.01em;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.name small{font-size:19px;font-weight:400;color:var(--ink2);margin-left:10px}
+.name small{font-size:19px;font-weight:400;color:var(--ink2);margin-left:2px}
 /* A long node name gives way (ellipsis) before the status; the status keeps up to 60% of the header. */
 .reason{display:flex;align-items:center;gap:9px;font-size:21px;color:var(--ink2);flex:0 0 auto;max-width:60%;min-width:0;overflow:hidden}
 .reason span:last-child{overflow:hidden;text-overflow:ellipsis}
@@ -68,7 +68,11 @@ html:lang(ko){word-break:keep-all}
 .cl div{display:flex;align-items:center;gap:14px;font-size:34px;font-weight:700}
 #cl-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cl>span{font-size:20px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis}
-.cl .chip{display:inline-flex;align-items:center;gap:8px;margin-right:22px;white-space:nowrap}.cl .chip .lamp{width:11px;height:11px}.cl .chip b{font-weight:600;color:var(--ink)}
+/* The chips share the line evenly up to their full width, so short ones show whole and only long names get shorter. */
+.cl>span.chips{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,max-content);column-gap:20px;justify-content:start;min-width:0}
+.cl .chip{display:flex;align-items:center;gap:8px;min-width:0;white-space:nowrap}.cl .chip .lamp{width:11px;height:11px}
+.cl .chip-name{min-width:0;overflow:hidden;text-overflow:ellipsis}.cl .chip b{flex:none;font-weight:600;color:var(--ink)}
+.cl>span.chips.tight{column-gap:12px}.cl>span.chips.tight .unit,.cl>span.chips.tighter .chip b{display:none}
 .out{display:flex;align-items:baseline;gap:14px}
 .out b{font-size:104px;line-height:.9}
 .out span{font-size:26px;color:var(--ink2)}

@@ -102,7 +102,7 @@ function renderBay(meta, toMs, index) {
   el.className = `bay ${view.level}`;
   // With "?colors=", the bay's bars and temperature trace take the node's colour; the stripe keeps its state colour.
   el.style.cssText = bayColorStyle(bayColor(options.colors, index));
-  const head = `<span class="stripe"></span><header><div class="name">${escapeHtml(view.name)}<small>${escapeHtml(view.role)}</small></div><div class="reason" title="${escapeHtml(view.reasons.join(", "))}"><span class="lamp ${view.level}"></span><span>${escapeHtml(reasonText(view))}</span></div></header>`;
+  const head = `<span class="stripe"></span><header><div class="name">${escapeHtml(view.name)} <small>${escapeHtml(view.role)}</small></div><div class="reason" title="${escapeHtml(view.reasons.join(", "))}"><span class="lamp ${view.level}"></span><span>${escapeHtml(reasonText(view))}</span></div></header>`;
   // Peer names next to the dots only while the ids are short; long ids leave just the coloured dots.
   const named = view.links.every((link) => link.peer.length <= 6);
   const dots = view.links.length
@@ -188,8 +188,18 @@ function renderCluster(fetchFailed) {
   $("cl-lamp").className = `lamp ${view.level}`;
   $("cl-title").textContent = view.title;
   // With several servers the first line is a chip per server: its state lamp, its name and its output.
-  if (view.chips) $("cl-line1").innerHTML = view.chips.map((chip) => `<span class="chip"><span class="lamp ${chip.level}"></span>${escapeHtml(chip.name)} <b>${escapeHtml(chip.text)}</b></span>`).join("");
-  else $("cl-line1").textContent = view.lines[0] ?? "";
+  // Each chip keeps its lamp and figure; only the names get shorter when the chips do not fit.
+  $("cl-line1").classList.toggle("chips", Boolean(view.chips));
+  if (view.chips) {
+    const line = $("cl-line1");
+    line.classList.remove("tight", "tighter");
+    line.innerHTML = view.chips.map((chip) => `<span class="chip"><span class="lamp ${chip.level}"></span><span class="chip-name">${escapeHtml(chip.name)}</span><b>${escapeHtml(chip.value)}${chip.unit ? `<span class="unit"> ${escapeHtml(chip.unit)}</span>` : ""}</b></span>`).join("");
+    // Where even a lamp and a figure do not fit, the figures drop their unit, then the figures go and each chip keeps
+    // its lamp and name (the big figure has the total; the band's job here is which server serves).
+    const cut = () => [...line.children].some((chip) => chip.scrollWidth > chip.clientWidth + 1);
+    if (cut()) line.classList.add("tight");
+    if (cut()) line.classList.add("tighter");
+  } else $("cl-line1").textContent = view.lines[0] ?? "";
   $("cl-line2").textContent = view.lines[1] ?? "";
   $("out-value").textContent = f1(view.out);
   $("tok-total").textContent = compact(view.todayTotal);
