@@ -191,6 +191,22 @@ async function rawRequest(base, lines) {
   });
 }
 
+test("an inference URL with a password, or without a scheme, stops the server with a message that does not repeat it", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-server-url-"));
+  try {
+    for (const url of ["http://admin:s3cret@127.0.0.1:9", "127.0.0.1:8000"]) {
+      await assert.rejects(startServer(directory, { SPARK_SCOPE_API_URL: url }), (error) => {
+        assert.match(error.message, /exited with 1/);
+        assert.match(error.message, /SPARK_SCOPE_API_URL must be an http:\/\/ or https:\/\/ URL/);
+        assert.doesNotMatch(error.message, /s3cret|127\.0\.0\.1:8000\/health/);
+        return true;
+      });
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("requests for another site's host name are refused, every response carries the security headers, and a malformed target is a 400", async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-server-host-"));
   const { child, base } = await startServer(directory, { SPARK_SCOPE_ALLOWED_HOSTS: "dash.example.org" });

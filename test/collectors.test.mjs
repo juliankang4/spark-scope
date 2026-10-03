@@ -68,6 +68,11 @@ test("the last completed prefill rate is held until the next prefill completes",
   }, next, refreshed);
   assert.equal(reset.promptTokensPerSecond, 0);
   assert.equal(reset.updatedAt, null);
+
+  // A poll whose prefill counters were missing (TensorFold's /health did not answer) is no baseline for the next one.
+  const gap = { ...next, at: next.at + 2000, promptComputeTotal: null, promptCacheTotal: null, prefillTimeTotal: null, prefillCount: null };
+  const afterGap = { ...next, at: next.at + 4000, promptTotal: 214_000, promptComputeTotal: 171_200, promptCacheTotal: 42_800, prefillTimeTotal: 107, prefillCount: 3 };
+  assert.deepEqual(holdPrefillRates(afterGap, gap, refreshed), refreshed);
 });
 
 test("Prometheus samples and labels are parsed", () => {
@@ -346,6 +351,29 @@ async function withFakeCommand(name, body, run, { onlyFake = false } = {}) {
 }
 const withFakeNvidiaSmi = (body, run) => withFakeCommand("nvidia-smi", body, run);
 
+// A fake journalctl, with a pass-through timeout so this also runs where coreutils' timeout is missing (macOS).
+async function withFakeJournal(body, run) {
+  return withFakeCommand("journalctl", body, () => withFakeCommand("timeout", 'shift; exec "$@"', run));
+}
+
+test("kernel errors from before a reboot are counted: the journal is read across boots, not with -k", async () => {
+  const line = "1790990000.000000 spark-1 kernel: NVRM: Xid (PCI:0000:01:00): 79, GPU has fallen off the bus.";
+  // Like journalctl: -k implies the current boot, where this error is not; the kernel transport match reaches it.
+  const node = await withFakeJournal(`case " $* " in *" -k "*) exit 1 ;; *_TRANSPORT=kernel*) echo "${line}" ;; *) exit 1 ;; esac`, () =>
+    collectNode({ id: "1", name: "this", host: "local", local: true }));
+  assert.equal(node.kernelEvents.status, "ok");
+  assert.equal(node.kernelEvents.xid, 1);
+  assert.match(node.kernelEvents.lastMessage, /fallen off the bus/);
+});
+
+test("a journal that shows no kernel lines (no access, only the account's own journal) reads as unavailable, not as 0 errors", async () => {
+  // journalctl -q without access opens only the user's journal: no matches (exit 1), and the check prints nothing.
+  const node = await withFakeJournal('case "$*" in *-g*) exit 1 ;; *) exit 0 ;; esac', () =>
+    collectNode({ id: "1", name: "this", host: "local", local: true }));
+  assert.equal(node.kernelEvents.status, "unavailable");
+  assert.equal(node.kernelEvents.available, false);
+});
+
 test("a server that nvidia-smi names after the Python interpreter is named by its launcher script", { skip: process.platform !== "linux" && "reads /proc" }, async () => {
   const { mkdtempSync, writeFileSync, chmodSync, rmSync } = await import("node:fs");
   const os = await import("node:os");
@@ -425,15 +453,16 @@ async function withFakeEngine(metricsText, run) {
   const http = await import("node:http");
   let body = metricsText;
   let health = null;
+  let models = [{ id: "example-model" }];
   const server = http.createServer((request, response) => {
     if (request.url === "/metrics") { response.writeHead(200, { "content-type": "text/plain" }); response.end(body); return; }
-    if (request.url === "/v1/models") { response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ data: [{ id: "example-model" }] })); return; }
+    if (request.url === "/v1/models") { response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ data: models })); return; }
     if (request.url === "/health" && health) { response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(health)); return; }
     response.writeHead(200).end("ok");
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   try {
-    return await run(`http://127.0.0.1:${server.address().port}`, (next) => { body = next; }, (next) => { health = next; });
+    return await run(`http://127.0.0.1:${server.address().port}`, (next) => { body = next; }, (next) => { health = next; }, (next) => { models = next; });
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -604,6 +633,18 @@ test("TensorFold's output rate counts reply tokens while they stream; the ledger
     const mac = await collector.collect();
     assert.equal(mac.prefixCacheHitPercent, null);
     assert.ok(Math.abs(mac.outputTokensPerSecond - 100) < 5, String(mac.outputTokensPerSecond));
+  });
+});
+
+test("TensorFold's metrics carry no model name, so a model switch is read from the model list on the next poll", async () => {
+  const { InferenceCollector } = await import("../lib/collectors.mjs");
+  await withFakeEngine(tensorfoldScrape(), async (base, setMetrics, setHealth, setModels) => {
+    const collector = new InferenceCollector(base);
+    assert.equal((await collector.collect()).modelName, "example-model");
+    // Restarted into another model within seconds: the ledger must not book the new run under the old name.
+    setModels([{ id: "other-model" }]);
+    setMetrics(tensorfoldScrape({ finished: 10, prompt: 100 }));
+    assert.equal((await collector.collect()).modelName, "other-model");
   });
 });
 

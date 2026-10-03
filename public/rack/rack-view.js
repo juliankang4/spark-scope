@@ -127,7 +127,7 @@ const GPU_PROBLEMS = {
 };
 
 // Reasons are ordered by severity so the bay header can show the most important one.
-export function nodeView(meta, node, { inferenceOk = false, lastOkAt = null, nowMs = Date.now(), links = [], clock = {} } = {}) {
+export function nodeView(meta, node, { inferenceOk = false, lastOkAt = null, nowMs = Date.now(), links = [], clock = {}, mem = "gib" } = {}) {
   const id = meta?.id ?? node?.id ?? "?";
   const base = {
     id,
@@ -175,7 +175,7 @@ export function nodeView(meta, node, { inferenceOk = false, lastOkAt = null, now
   if (inferenceOk && meta?.inference !== false && !node.inferenceProcessUp) warn.push(t("rack.reason.noInferenceProcess"));
   if (restarts > 0 && recent(node.container?.startedAt)) warn.push(t("rack.reason.restarted", { count: restarts }));
   if (diskPct !== null && diskPct >= DISK_WARN_PERCENT) warn.push(t("rack.reason.disk", { percent: diskPct }));
-  if (memFreeGiB !== null && memFreeGiB < MEMORY_WARN_GIB) warn.push(t("rack.reason.memoryFree", { free: memFreeGiB.toFixed(1) }));
+  if (memFreeGiB !== null && memFreeGiB < MEMORY_WARN_GIB) warn.push(t("rack.reason.memoryFree", { free: freeLabel(memFreeGiB, mem) }));
   if (kernel?.total > 0 && recent(kernel.lastAt)) {
     const count = `${kernel.capped ? "≥" : ""}${kernel.total}`;
     warn.push(kernel.lastAt ? t("rack.reason.kernel", { count, time: clockTime(kernel.lastAt, clock) }) : t("rack.reason.kernelNoTime", { count }));

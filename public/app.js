@@ -115,8 +115,12 @@ function renderCharts(state) {
     const pick=id=>point=>{const v=point.nodes?.[id]?.[field];return finite(v)?v/scale:null};
     const values=history.flatMap(point=>ids.map(id=>pick(id)(point))).filter(finite),low=kind==='temp'&&values.length?Math.min(...values)-2:0,high=values.length?Math.max(...values)+(kind==='temp'?2:5):1;
     $('#'+kind+'-chart').innerHTML=ids.map((id,index)=>`<path d="${chartPath(history,pick(id),{start,end,width:320,height:80,min:low,max:high})}" fill="none" stroke="${nodeColor(settings.colors,index)}" stroke-width="2" vector-effect="non-scaling-stroke"/>`).join('');
-    $('#'+kind+'-legend').innerHTML=metas.map((meta,index)=>{const node=state.nodes?.[meta.id];const value=!node?.ok?unknown():kind==='temp'?temperature(node.gpu?.temperature,settings.temp):memory(node.memory?.availableBytes,settings.mem);return `<span style="color:${nodeColor(settings.colors,index)}">${esc(meta.name)} <b class="num">${value}</b></span>`}).join('');
+    renderLegend(kind,state.nodes);
   }
+}
+// The current value per node under a trend chart; unknown for a node that did not answer (or with no state at all).
+function renderLegend(kind,nodes) {
+  $('#'+kind+'-legend').innerHTML=metas.map((meta,index)=>{const node=nodes?.[meta.id];const value=!node?.ok?unknown():kind==='temp'?temperature(node.gpu?.temperature,settings.temp):memory(node.memory?.availableBytes,settings.mem);return `<span style="color:${nodeColor(settings.colors,index)}">${esc(meta.name)} <b class="num">${value}</b></span>`}).join('');
 }
 function renderToday(usage) {
   document.querySelectorAll('[data-usage]').forEach(el=>{const key=el.dataset.usage;const value=usage?.error||usage?.reported?.[key]===false?null:usage?.today?.[key];el.textContent=key==='requests'?fixed(value,0):compact(value);el.title=finite(value)?value.toLocaleString('en-US'):''});
@@ -154,7 +158,7 @@ function recentLatency(v,key) {
 function failedState() {
   latest=null;
   $('#shell').classList.add('stale');$('.status').className='status error';text('#status-title',t('statusbar.serverDown'));text('#status-desc',t('statusbar.serverDownDetail'));
-  metas.forEach(meta=>renderNode(meta,null));renderLinks(null);renderToday(null);for(const id of ['speed','legend-speed','avg','queue'])text('#'+id,unknown());document.querySelectorAll('[data-field]').forEach(el=>el.textContent=unknown());$('#plot-note').hidden=false;$('#plot-note').textContent=t('chart.note.reconnecting');
+  metas.forEach(meta=>renderNode(meta,null));renderLinks(null);renderToday(null);renderLegend('temp',null);renderLegend('mem',null);for(const id of ['speed','legend-speed','avg','queue'])text('#'+id,unknown());document.querySelectorAll('[data-field]').forEach(el=>el.textContent=unknown());$('#plot-note').hidden=false;$('#plot-note').textContent=t('chart.note.reconnecting');
 }
 async function refresh() {
   if(collecting)return;collecting=true;const requestedRange=range,full=historyRange!==requestedRange||Date.now()-historyAt>=HISTORY_REFRESH_MS;
@@ -195,8 +199,11 @@ let ledgerView='statement',pickedDay=null,shownMonth=null;
 const pastMonths=new Map();
 let redrawMonth=()=>{};
 function renderMonth(usage,previous) {
-  redrawMonth=()=>renderMonth(usage,previous);shownMonth=usage;
   if(usage.timeZone)ledgerTimeZone=usage.timeZone;
+  // Unless a month was picked by hand, the ledger shows the server's current month: its time zone may put today in
+  // another month than the viewer's, and the month changes at midnight on its last day.
+  if(!monthPicked&&usage.day.slice(0,7)!==selectedMonth){selectedMonth=usage.day.slice(0,7);pickedDay=null;monthLoadedAt=0;rebuildMonths();void refreshMonth(true);return}
+  redrawMonth=()=>renderMonth(usage,previous);shownMonth=usage;
   unreported=Object.fromEntries(Object.entries(usage.reported??{}).filter(([,seen])=>seen===false).map(([key])=>[key,true]));
   earliestMonth=usage.firstMonth;rebuildMonths();const current=selectedMonth===usage.day.slice(0,7);
   text('#month-period',[monthLabel(selectedMonth),current?t('ledger.through',{day:dayLabel(usage.day)}):null,usage.timeZone?t('ledger.zone',{timeZone:usage.timeZone}):null].filter(Boolean).join(' | '));
@@ -206,7 +213,7 @@ function renderMonth(usage,previous) {
   if(!pickedDay?.startsWith(selectedMonth))pickedDay=current?usage.day:usage.days.at(-1)?.day??`${selectedMonth}-01`;
   const focused=document.activeElement?.closest?.('#ledger-panel [data-day]')?.dataset.day;
   $('#ledger-panel').dataset.month=usage.month;
-  setHtml('#ledger-panel',ledgerView==='calendar'?calendarHtml(usage,previous,pickedDay,unreported):ledgerView==='charts'?chartsHtml(usage,previous):statementHtml(usage,unreported));
+  setHtml('#ledger-panel',ledgerView==='calendar'?calendarHtml(usage,previous,pickedDay,unreported):ledgerView==='charts'?chartsHtml(usage,previous,unreported):statementHtml(usage,unreported));
   if(focused)$(`#ledger-panel [data-day="${focused}"]`)?.focus();
   setHtml('#model-table',modelTableHtml(usage,unreported));
   const csv=$('#token-csv'),label=t('ledger.csvLabel',{month:monthLabel(selectedMonth)});csv.disabled=false;csv.title=label;csv.setAttribute('aria-label',label);
@@ -323,11 +330,11 @@ form.addEventListener('change',event=>{
 // ---- node colours ----
 // A node's colour as picked, or its default: the palette in order without red, which is never a default.
 const colorOf=index=>settings.colors[index]??PALETTE[index%(PALETTE.length-1)];
-function renderColorRows(){
+function renderColorRows(force=false){
   const rows=metas.map((meta,index)=>{const current=colorOf(index),custom=current.startsWith('#'),low=custom?lowContrast(current):null;
     return `<div class="crow" data-node-row="${index}" aria-current="${meta.id===previewId}"><div class="cname"><i style="background:${nodeColor(settings.colors,index)}"></i><span>${esc(meta.name)}<small>${t('settings.colors.node',{n:index+1})}</small></span></div><div><div class="swatches">${PALETTE.map(name=>`<button type="button" class="sw" data-color="${index}" data-value="${name}" aria-pressed="${current===name}" aria-label="${t(`settings.color.${name}`)}" title="${t(`settings.color.${name}`)}" style="background:var(--${name})"></button>`).join('')}<label class="custom"><span>${t('settings.colors.custom')}</span><input type="color" data-custom="${index}" value="${custom?current:'#7cbbeb'}" class="${custom?'picked':''}" aria-label="${t('settings.colors.customFor',{node:meta.name})}"></label></div>${low?`<p class="contrast">${t(`settings.colors.low.${low}`)}</p>`:''}</div></div>`}).join('');
   // Left alone while a colour picker in it is open, so the next poll does not close it.
-  const box=$('#color-rows');if(box.innerHTML!==rows&&!box.contains(document.activeElement?.closest('[data-custom]')))box.innerHTML=rows;
+  const box=$('#color-rows');if(box.innerHTML!==rows&&(force||!box.contains(document.activeElement?.closest('[data-custom]'))))box.innerHTML=rows;
 }
 // A colour for one node: the list is filled up to that node with the current colours, and a list equal to the
 // defaults is stored as no choice at all.
@@ -342,7 +349,8 @@ $('#color-rows').addEventListener('click',event=>{
 });
 // The colour picker reports while it is dragged; the page follows at once, the row is redrawn when the picker closes.
 $('#color-rows').addEventListener('input',event=>{const input=event.target.closest('[data-custom]');if(!input)return;const index=Number(input.dataset.custom);settings=parseSettings({...settings,colors:metas.map((_,k)=>k===index?input.value:colorOf(k))});saveSettings(store,settings);previewId=metas[index]?.id??previewId;buildNodes();if(latest){try{drawState(latest)}catch{}}renderPreview({rows:false})});
-$('#color-rows').addEventListener('change',event=>{const input=event.target.closest('[data-custom]');if(input)setColor(Number(input.dataset.custom),input.value)});
+// The picker has closed but its input keeps the focus: redraw the row anyway (selected swatch, contrast warning).
+$('#color-rows').addEventListener('change',event=>{const input=event.target.closest('[data-custom]');if(!input)return;const index=input.dataset.custom;setColor(Number(index),input.value);renderColorRows(true);$('#color-rows').querySelector(`[data-custom="${index}"]`)?.focus()});
 $('#colors-reset').addEventListener('click',()=>{const before=settings;settings=parseSettings({...settings,colors:[]});applySettings(changes(before))});
 
 // Selecting a reading on the preview card opens its slot in Node card.
@@ -354,8 +362,10 @@ function showSection(name){
 dialog.querySelectorAll('[data-section]').forEach(button=>button.addEventListener('click',()=>showSection(button.dataset.section)));
 opener.addEventListener('click',()=>{syncForm();renderPreview();$('#settings-link').hidden=true;dialog.showModal();opener.setAttribute('aria-expanded','true')});
 dialog.addEventListener('close',()=>{hideHelp();opener.setAttribute('aria-expanded','false');opener.focus()});
-// Clicking the dimmed page outside the dialog closes it.
-dialog.addEventListener('click',event=>{if(event.target===dialog)dialog.close()});
+// Clicking the dimmed page outside the dialog closes it; a text selection dragged out of a field does not.
+let pressedOutside=false;
+dialog.addEventListener('pointerdown',event=>{pressedOutside=event.target===dialog});
+dialog.addEventListener('click',event=>{if(event.target===dialog&&pressedOutside)dialog.close()});
 $('#settings-reset').addEventListener('click',()=>{const before=settings;settings=parseSettings(null);themeChoice=null;saveTheme(store,null);applyTheme();applySettings(changes(before))});
 // The clipboard needs HTTPS or localhost; on plain HTTP the link is shown selected, ready to copy by hand.
 // ---- mini window ----

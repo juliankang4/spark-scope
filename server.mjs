@@ -43,6 +43,18 @@ function portNumber(name, fallback) {
   return value;
 }
 
+// Checked here because fetch would otherwise put a malformed URL, or one with a password, into its error messages,
+// which reach the pages. The value itself is never printed.
+function inferenceUrl(name, fallback) {
+  const raw = process.env[name] || fallback;
+  let url = null;
+  try { url = new URL(raw); } catch { /* reported below */ }
+  if (!url || !["http:", "https:"].includes(url.protocol) || url.username || url.password) {
+    throw new Error(`${name} must be an http:// or https:// URL without a user name or password, such as http://127.0.0.1:8000`);
+  }
+  return raw;
+}
+
 function validTimeZone(timeZone) {
   if (!timeZone) return undefined;
   try {
@@ -57,7 +69,7 @@ const dataHome = process.env.XDG_DATA_HOME || path.join(homedir(), ".local", "sh
 const config = {
   host: process.env.SPARK_SCOPE_HOST || "127.0.0.1",
   port: portNumber("SPARK_SCOPE_PORT", 8787),
-  apiUrl: process.env.SPARK_SCOPE_API_URL || "http://127.0.0.1:8000",
+  apiUrl: inferenceUrl("SPARK_SCOPE_API_URL", "http://127.0.0.1:8000"),
   nodeIntervalMs: positiveInteger("SPARK_SCOPE_NODE_INTERVAL_MS", 5000, 1000),
   apiIntervalMs: positiveInteger("SPARK_SCOPE_API_INTERVAL_MS", 2000, 500),
   usageDbPath: process.env.SPARK_SCOPE_USAGE_DB || path.join(dataHome, "spark-scope", "usage.sqlite"),

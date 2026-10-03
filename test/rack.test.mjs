@@ -116,6 +116,12 @@ test("a node that is not collected shows 'not collected' instead of a fault or i
   assert.deepEqual(nodeView(META["3"], undefined).reasons, ["waiting for data"]);
 });
 
+test("the low-memory reason uses the panel's memory unit, like the meter", () => {
+  const low = healthy({ memory: { totalBytes: 121.6 * GIB, availableBytes: 1.5 * GIB } });
+  assert.equal(reasonText(nodeView(META["3"], low)), "1.5 GiB memory free");
+  assert.equal(reasonText(nodeView(META["3"], low, { mem: "gb" })), "1.6 GB memory free");
+});
+
 test("a healthy node reads OK with usage-based memory and disk figures", () => {
   const view = nodeView(META["3"], healthy());
   assert.equal(view.level, "good");

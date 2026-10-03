@@ -91,3 +91,11 @@ test('the views cover the whole month: weeks from Monday, every calendar day, an
   assert.equal((kpiHtml(june, may).match(/class="kpi/g) ?? []).length, 6);
   assert.equal((kpiHtml(may, april).match(/class="kpi/g) ?? []).length, 4);
 });
+
+test('without the cache and new-input split, the input chart draws logical input as one series', () => {
+  const [, may, june] = LEDGER_SCENARIO.months.map(scenario);
+  const charts = chartsHtml(june, may, { cache: true, compute: true });
+  const inputChart = charts.split('class="chart-pair"')[0];
+  assert.match(inputChart, /<rect [^>]*class="k-new"><title>[^<]*Logical input/);
+  assert.doesNotMatch(inputChart, /class="k-cache"/);
+});
