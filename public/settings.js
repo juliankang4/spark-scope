@@ -51,6 +51,8 @@ const FIELDS = {
   diskWarn: level(95, 50, 100),
   memWarn: level(2, 0, 64),
   colors: colorList,
+  // The page's look: Default, Console (a dark terminal look) or Soft (rounded cards); see designs.css.
+  design: choice('default', ['default', 'console', 'soft']),
   // The rack panel's bottom band: one-pixel steps (default), a smooth glide, or still between polls.
   motion: choice('step', ['step', 'smooth', 'still']),
 };

@@ -1,0 +1,105 @@
+/* The two other looks, chosen in the settings (Dashboard, Design). Each is a layer over styles.css on the same markup:
+   theme tokens plus a few component rules, under html[data-design=...]. Default needs no rules. */
+
+/* ===== Console: a terminal look, dark only (it ignores the theme setting) ===== */
+html[data-design=console]{color-scheme:dark;--text-font:ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;--num-font:ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
+  --paper:#0c110e;--chassis:#060908;--ink:#d9f2df;--muted:#7f9c87;--line:#1e3326;--blue:#5fd7e8;--orange:#ffb454;--green:#7ee787;--red:#ff7b72;--purple:#d2a8ff;--gold:#e3c66b;--magenta:#ff8fd0;--umber:#c9b8a4;
+  --grid:rgba(126,231,135,.09);--screen:#08100b;--track:#16261b;--meter:#16261b;--link:#3f6a4b;--link-inner:#284433;--hover:#122219;--warning:#2a1d0e;--tabs:#09110c;--brand:#060908;--brand-text:#7ee787;--plot-fill:transparent}
+html[data-design=console] .node:nth-child(8n+4){--node:#e6edf3}
+html[data-design=console] body{font-size:13px}
+html[data-design=console] .shell{border:1px solid var(--line);box-shadow:none}
+html[data-design=console] .top{border-bottom:1px solid var(--line)}
+html[data-design=console] .brand strong{font:700 17px var(--num-font);letter-spacing:0}
+html[data-design=console] .brand strong::before{content:'$ ';color:var(--muted)}
+html[data-design=console] .identity h1{font:600 17px var(--num-font)}
+/* The status line opens with its state in brackets. */
+html[data-design=console] .status #status-title::before{content:'[ok] '}
+html[data-design=console] .status.error #status-title::before{content:'[!!] '}
+html[data-design=console] .status.stopped #status-title::before{content:'[--] '}
+html[data-design=console] .nodes{border-bottom:1px solid var(--line)}
+html[data-design=console] .node{padding:14px 16px 10px}
+html[data-design=console] .node h2{font:700 15px var(--num-font)}
+html[data-design=console] .node h2::before{content:'▌';background:none;color:var(--node);width:auto;height:auto;margin-right:6px}
+html[data-design=console] .badge{border:0;padding:0;font-size:11px}
+html[data-design=console] .badge::before{content:'['}
+html[data-design=console] .badge::after{content:']'}
+html[data-design=console] .role{font-size:11px}
+/* GPU load as a segmented bar instead of the arc. */
+html[data-design=console] .instrument{grid-template-columns:1fr;gap:10px}
+html[data-design=console] .gauge{width:auto;height:auto;text-align:left;display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:center}
+html[data-design=console] .gauge svg{display:none}
+html[data-design=console] .gauge strong{padding:0;font:700 28px var(--num-font);letter-spacing:-1px;grid-row:span 2}
+html[data-design=console] .gauge strong small{font-size:15px}
+html[data-design=console] .gauge>span{margin:0;text-transform:uppercase;letter-spacing:1px}
+html[data-design=console] .gauge::after{content:'';height:10px;background:repeating-linear-gradient(90deg,var(--node) 0 6px,transparent 6px 8px) 0/calc(var(--load,0)*1%) 100% no-repeat,repeating-linear-gradient(90deg,var(--track) 0 6px,transparent 6px 8px)}
+html[data-design=console] .readings{gap:6px 14px}
+html[data-design=console] .reading small{text-transform:uppercase;letter-spacing:1px;font-size:9px}
+html[data-design=console] .reading b{font:600 17px var(--num-font)}
+html[data-design=console] .meter{height:8px;background:repeating-linear-gradient(90deg,var(--meter) 0 6px,transparent 6px 8px)}
+html[data-design=console] .meter i{background:repeating-linear-gradient(90deg,var(--node) 0 6px,transparent 6px 8px);opacity:1}
+html[data-design=console] .meter i.warn{background:repeating-linear-gradient(90deg,var(--orange) 0 6px,transparent 6px 8px)}
+html[data-design=console] .memline{text-transform:uppercase;letter-spacing:1px;font-size:9px}
+html[data-design=console] .node details{border-top:1px dashed var(--line)}
+html[data-design=console] .section-head h2{text-transform:uppercase;letter-spacing:1.5px;font-size:12px}
+html[data-design=console] .section-head h2::before{content:'## ';color:var(--muted)}
+html[data-design=console] .plot{background:var(--screen) linear-gradient(transparent 50%,rgba(126,231,135,.025) 50%) 0 0/100% 4px}
+html[data-design=console] .big{font:700 40px var(--num-font)}
+html[data-design=console] .settings{border:1px solid var(--green)}
+html[data-design=console] .settings-head,html[data-design=console] .top{border-bottom-width:1px}
+
+/* ===== Soft: rounded widgets, light and dark ===== */
+html[data-design=soft]{--text-font:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,'Helvetica Neue',sans-serif;--num-font:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',Roboto,'Helvetica Neue',sans-serif;
+  --paper:#ffffff;--chassis:#eef0f3;--ink:#1c1e22;--muted:#6b7280;--line:#e4e6ea;--blue:#2563eb;--orange:#ea580c;--green:#059669;--red:#dc2626;--purple:#7c3aed;--gold:#a16207;--magenta:#db2777;--umber:#92745c;
+  --grid:rgba(28,30,34,.06);--screen:#f8f9fb;--track:#e8eaee;--meter:#eceef2;--link:#9aa3af;--link-inner:#c7ccd4;--hover:#f1f3f6;--warning:#fdf1e7;--tabs:#ffffff;--brand:#1c1e22;--brand-text:#ffffff;--plot-fill:#2563eb14}
+html[data-design=soft][data-theme=dark]{color-scheme:dark;--paper:#1c1c1f;--chassis:#111113;--ink:#f2f2f4;--muted:#a1a1aa;--line:#2b2b30;--blue:#60a5fa;--orange:#fb923c;--green:#34d399;--red:#f87171;--purple:#a78bfa;--gold:#facc15;--magenta:#f472b6;--umber:#c4a487;
+  --grid:rgba(255,255,255,.06);--screen:#18181b;--track:#2e2e33;--meter:#2a2a2f;--link:#71717a;--link-inner:#52525b;--hover:#26262a;--warning:#33241a;--tabs:#1c1c1f;--brand:#f2f2f4;--brand-text:#111113;--plot-fill:#60a5fa14}
+html[data-design=soft] body{background:var(--chassis)}
+/* The page becomes a column of rounded cards on the background. */
+html[data-design=soft] .shell{background:transparent;border:0;box-shadow:none;display:grid;gap:14px}
+html[data-design=soft] #scope{display:grid;gap:14px}
+html[data-design=soft] .top,html[data-design=soft] .status,html[data-design=soft] .body-grid,html[data-design=soft] .lower,html[data-design=soft] .token-view{background:var(--paper);border:0;border-radius:18px;box-shadow:0 1px 2px #0000000f;overflow:hidden}
+html[data-design=soft] .status{border-radius:14px}
+html[data-design=soft] .token-view{padding:24px}
+html[data-design=soft] .foot{background:transparent;border:0}
+html[data-design=soft] .brand{background:transparent;color:var(--ink)}
+html[data-design=soft] .brand strong{font:700 18px var(--num-font);letter-spacing:-.3px}
+html[data-design=soft] .brand span{border-radius:999px;background:var(--hover);border:0}
+html[data-design=soft] .header-actions{background:transparent}
+html[data-design=soft] .header-actions button{border-left:0;border-radius:12px;margin:12px 2px;width:44px}
+html[data-design=soft] .header-actions .tabs button[aria-selected=true]{background:var(--hover)}
+html[data-design=soft] .header-actions .tabs button[aria-selected=true]:after{display:none}
+html[data-design=soft] .header-actions .settings-open[aria-expanded=true]{background:var(--ink);color:var(--paper)}
+html[data-design=soft] .nodes{border:0;gap:14px;background:transparent}
+html[data-design=soft] .node{background:var(--paper);border-radius:18px;box-shadow:0 1px 2px #0000000f,0 4px 16px #00000008;padding:18px 20px 12px}
+html[data-design=soft] .node h2{font:700 19px var(--num-font);letter-spacing:-.3px}
+html[data-design=soft] .node h2::before{width:10px;height:10px;border-radius:50%;vertical-align:1px}
+html[data-design=soft] .badge{border:0;border-radius:999px;padding:4px 10px;background:color-mix(in srgb,currentColor 14%,transparent);font-weight:600}
+/* GPU load as a ring; the value ("92%" as one unit, the % small and raised) and its label are centred together. */
+html[data-design=soft] .gauge{display:grid;grid-template:1fr/1fr;place-items:center;width:104px;height:104px;border-radius:50%;background:radial-gradient(closest-side,var(--paper) 78%,transparent 79% 100%),conic-gradient(var(--node) calc(var(--load,0)*1%),var(--track) 0)}
+html[data-design=soft] .gauge svg{display:none}
+html[data-design=soft] .gauge>*{grid-area:1/1}
+html[data-design=soft] .gauge strong{padding:0;font:700 28px/1 var(--num-font);letter-spacing:-.5px;white-space:nowrap;transform:translateY(-6px)}
+html[data-design=soft] .gauge strong small{position:relative;top:-9px;margin-left:1px;font-size:13px;font-weight:600;letter-spacing:0}
+html[data-design=soft] .gauge>span{margin:0;font-size:10px;line-height:1;transform:translateY(16px)}
+html[data-design=soft] .node.is-unknown .gauge strong{font-size:15px}
+html[data-design=soft] .instrument{grid-template-columns:104px 1fr}
+html[data-design=soft] .reading small{font-size:11px}
+html[data-design=soft] .reading b{font:600 20px var(--num-font);letter-spacing:-.3px}
+html[data-design=soft] .meter{height:8px;border-radius:999px;overflow:hidden}
+html[data-design=soft] .meter i{border-radius:999px;opacity:1}
+html[data-design=soft] .node details{border-top:1px solid var(--line)}
+html[data-design=soft] .left{border-right:1px solid var(--line)}
+html[data-design=soft] .plot{border:0;border-radius:12px;background:var(--screen)}
+html[data-design=soft] .engine-section{border-radius:12px;overflow:hidden}
+html[data-design=soft] .ranges{background:var(--hover);border-radius:999px;padding:2px}
+html[data-design=soft] .ranges button{border:0;border-radius:999px}
+html[data-design=soft] .ranges button[aria-pressed=true]{background:var(--paper);color:var(--ink);box-shadow:0 1px 2px #0000001a}
+html[data-design=soft] .settings{border:0;border-radius:20px;overflow:hidden}
+html[data-design=soft] .settings-head{border-bottom:1px solid var(--line)}
+html[data-design=soft] .pills{border:0;background:var(--hover);border-radius:999px;padding:2px}
+html[data-design=soft] .pills label+label{border-left:0}
+html[data-design=soft] .pills span{border-radius:999px}
+html[data-design=soft] .pills input:checked+span{background:var(--paper);color:var(--ink);box-shadow:0 1px 2px #0000001a}
+html[data-design=soft] .settings-foot button,html[data-design=soft] button.plain,html[data-design=soft] .settings-close{border-radius:999px}
+html[data-design=soft] .settings-preview .nodes{border:0}
+html[data-design=soft] .help-tip{border-radius:10px}

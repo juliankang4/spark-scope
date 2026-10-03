@@ -8,6 +8,7 @@
 <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/designs.css">
 </head>
 <body>
 <main class="shell" id="shell">
@@ -55,6 +56,7 @@
 <fieldset class="choice"><legend data-i18n="settings.dashboard.range">Chart range at start</legend><div class="pills"><label><input type="radio" name="range" value="15"><span data-i18n="chart.range15">15m</span></label><label><input type="radio" name="range" value="60"><span data-i18n="chart.range60">1h</span></label><label><input type="radio" name="range" value="360"><span data-i18n="chart.range360">6h</span></label></div></fieldset>
 <fieldset class="choice"><legend data-i18n="settings.dashboard.refresh">Refresh every</legend><div class="pills"><label><input type="radio" name="refresh" value="2"><span data-i18n="settings.refresh2">2 s</span></label><label><input type="radio" name="refresh" value="5"><span data-i18n="settings.refresh5">5 s</span></label><label><input type="radio" name="refresh" value="10"><span data-i18n="settings.refresh10">10 s</span></label></div></fieldset>
 <fieldset class="choice"><legend data-i18n="settings.dashboard.hiddenTab">Hidden tab</legend><label class="check"><input type="checkbox" name="pause"><span data-i18n="settings.dashboard.pause">Pause updates while the tab is hidden</span></label></fieldset>
+<fieldset class="choice"><legend><span data-i18n="settings.dashboard.design">Design</span><button type="button" class="help" data-help="help.design" data-i18n-aria-label="help.label" aria-label="More about this">?</button></legend><div class="pills"><label><input type="radio" name="design" value="default"><span data-i18n="settings.design.default">Default</span></label><label><input type="radio" name="design" value="console"><span data-i18n="settings.design.console">Console</span></label><label><input type="radio" name="design" value="soft"><span data-i18n="settings.design.soft">Soft</span></label></div></fieldset>
 <fieldset class="choice"><legend data-i18n="settings.dashboard.theme">Theme</legend><div class="pills"><label><input type="radio" name="theme" value="light"><span data-i18n="settings.theme.light">Light</span></label><label><input type="radio" name="theme" value="dark"><span data-i18n="settings.theme.dark">Dark</span></label><label><input type="radio" name="theme" value="system"><span data-i18n="settings.theme.system">System</span></label></div></fieldset>
 <p class="settings-note" id="rack-hint" hidden><span data-i18n="settings.rack.hint">Using a rack display? Its settings show here once it has opened /rack/ from this server.</span> <button type="button" class="linkish" id="rack-show" data-i18n="settings.rack.show">Show rack settings</button></p>
 </section>

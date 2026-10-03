@@ -531,6 +531,41 @@ try {
     await web.close();
   }
 
+  // The two other designs: the main view, the token ledger and the settings dialog. Console stays dark even with a
+  // light system theme; in Soft the ring value ("88%" as one unit) and its label sit centred on the ring.
+  for (const [design, label, width, height, scheme] of [["console", "desktop", 1440, 1000, "light"], ["console", "phone", 390, 844, "dark"], ["soft", "desktop", 1440, 1000, "light"], ["soft", "desktop", 1440, 1000, "dark"], ["soft", "phone", 390, 844, "dark"]]) {
+    const web = await openPage({ width, height, colorScheme: scheme });
+    current = { count: 4, mode: "serving", longNames: false };
+    await web.go(`${base}/?design=${design}`);
+    await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && /\\d/.test(document.querySelector('#updated-at').textContent)");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const look = await web.evaluate(`(() => {
+      const gauge = document.querySelector('#nodes .node .gauge'), value = gauge.querySelector('strong'), label = gauge.querySelector('span');
+      const range = document.createRange(); range.selectNodeContents(value);
+      const g = gauge.getBoundingClientRect(), v = range.getBoundingClientRect(), l = label.getBoundingClientRect();
+      return { design: document.documentElement.dataset.design, scheme: getComputedStyle(document.documentElement).colorScheme,
+        dx: (v.left + v.right) / 2 - (g.left + g.right) / 2, dy: (Math.min(v.top, l.top) + Math.max(v.bottom, l.bottom)) / 2 - (g.top + g.bottom) / 2 };
+    })()`);
+    const problems = [...await web.evaluate(CHECK_WEB), ...web.errors.splice(0)];
+    if (look.design !== design) problems.push("design not applied: " + look.design);
+    if (design === "console" && look.scheme !== "dark") problems.push("Console is not dark: " + look.scheme);
+    if (design === "soft" && (Math.abs(look.dx) > 1.5 || Math.abs(look.dy) > 1.5)) problems.push(`ring value off centre by ${look.dx.toFixed(1)}, ${look.dy.toFixed(1)} px`);
+    const name = `web-${label}-${design}-${scheme}.png`;
+    await web.shoot(name, { fullPage: true });
+    report(name, [`ring value offset: ${look.dx.toFixed(1)}, ${look.dy.toFixed(1)} px`], problems);
+    await web.evaluate("document.querySelector('#tab-tokens').click()");
+    await web.waitFor("document.querySelectorAll('#token-days tr').length > 1");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await web.shoot(`web-${label}-${design}-${scheme}-tokens.png`, { fullPage: true });
+    report(`web-${label}-${design}-${scheme}-tokens.png`, [], [...await web.evaluate(CHECK_WEB), ...web.errors.splice(0)]);
+    await web.evaluate("document.querySelector('#tab-scope').click(); document.querySelector('#settings-open').click()");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await web.shoot(`web-${label}-${design}-${scheme}-settings.png`);
+    report(`web-${label}-${design}-${scheme}-settings.png`, [], [...await web.evaluate(CHECK_SETTINGS), ...web.errors.splice(0)]);
+    await web.evaluate("localStorage.clear()");
+    await web.close();
+  }
+
   // The web page in Korean, opened with a settings link (?lang=ko): four nodes serving and with a fault, and the token
   // ledger with its Korean month and day labels.
   for (const [label, width, height, scheme] of [["desktop", 1440, 1000, "light"], ["phone", 390, 844, "dark"]]) {
