@@ -1,5 +1,5 @@
 // Pure view-model helpers for the Spark Scope rack panel (1920 x 480 by default). No DOM access, so node --test can import them.
-import { compact as compactCount, roleName, systemStateText } from "../view-data.js";
+import { compact as compactCount, roleName, systemStateText, modelServers, combinedInference, serverName } from "../view-data.js";
 import { t, serverText } from "../i18n.js";
 
 export const BRAND = "SPARK SCOPE";
@@ -246,6 +246,27 @@ function bandNotes(state) {
   return { urgent, standing };
 }
 
+// With several model servers the band follows all of them together (their output added up, a chip per server), or
+// the one named by "?server=" as if it were the only one. The bays keep every node.
+export function rackFocus(state, serverId = "") {
+  const servers = modelServers(state);
+  if (servers.length < 2) return state;
+  const picked = servers.find((server) => server.id === serverId);
+  // The model line falls back to usage.modelName (the first server's), so it names the followed server instead.
+  if (picked) return { ...state, inference: picked.inference, serving: picked.serving, inferenceState: picked.inferenceState, usage: { ...state.usage, modelName: serverName(picked) }, focusServer: picked.id };
+  return { ...state, inference: combinedInference(servers), servingServers: servers };
+}
+
+// One chip per server for the band: a lamp for its state, its name, and its output or why there is none.
+export function serverChips(servers) {
+  return servers.map((server) => {
+    const v = server.inference;
+    if (v?.ok) return { name: serverName(server), level: "good", value: f1(v.outputTokensPerSecond), unit: "tok/s" };
+    if (server.inferenceState === "stopped") return { name: serverName(server), level: "idle", value: t("rack.server.idle") };
+    return { name: serverName(server), level: v ? "crit" : "idle", value: t(v ? "rack.server.down" : "rack.server.checking") };
+  });
+}
+
 export function clusterView(state, { fetchFailed = false, lastReceivedAt = null, clock = {} } = {}) {
   const inference = state?.inference;
   const running = finite(inference?.runningRequests) ? inference.runningRequests : null;
@@ -268,16 +289,17 @@ export function clusterView(state, { fetchFailed = false, lastReceivedAt = null,
   // An urgent note (a node down, a broken link) matters more than the power total, so it takes its place.
   const counts = (...middle) => countLine(state, [...urgent, ...middle, ...standing], { power: !urgent.length });
   if (state.status === "offline") return { ...base, level: "crit", title: t("rack.cluster.unreachable"), lines: [message, counts()] };
-  if (state.inferenceState === "stopped") return { ...base, level: "idle", title: t("rack.cluster.inferenceStopped"), lines: [t("rack.cluster.noModelServing"), counts()] };
-  if (!inference?.ok) return { ...base, level: "crit", title: t("rack.cluster.inferenceDown"), lines: [`${servingLine(state)} | ${t("rack.cluster.apiNoResponse")}`, counts()] };
+  const chips = state.servingServers ? serverChips(state.servingServers) : null;
+  if (state.inferenceState === "stopped") return { ...base, level: "idle", title: t("rack.cluster.inferenceStopped"), lines: [t("rack.cluster.noModelServing"), counts()], chips };
+  if (!inference?.ok) return { ...base, level: "crit", title: t("rack.cluster.inferenceDown"), lines: [chips ? "" : `${servingLine(state)} | ${t("rack.cluster.apiNoResponse")}`, counts()], chips };
   const title = t(running > 0 ? "rack.cluster.serving" : "rack.cluster.ready");
   const queue = running === null ? null : t("rack.cluster.queue", { running, waiting: waiting ?? 0 });
   if (state.status !== "healthy") {
     // A degradation the notes do not already explain (heat, failed services, a half-dark link) shows the server message.
     const note = urgent.length ? null : message;
-    return { ...base, level: "warn", title, lines: [servingLine(state), counts(note, queue)] };
+    return { ...base, level: "warn", title, lines: [chips ? "" : servingLine(state), counts(note, queue)], chips };
   }
-  return { ...base, level: "good", title, lines: [servingLine(state), counts(queue)] };
+  return { ...base, level: "good", title, lines: [chips ? "" : servingLine(state), counts(queue)], chips };
 }
 
 // Returns [{at, value}] for samples in [fromMs, toMs]; missing values stay null so the line breaks.

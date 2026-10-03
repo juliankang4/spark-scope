@@ -65,7 +65,7 @@ cd spark-scope
 npm run demo
 ```
 
-This serves the dashboard at <http://127.0.0.1:8787/>, with the rack panel at `/rack/` and the mini window at `/mini/`, all on made-up data. `npm run demo -- --nodes 2 --mode fault` shows two nodes with a fault (modes: `serving`, `fault`, `idle`); `--port` picks another port. Nothing is collected or written, and no other machine is contacted.
+This serves the dashboard at <http://127.0.0.1:8787/>, with the rack panel at `/rack/` and the mini window at `/mini/`, all on made-up data. `npm run demo -- --nodes 2 --mode fault` shows two nodes with a fault (modes: `serving`, `fault`, `idle`); `--servers 2` splits the nodes into two model servers (`--off` switches the last one off); `--port` picks another port. Nothing is collected or written, and no other machine is contacted.
 
 ### One node: the dashboard on the Spark itself
 
@@ -147,6 +147,17 @@ Optional permissions on the nodes: kernel error summaries need read access to th
 ### vLLM, SGLang or TensorFold
 
 Point `SPARK_SCOPE_API_URL` at the inference server; in multi-node serving, at the node that hosts the API. vLLM's and TensorFold's metrics are on by default. Start SGLang with `--enable-metrics`. A few of SGLang's and TensorFold's figures are measured differently, listed under [Inference engines](docs/configuration.md#inference-engines). Other engines are recognised on the node cards, but their metrics are not read.
+
+When the nodes serve in separate groups (two cabled nodes each running its own model, four as 2 + 2, three as 2 + 1), list each group as a model server in `topology.json` with its API and nodes instead of setting `SPARK_SCOPE_API_URL`:
+
+```json
+"servers": [
+  { "id": "a", "api": "http://spark-1:8000", "nodes": ["1", "2"] },
+  { "id": "b", "api": "http://spark-3:30000", "nodes": ["3", "4"] }
+]
+```
+
+One dashboard then shows every server: a row per server above the chart, a line and an engine panel for each (or one at a time, in the settings), chips on the rack panel's band, and one token ledger for all of them. Fields and rules: [Model servers](docs/topology.md#model-servers).
 
 ### Running as a service
 

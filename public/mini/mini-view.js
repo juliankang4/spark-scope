@@ -4,7 +4,7 @@
 // requests run on the mini window's own `win`, so they keep their pace while the main tab is hidden.
 import { t, setLanguage } from '../i18n.js';
 import { loadSettings, loadTheme } from '../settings.js';
-import { nodeOrder, nodeColor, finite, fixed, memory, memoryUnit, temperature, temperatureUnit, duration, clockTime, escapeHtml as esc, unknown } from '../view-data.js';
+import { nodeOrder, nodeColor, finite, fixed, memory, memoryUnit, temperature, temperatureUnit, duration, clockTime, escapeHtml as esc, unknown, severalServers, modelServers, pickedServer, viewInference } from '../view-data.js';
 
 export const TABS = ['glance', 'scope', 'runs'];
 const TAB_KEY = 'spark-scope-mini-tab';
@@ -17,6 +17,15 @@ const MAX_RUNS = 20;
 const store = (win) => { try { return win.localStorage; } catch { return null; } };
 const read = (win, key, fallback) => { try { return JSON.parse(store(win)?.getItem(key) ?? 'null') ?? fallback; } catch { return fallback; } };
 const write = (win, key, value) => { try { store(win)?.setItem(key, typeof value === 'string' ? value : JSON.stringify(value)); } catch {} };
+
+// With several model servers the mini window follows all of them together, or the server picked in "one at a time"
+// (its own history too); with one server the state is used as it is.
+export function focusState(state, settings) {
+  if (!severalServers(state)) return state;
+  const id = settings?.servers === 'one' ? pickedServer(modelServers(state), settings.server).id : null;
+  const history = id && Array.isArray(state.history) ? state.history.map((point) => ({ ...point, outputTokensPerSecond: point.servers?.[id]?.outputTokensPerSecond ?? null })) : state.history;
+  return { ...state, inference: viewInference(state, settings), history };
+}
 
 // Prefill as the dashboard counts it (new prompt tokens computed), falling back to all prompt tokens.
 const prefillRate = (v) => (finite(v?.promptComputeTokensPerSecond) ? v.promptComputeTokensPerSecond : finite(v?.promptTokensPerSecond) ? v.promptTokensPerSecond : 0);
@@ -219,7 +228,7 @@ export function mountMini(doc, win, { onOpenDashboard } = {}) {
     try {
       const response = await win.fetch(`${origin}/api/state?minutes=15${first ? '' : '&history=0'}`, { cache: 'no-store' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const state = await response.json();
+      const state = focusState(await response.json(), settings);
       latest = state;
       metas = nodeOrder(state);
       failed = false;

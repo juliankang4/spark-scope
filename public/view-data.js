@@ -31,6 +31,80 @@ export function nodeOrder(state) {
   if (Array.isArray(metas) && metas.length) return metas;
   return Object.keys(state?.nodes ?? {}).map(id => ({ id, name: state.nodes[id]?.name ?? state.nodes[id]?.host ?? id, host: state.nodes[id]?.host ?? null, role: state.nodes[id]?.role ?? '', collect: true }));
 }
+// Keyboard shortcuts: S Scope, L token ledger, M mini window, "," settings, "?" the list of them. The character typed
+// decides on Latin layouts (AZERTY puts "," where QWERTY has M); with a Korean or other non-Latin layout on, the key's
+// position does (S then types a Hangul letter). Nothing while typing in a field, and nothing with Ctrl, Cmd or Alt held, so the
+// browser's own shortcuts (Cmd+L, Cmd+S) keep working.
+const SHORTCUT_CHARS = { s: 'scope', l: 'tokens', m: 'mini', ',': 'settings' };
+const SHORTCUT_CODES = { KeyS: 'scope', KeyL: 'tokens', KeyM: 'mini', Comma: 'settings' };
+export function shortcutAction(event, inField = false) {
+  if (inField || event.metaKey || event.ctrlKey || event.altKey || event.repeat) return null;
+  const key = String(event.key ?? '');
+  const latin = /^[\x21-\x7e]$/.test(key);
+  if (key === '?' || (!latin && event.code === 'Slash' && event.shiftKey)) return 'keys';
+  if (event.shiftKey) return null;
+  return latin ? SHORTCUT_CHARS[key.toLowerCase()] ?? null : SHORTCUT_CODES[event.code] ?? null;
+}
+
+// ---- model servers (topology.json "servers"; one covering every node without it) ----
+// The servers of a state, or one covering every node for a payload from an older server without servers[].
+export function modelServers(state) {
+  if (Array.isArray(state?.servers) && state.servers.length) return state.servers;
+  return [{ id: 'default', name: null, nodes: nodeOrder(state).map((meta) => meta.id), implicit: true, inference: state?.inference ?? null, serving: state?.serving ?? null, inferenceState: state?.inferenceState ?? 'unknown' }];
+}
+export const severalServers = (state) => modelServers(state).length > 1;
+// A server's name on the pages: its configured name, else the model it serves, else its id.
+export const serverName = (server) => server?.name || (server?.inference?.ok && server.inference.modelName) || server?.id || '';
+// The server a node serves in, or null for a node in none.
+export const serverOfNode = (servers, id) => servers.find((server) => server.nodes?.includes(id)) ?? null;
+// The node index whose colour a server takes: its first node's, so its chart line and tags match that node's card.
+export const serverColorIndex = (server, metas) => Math.max(0, metas.findIndex((meta) => meta.id === server?.nodes?.[0]));
+// The server shown in "one at a time": the one picked in the settings while it exists, otherwise the first.
+export const pickedServer = (servers, id) => servers.find((server) => server.id === id) ?? servers[0];
+// All servers as one reading (the "all at once" totals in the mini window and the rack band): rates and request counts
+// added up over the servers that answer, the highest KV cache use and the slowest latency. Figures that do not add
+// up across servers (cache hit rate, speculative acceptance) stay unknown.
+export function combinedInference(servers) {
+  const readings = servers.map((server) => server.inference).filter(Boolean);
+  const live = servers.filter((server) => server.inference?.ok);
+  const latest = (list, key) => list.map((reading) => reading?.[key]).filter(Boolean).sort().at(-1) ?? null;
+  if (!live.length) return readings.length ? { ok: false, error: readings.find((reading) => reading.error)?.error ?? null, updatedAt: latest(readings, 'updatedAt') } : null;
+  const values = (key) => live.map((server) => server.inference[key]).filter(finite);
+  const sum = (key) => { const list = values(key); return list.length ? list.reduce((total, value) => total + value, 0) : null; };
+  const max = (key) => { const list = values(key); return list.length ? Math.max(...list) : null; };
+  const ok = live.map((server) => server.inference);
+  return {
+    ok: true,
+    engine: [...new Set(ok.map((reading) => reading.engine).filter(Boolean))].join(' + ') || null,
+    modelName: live.map(serverName).join(' | '),
+    latencyMs: max('latencyMs'),
+    outputTokensPerSecond: sum('outputTokensPerSecond'),
+    promptTokensPerSecond: sum('promptTokensPerSecond'),
+    promptComputeTokensPerSecond: sum('promptComputeTokensPerSecond'),
+    promptCacheTokensPerSecond: sum('promptCacheTokensPerSecond'),
+    runningRequests: sum('runningRequests'),
+    waitingRequests: sum('waitingRequests'),
+    kvCachePercent: max('kvCachePercent'),
+    prefixCacheHitPercent: null,
+    speculativeAcceptancePercent: null,
+    ttftP95Seconds: max('ttftP95Seconds'),
+    tpotP95Seconds: max('tpotP95Seconds'),
+    ttftP95RecentSeconds: max('ttftP95RecentSeconds'),
+    tpotP95RecentSeconds: max('tpotP95RecentSeconds'),
+    latencyWindowSeconds: max('latencyWindowSeconds'),
+    prefillUpdatedAt: latest(ok, 'prefillUpdatedAt'),
+    updatedAt: latest(ok, 'updatedAt'),
+    error: null,
+  };
+}
+// The reading a summary view follows (the mini window, the big output figure): with one server its own; with several,
+// the picked server in "one at a time" or all servers together in "all at once".
+export function viewInference(state, settings) {
+  const servers = modelServers(state);
+  if (servers.length < 2) return state?.inference ?? null;
+  return settings?.servers === 'one' ? pickedServer(servers, settings.server)?.inference ?? null : combinedInference(servers);
+}
+
 const LINK_TEXT = { partial: 'link.partial', pending: 'link.pending', down: 'link.down' };
 export function linkText(link) {
   if (!link) return unknown();
@@ -237,16 +311,24 @@ export function staleAfterMs(state) {
 
 // The latest sample of a state polled without history, shaped like one point of state.history.
 export function livePoint(state) {
-  const at = Date.parse(state?.inference?.updatedAt ?? state?.updatedAt ?? '');
+  const servers = modelServers(state);
+  const stamps = servers.map((server) => Date.parse(server.inference?.updatedAt ?? '')).filter(finite);
+  const at = stamps.length ? Math.max(...stamps) : Date.parse(state?.updatedAt ?? '');
   if (!finite(at)) return null;
-  const inference = state?.inference?.ok ? state.inference : null;
-  const value = (key) => (inference && finite(inference[key]) ? inference[key] : null);
+  const fields = (inference) => {
+    const value = (key) => (inference?.ok && finite(inference[key]) ? inference[key] : null);
+    return { outputTokensPerSecond: value('outputTokensPerSecond'), promptTokensPerSecond: value('promptTokensPerSecond'), runningRequests: value('runningRequests'), queue: value('waitingRequests') };
+  };
+  // Like the server's history: totals over the servers that answer, and with several servers each one's own.
+  const each = servers.map((server) => fields(server.inference));
+  const sum = (key) => { const list = each.map((item) => item[key]).filter(finite); return list.length ? list.reduce((total, value) => total + value, 0) : null; };
   return {
     at,
-    outputTokensPerSecond: value('outputTokensPerSecond'),
-    promptTokensPerSecond: value('promptTokensPerSecond'),
-    runningRequests: value('runningRequests'),
-    queue: value('waitingRequests'),
+    outputTokensPerSecond: sum('outputTokensPerSecond'),
+    promptTokensPerSecond: sum('promptTokensPerSecond'),
+    runningRequests: sum('runningRequests'),
+    queue: sum('queue'),
+    ...(servers.length > 1 ? { servers: Object.fromEntries(servers.map((server, index) => [server.id, each[index]])) } : {}),
     nodes: Object.fromEntries(Object.entries(state?.nodes ?? {}).map(([id, node]) => [id, {
       temperature: node?.ok && finite(node.gpu?.temperature) ? node.gpu.temperature : null,
       memoryAvailableBytes: node?.ok && finite(node.memory?.availableBytes) ? node.memory.availableBytes : null,

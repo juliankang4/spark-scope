@@ -1,6 +1,7 @@
 import {
-  orderedNodes, nodeLinks, nodeView, reasonText, clusterView, seriesPoints, timePaths, valueRange, tempRangeLabel, f1, compact, freeLabel, panelWidth, bayLayout, BRAND, degrees, degreeUnit, bayColor, bayColorStyle,
+  orderedNodes, nodeLinks, nodeView, reasonText, clusterView, seriesPoints, timePaths, valueRange, tempRangeLabel, f1, compact, freeLabel, panelWidth, bayLayout, BRAND, degrees, degreeUnit, bayColor, bayColorStyle, rackFocus,
 } from "./rack-view.js";
+import { modelServers, serverOfNode, serverName } from "../view-data.js";
 import { t, setLanguage, queryLanguage, translatePage } from "../i18n.js";
 import { settingsFromQuery, DEFAULTS } from "../settings.js";
 
@@ -92,13 +93,16 @@ const meter = (label, value, pct, warn = false, detail = "") => `<div class="met
 
 function renderBay(meta, toMs, index) {
   const links = nodeLinks(latest, meta.id);
-  const view = nodeView(meta, latest.nodes?.[meta.id], { inferenceOk: Boolean(latest?.inference?.ok), lastOkAt: lastOkAt[meta.id], nowMs: toMs, links, mem: options.mem });
+  // A node needs an inference process only while its own server's API answers; with several servers the bay names it.
+  const servers = modelServers(latest), server = serverOfNode(servers, meta.id);
+  const view = nodeView(meta, latest.nodes?.[meta.id], { inferenceOk: Boolean(server?.inference?.ok), lastOkAt: lastOkAt[meta.id], nowMs: toMs, links, mem: options.mem });
+  if (servers.length > 1 && server) view.role = `${serverName(server)} | ${view.role}`;
   const target = view.local ? t("node.target.local") : view.host ? `SSH ${view.host}` : t("node.target.noHost");
   const el = bays.querySelector(`[data-node="${CSS.escape(meta.id)}"]`);
   el.className = `bay ${view.level}`;
   // With "?colors=", the bay's bars and temperature trace take the node's colour; the stripe keeps its state colour.
   el.style.cssText = bayColorStyle(bayColor(options.colors, index));
-  const head = `<span class="stripe"></span><header><div class="name">${escapeHtml(view.name)}<small>${escapeHtml(view.role)}</small></div><div class="reason" title="${escapeHtml(view.reasons.join(", "))}"><span class="lamp ${view.level}"></span><span>${escapeHtml(reasonText(view))}</span></div></header>`;
+  const head = `<span class="stripe"></span><header><div class="name">${escapeHtml(view.name)} <small>${escapeHtml(view.role)}</small></div><div class="reason" title="${escapeHtml(view.reasons.join(", "))}"><span class="lamp ${view.level}"></span><span>${escapeHtml(reasonText(view))}</span></div></header>`;
   // Peer names next to the dots only while the ids are short; long ids leave just the coloured dots.
   const named = view.links.every((link) => link.peer.length <= 6);
   const dots = view.links.length
@@ -132,7 +136,9 @@ function renderBay(meta, toMs, index) {
 // names, then the TSOC reading and the "Links" label go, and only then is the power cut short.
 function fitFoot(bay) {
   const foot = bay.querySelector(".foot");
-  for (const step of ["fit-dots", "fit-tsoc", "fit-label", "fit-first"]) {
+  const steps = ["fit-dots", "fit-tsoc", "fit-label", "fit-first"];
+  foot.classList.remove(...steps);
+  for (const step of steps) {
     if (foot.scrollWidth <= foot.clientWidth) return;
     foot.classList.add(step);
   }
@@ -159,7 +165,8 @@ function drawBand() {
   // Earlier samples come from the 60-minute history (refreshed every 30 s), up to the first 2-second poll: the history
   // holds 10-second averages, and mixing them with the polls' raw values drew dips and spikes that never happened.
   const historyEnd = Math.min(toMs, (liveOut[0]?.at ?? Infinity) - 1);
-  for (const point of seriesPoints(tempHistory, "outputTokensPerSecond", fromMs - BAND_GAP_MS, historyEnd)) merged.set(point.at, point);
+  const focus = latest?.focusServer, output = focus ? (point) => point.servers?.[focus]?.outputTokensPerSecond : "outputTokensPerSecond";
+  for (const point of seriesPoints(tempHistory, output, fromMs - BAND_GAP_MS, historyEnd)) merged.set(point.at, point);
   for (const point of liveOut) if (point.at >= fromMs - BAND_GAP_MS) merged.set(point.at, point);
   const points = [...merged.values()].sort((a, b) => a.at - b.at);
   const peak = Math.max(0, ...points.map((point) => point.value ?? 0));
@@ -182,11 +189,29 @@ function renderCluster(fetchFailed) {
   if (view.stale && !wasStale) glideBand();
   $("cl-lamp").className = `lamp ${view.level}`;
   $("cl-title").textContent = view.title;
-  $("cl-line1").textContent = view.lines[0] ?? "";
+  // With several servers the first line is a chip per server: its state lamp, its name and its output.
+  // Each chip keeps its lamp and figure; only the names get shorter when the chips do not fit.
+  $("cl-line1").classList.toggle("chips", Boolean(view.chips));
+  if (view.chips) {
+    const line = $("cl-line1");
+    line.innerHTML = view.chips.map((chip) => `<span class="chip"><span class="lamp ${chip.level}"></span><span class="chip-name">${escapeHtml(chip.name)}</span><b>${escapeHtml(chip.value)}${chip.unit ? `<span class="unit"> ${escapeHtml(chip.unit)}</span>` : ""}</b></span>`).join("");
+    fitChips(line);
+    // Text is measured with the fonts at hand; a font that loads after this draw (wider than its fallback) refits.
+    document.fonts?.ready.then(() => fitChips(line));
+  } else $("cl-line1").textContent = view.lines[0] ?? "";
   $("cl-line2").textContent = view.lines[1] ?? "";
   $("out-value").textContent = f1(view.out);
   $("tok-total").textContent = compact(view.todayTotal);
   $("tok-sub").textContent = view.todayRequests === null ? t("rack.tokensToday") : t("rack.tokensTodayRequests", { count: view.todayRequests.toLocaleString("en-US") });
+}
+
+// Where even a lamp and a figure do not fit, the figures drop their unit, then the figures go and each chip keeps its
+// lamp and name (the big figure has the total; the band's job here is which server serves).
+function fitChips(line) {
+  line.classList.remove("tight", "tighter");
+  const cut = () => [...line.children].some((chip) => chip.scrollWidth > chip.clientWidth + 1);
+  if (cut()) line.classList.add("tight");
+  if (cut()) line.classList.add("tighter");
 }
 
 function renderBays() {
@@ -194,6 +219,8 @@ function renderBays() {
   const metas = orderedNodes(latest);
   syncBays(metas);
   metas.forEach((meta, index) => renderBay(meta, toMs, index));
+  // The footers were fitted with the fonts at hand; a font that loads after this draw refits them.
+  document.fonts?.ready.then(() => bays.querySelectorAll(".bay").forEach((bay) => { if (bay.querySelector(".foot")) fitFoot(bay); }));
 }
 
 function render() {
@@ -214,12 +241,13 @@ async function poll() {
   }
   try {
     if (state) {
-      latest = state;
+      // The band follows every model server together, or the one named by "?server=".
+      latest = rackFocus(state, options.server);
       lastReceivedAt = new Date();
       for (const [id, node] of Object.entries(state.nodes ?? {})) if (node?.ok) lastOkAt[id] = node.updatedAt ?? state.updatedAt;
-      const at = Date.parse(state.inference?.updatedAt ?? state.updatedAt);
+      const live = latest.inference, at = Date.parse(live?.updatedAt ?? state.updatedAt);
       if (Number.isFinite(at) && at !== liveOut[liveOut.length - 1]?.at) {
-        liveOut.push({ at, value: state.inference?.ok && Number.isFinite(state.inference.outputTokensPerSecond) ? state.inference.outputTokensPerSecond : null });
+        liveOut.push({ at, value: live?.ok && Number.isFinite(live.outputTokensPerSecond) ? live.outputTokensPerSecond : null });
         liveOut = liveOut.filter((point) => point.at >= at - BAND_WINDOW_MS - BAND_GAP_MS);
       }
       const serverMs = Date.parse(state.updatedAt);

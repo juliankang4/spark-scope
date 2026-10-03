@@ -14,6 +14,7 @@ The web dashboard at `/` has two tabs, Scope and Token ledger, plus a mini windo
 - **Node interconnect** (two or more nodes). A diagram and a table of every QSFP cable: the state of each logical plane (A/B), measured traffic in Gb/s, and whether the link is up, partially up, down, slow or not cabled yet. Slow and partial links are drawn orange, down links red. Node ids longer than ten characters are shortened in the diagram (the full id shows on hover).
 - **Inference.** Output tok/s over 15 minutes, 1 hour or 6 hours, with the active average and the queue. Below it: prefill, cache-read and decode rates, TTFT and TPOT p95 over the requests that finished in the last 5 minutes (with no finished requests they read `no requests`; the value since the engine started is in the explanation behind the `?`), prefix-cache hit rate, KV-cache use, speculative-decoding acceptance and running/waiting requests.
 - **Trends.** GPU temperature and available memory per node, and today's token totals.
+- **Model servers** (with [several](topology.md#model-servers)). A row per server above the chart: its name, nodes, state (serving, idle, not answering), output and queue; each node card names its server. With **All at once** (the default) the chart draws each server's output in its colour (the colour of its first node) with the total on top, and every server gets its own engine panel. With **One at a time** a row picks the server the chart, the big figure and the engine panel follow. The header lists the servers and the status line counts the APIs that answer.
 
 A round `?` next to a label (memory units, the latency figures, cache hit, the link table, total tokens, the change against the previous month) explains it on hover, focus or tap.
 
@@ -59,13 +60,25 @@ The gear button at the right of the header opens the settings. A preview card sh
 - **Node card**: the four readings on every card and their order (GPU temperature, GPU power, free memory, clock, disk used, free disk, CPU load, NVMe or NIC temperature, process memory), the bars (unified memory, root filesystem), full or short labels (Auto uses the short ones on narrow cards so no label wraps) and the levels at which a reading or bar turns orange (GPU temperature, disk use, free memory; display only, the rack panel keeps its own).
 - **Colors**: each node's colour from the theme's palette or a custom one, with a warning when a custom colour is hard to see on either theme. It is used on the node's card, in the charts and in the interconnect diagram.
 - **Units**: temperatures in °C or °F, memory and disk in GiB or GB, a 24- or 12-hour clock.
-- **Dashboard**: the language, which panels to show (interconnect, engine, trends, today's tokens), the chart range the page opens with, how often it refreshes (2, 5 or 10 s), whether a hidden tab pauses its updates (on by default), the design and the theme.
+- **Dashboard**: the language, which panels to show (interconnect, engine, trends, today's tokens), with several model servers whether to show them all at once or one at a time, the chart range the page opens with, how often it refreshes (2, 5 or 10 s), whether a hidden tab pauses its updates (on by default), the design and the theme.
 - **Rack panel**: band motion and the kiosk URL with the current units, language and colours, to copy into the kiosk's `SPARK_SCOPE_RACK_URL`. The section appears once a rack panel has read the server in the last 7 days; otherwise Dashboard offers to show it.
 - **About**: the version, the engine and the node count.
 
 Designs: Default, Console (a terminal look, always dark) and Soft (rounded cards with a ring gauge, light and dark). The theme button in the header cycles through the other theme, the system's theme picked by hand, and back to following the system.
 
 The settings are kept in this browser only, so each browser has its own. "Copy settings link" gives an address that carries them to another browser, for example `/?temp=f&readings=temp,power,disk,clock&bars=unified,disk&lang=ko`; opening it applies them once and drops them from the address. Nothing in the settings changes the server.
+
+## Keyboard shortcuts
+
+| Key | Does |
+|---|---|
+| `S` | Scope |
+| `L` | Token ledger |
+| `M` | Opens or closes the mini window |
+| `,` | Opens or closes the settings |
+| `?` | Shows the list of shortcuts (also under About in the settings) |
+
+They follow the character typed, or the key's position while a Korean or other non-Latin layout is on (S then types a Hangul letter), and do nothing while typing in a field or with Ctrl, Cmd or Alt held, so the browser's own shortcuts keep working.
 
 ## Language
 
