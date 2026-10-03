@@ -172,4 +172,5 @@ test("model servers name their API and nodes; each node serves in at most one, a
   assert.throws(bad([{ id: "a", api: "http://spark-1:8000", nodes: [] }]), /at least one node/);
   assert.throws(bad([{ id: "a", api: "http://spark-1:8000", nodes: ["1"] }, { id: "b", api: "http://spark-2:8000", nodes: ["1", "2"] }]), /node 1 is in servers a and b/);
   assert.throws(bad([{ id: "a", api: "http://spark-1:8000", nodes: ["1"] }, { id: "a", api: "http://spark-2:8000", nodes: ["2"] }]), /duplicate server id a/);
+  assert.throws(bad([{ id: "a", api: "http://spark-1:8000", nodes: ["1"] }, { id: "b", api: "http://spark-1:8000/", nodes: ["2"] }]), /servers a and b have the same "api"/);
 });

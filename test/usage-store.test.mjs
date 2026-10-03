@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { UsageStore, reportedCounters } from "../lib/usage-store.mjs";
+import { UsageStore } from "../lib/usage-store.mjs";
 
 function snapshot(overrides = {}) {
   return {
@@ -305,8 +305,44 @@ test("two model servers keep their own sessions, even with the same model, and a
 });
 
 test("the counters shown as reported are those any model server exports", () => {
-  const readings = [snapshot({ promptComputeTokensTotal: null, promptCacheTokensTotal: null }), snapshot({ modelName: "model-b" }), { ok: false }];
-  assert.deepEqual(reportedCounters(readings), { input: true, compute: true, cache: true, output: true, requests: true });
-  assert.deepEqual(reportedCounters(readings.slice(0, 1)), { input: true, compute: false, cache: false, output: true, requests: true });
-  assert.equal(reportedCounters([{ ok: false }]), null);
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-usage-reported-"));
+  const store = new UsageStore(path.join(directory, "usage.sqlite"), { timeZone: "UTC" });
+  try {
+    const at = Date.parse("2026-10-03T01:00:00Z");
+    assert.deepEqual(store.record(snapshot({ promptComputeTokensTotal: null, promptCacheTokensTotal: null }), at).reported, { input: true, compute: false, cache: false, output: true, requests: true });
+    // A second server that exports the split: both the state and the month view count it as reported.
+    assert.deepEqual(store.record(snapshot({ modelName: "model-b" }), at, { keyPrefix: "b:" }).reported, { input: true, compute: true, cache: true, output: true, requests: true });
+    assert.deepEqual(store.month("2026-10", at).reported, { input: true, compute: true, cache: true, output: true, requests: true });
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a server added to an existing ledger, or one whose first write failed, starts with a baseline", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-usage-added-"));
+  const file = path.join(directory, "usage.sqlite");
+  const at = Date.parse("2026-10-03T01:00:00Z");
+  let store = new UsageStore(file, { timeZone: "UTC" });
+  try {
+    store.record(sglang({ generationTokensTotal: 1000 }), at);
+    assert.equal(store.record(sglang({ generationTokensTotal: 1200 }), at + 2000).today.output, 200);
+    store.close();
+    // Reopened with a second server that has served for days: its history is not booked to today.
+    store = new UsageStore(file, { timeZone: "UTC" });
+    assert.equal(store.record(sglang({ modelName: "model-b", generationTokensTotal: 9_000_000 }), at + 4000, { keyPrefix: "b:" }).today.output, 200);
+    assert.equal(store.record(sglang({ modelName: "model-b", generationTokensTotal: 9_000_050 }), at + 6000, { keyPrefix: "b:" }).today.output, 250);
+    // A third server whose first write meets a locked ledger: the next poll still takes a baseline.
+    const other = new DatabaseSync(file);
+    other.exec("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE");
+    assert.throws(() => store.record(sglang({ modelName: "model-c", generationTokensTotal: 700 }), at + 8000, { keyPrefix: "c:" }), /locked|busy/);
+    other.exec("ROLLBACK");
+    other.close();
+    assert.equal(store.record(sglang({ modelName: "model-c", generationTokensTotal: 710 }), at + 10_000, { keyPrefix: "c:" }).today.output, 250);
+    assert.equal(store.record(sglang({ modelName: "model-c", generationTokensTotal: 760 }), at + 12_000, { keyPrefix: "c:" }).today.output, 300);
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

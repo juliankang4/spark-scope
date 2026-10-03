@@ -16,7 +16,7 @@ The full dashboard state, gzip-compressed when the client accepts it. `history=0
 
 | Field | Contents |
 |---|---|
-| `topology` | Nodes and links, without interface names. |
+| `topology` | Nodes, links and model servers, without interface names or API URLs. |
 | `nodes` | Node readings keyed by node id. A failed node carries a short `error` such as `timed out` or `SSH authentication failed`; the full message is in the server log. |
 | `ringLinks` | Links keyed by link id; `state` is `up`, `partial`, `down`, `pending` or `unknown`. |
 | `servers` | One entry per model server ([Model servers](topology.md#model-servers)): `id`, `name`, `nodes`, `implicit` (true for the single server at `SPARK_SCOPE_API_URL`), and its own `inference`, `serving` and `inferenceState`. |

@@ -17,7 +17,7 @@ if (major < 22 || (major === 22 && minor < 13)) {
   console.error(`Spark Scope needs Node.js 22.13 or later; this is ${process.versions.node}. See "Requirements" in README.md.`);
   process.exit(1);
 }
-const { UsageStore, reportedCounters } = await import("./lib/usage-store.mjs");
+const { UsageStore } = await import("./lib/usage-store.mjs");
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_ROOT = path.join(ROOT, "public");
@@ -123,7 +123,8 @@ const state = {
 };
 
 let collectingNodes = false;
-let collectingInference = false;
+// When the last chart point was added (one per poll interval, whichever server answers first).
+let lastHistoryAt = 0;
 // Ledger errors repeat every poll; log a message when it changes and at most every ten minutes otherwise.
 let lastUsageError = { message: null, at: 0 };
 // Full node collection errors go to the log when they change; the browser only gets a short reason.
@@ -209,46 +210,66 @@ async function collectNodes() {
   }
 }
 
-async function collectInference() {
-  if (collectingInference) return;
-  collectingInference = true;
-  try {
-    const readings = await Promise.all(servers.map((server) => server.collector.collect()));
-    readings.forEach((next, index) => {
-      const server = servers[index];
-      // The model of the server's last successful poll: a restart in between (failed polls) does not hide a switch,
-      // and the chart starts again for the new model.
-      if (next.ok && next.modelName) {
-        if (server.lastServedModel && server.lastServedModel !== next.modelName) state.history = [];
-        server.lastServedModel = next.modelName;
-      }
-      state.servers[index].inference = next;
-    });
-    try {
-      const now = Date.now();
-      const booked = usageStore ? readings.map((next, index) => (next.ok ? usageStore.record(next, now, { keyPrefix: servers[index].keyPrefix }) : null)).filter(Boolean) : [];
-      if (!usageStore) {
-        state.usage = unavailableUsage();
-      } else if (booked.length) {
-        // Today's totals cover every server; the counters shown as reported are those any server exports.
-        state.usage = { ...booked.at(-1), reported: reportedCounters(readings) };
-      } else {
-        const { session, modelName, processStartedAt } = state.usage;
-        state.usage = { ...usageStore.summary(), session, modelName, processStartedAt };
-      }
-    } catch (error) {
-      state.usage = { ...state.usage, error: error.message, updatedAt: new Date().toISOString() };
-      const now = Date.now();
-      if (error.message !== lastUsageError.message || now - lastUsageError.at > 10 * 60_000) {
-        console.error(`Token usage store: ${error.message}`);
-        lastUsageError = { message: error.message, at: now };
-      }
-    }
-    refreshClusterStatus();
-    addHistoryPoint();
-  } finally {
-    collectingInference = false;
+// A model switch starts that server's chart again: with one server the whole chart (as the averages mix models
+// otherwise), with several only the switched server's own series.
+function restartChart(index) {
+  if (servers.length === 1) {
+    state.history = [];
+    return;
   }
+  const id = servers[index].id;
+  for (const point of state.history) if (point.servers?.[id]) point.servers[id] = historyFields(null);
+}
+
+// Books one server's reading in the ledger. Today's totals and the reported counters cover every server; session,
+// modelName and processStartedAt describe the first server's run, like inference.
+function bookUsage(index, next) {
+  if (!usageStore) {
+    state.usage = unavailableUsage();
+    return;
+  }
+  try {
+    const result = next.ok ? usageStore.record(next, Date.now(), { keyPrefix: servers[index].keyPrefix }) : null;
+    const own = index === 0 && result ? result : state.usage;
+    state.usage = { ...(result ?? usageStore.summary()), session: own.session, modelName: own.modelName, processStartedAt: own.processStartedAt };
+  } catch (error) {
+    state.usage = { ...state.usage, error: error.message, updatedAt: new Date().toISOString() };
+    const now = Date.now();
+    if (error.message !== lastUsageError.message || now - lastUsageError.at > 10 * 60_000) {
+      console.error(`Token usage store: ${error.message}`);
+      lastUsageError = { message: error.message, at: now };
+    }
+  }
+}
+
+// Each server is polled on its own, so one that does not answer (up to the 4 s request timeout) does not hold up the
+// others.
+async function collectServer(index) {
+  const server = servers[index];
+  if (server.collecting) return;
+  server.collecting = true;
+  try {
+    const next = await server.collector.collect();
+    // The model of the server's last successful poll: a restart in between (failed polls) does not hide a switch.
+    if (next.ok && next.modelName) {
+      if (server.lastServedModel && server.lastServedModel !== next.modelName) restartChart(index);
+      server.lastServedModel = next.modelName;
+    }
+    state.servers[index].inference = next;
+    bookUsage(index, next);
+    refreshClusterStatus();
+    // One chart point per poll interval, with the latest reading of every server.
+    if (servers.length === 1 || Date.now() - lastHistoryAt >= config.apiIntervalMs * 0.8) {
+      addHistoryPoint();
+      lastHistoryAt = Date.now();
+    }
+  } finally {
+    server.collecting = false;
+  }
+}
+
+function collectInference() {
+  return Promise.all(servers.map((server, index) => collectServer(index)));
 }
 
 const contentTypes = new Map([

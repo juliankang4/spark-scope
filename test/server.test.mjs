@@ -248,6 +248,38 @@ test("model servers listed in topology.json are each read, judged and booked, an
   }
 });
 
+test("a model server that never answers does not slow down the others", async () => {
+  const { createServer: createTcpServer } = await import("node:net");
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-server-slow-"));
+  const a = await fakeVllm("big-model");
+  // Accepts connections and never answers, like a host whose API hangs: each request waits for the 4 s timeout.
+  const sockets = new Set();
+  const silent = createTcpServer((socket) => sockets.add(socket));
+  await new Promise((resolve) => silent.listen(0, "127.0.0.1", resolve));
+  const layout = {
+    nodes: [{ id: "1", host: "spark-1", collect: false }, { id: "2", host: "spark-2", collect: false }],
+    links: [],
+    servers: [{ id: "a", api: a.url, nodes: ["1"] }, { id: "b", api: `http://127.0.0.1:${silent.address().port}`, nodes: ["2"] }],
+  };
+  const { child, base } = await startServer(directory, { SPARK_SCOPE_API_INTERVAL_MS: "500" }, layout);
+  try {
+    const seen = new Set();
+    const until = Date.now() + 3000;
+    while (Date.now() < until) {
+      const state = await (await fetch(`${base}/api/state?history=0`)).json();
+      if (state.servers[0].inference?.ok) seen.add(state.servers[0].inference.updatedAt);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    // Every 500 ms over 3 s: about six readings of server a, not one per 4 s timeout of server b.
+    assert.ok(seen.size >= 4, `server a was read ${seen.size} times in 3 s`);
+  } finally {
+    child.kill();
+    for (const socket of sockets) socket.destroy();
+    await Promise.all([a.close(), new Promise((resolve) => silent.close(resolve))]);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("an inference URL with a password, or without a scheme, stops the server with a message that does not repeat it", async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-server-url-"));
   try {
