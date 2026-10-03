@@ -276,6 +276,9 @@ function fit() {
 }
 
 addEventListener("resize", fit);
+// The footer and the band's chips are fitted by measuring text; once the panel's fonts have loaded (wider than the
+// fallback the first draw measured), they are fitted again.
+document.fonts?.addEventListener?.("loadingdone", () => { if (latest) render(); });
 fit();
 await pollTemps();
 await poll();
