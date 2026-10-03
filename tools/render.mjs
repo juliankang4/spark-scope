@@ -247,7 +247,7 @@ const CHECK_SETTINGS = `(() => {
 
 // Korean pages: English words on screen that are neither technical terms kept in English nor data from the fixture
 // (names, hosts, hardware, models, engines, containers, time zones) are text that missed the string table.
-const TERMS = "GPU CPU NVMe NIC ACPI TSOC TS0E TS0P TS1E TS1P TGPU TUNC Xid NO MEMORY TP rank TTFT TPOT KV cache Prefill Decode Spec acceptance tok API QSFP SPARK SCOPE Spark Scope MHz GiB GB TiB Gb SSH RAM nvidia smi ms English rack URL";
+const TERMS = "GPU CPU NVMe NIC ACPI TSOC TS0E TS0P TS1E TS1P TGPU TUNC Xid NO MEMORY TP rank TTFT TPOT KV cache Prefill Decode Spec acceptance tok API QSFP SPARK SCOPE Spark Scope MHz GiB GB TiB Gb SSH RAM nvidia smi ms English rack URL DECODE PREFILL CSV Wh";
 function dataWords(state) {
   const values = [state.usage?.timeZone, state.usage?.modelName, state.inference?.modelName, state.inference?.engine, state.serving?.engine];
   for (const node of state.topology?.nodes ?? []) values.push(node.id, node.name, node.host, node.hardware);
@@ -298,6 +298,18 @@ async function checkHelp(web, label, suffix, extra = async () => []) {
     await web.evaluate("document.body.click()");
   }
 }
+
+// Mini window: nothing wider than the window or its box, and the short, wide layout within the window's height.
+const CHECK_MINI = `(() => {
+  const issues = [];
+  if (document.documentElement.scrollWidth > innerWidth) issues.push("mini window scrolls sideways");
+  if (innerHeight < 260 && document.documentElement.scrollHeight > innerHeight + 1) issues.push("wide layout taller than the window: " + document.documentElement.scrollHeight);
+  for (const el of document.querySelectorAll(".m-metric b, .m-l1 > span, .m-chips span, .m-stats b, .m-runs span, .m-foot span, .m-tabs button, .m-phase span, .m-head > span")) {
+    if (el.getClientRects().length && el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).textOverflow !== "ellipsis") issues.push("text wider than its box: " + el.textContent.trim().slice(0, 40));
+  }
+  if (!document.querySelector(".m-root")) issues.push("mini window not drawn");
+  return issues;
+})()`;
 
 let failures = 0;
 const report = (name, lines, problems) => {
@@ -564,6 +576,35 @@ try {
     report(`web-${label}-${design}-${scheme}-settings.png`, [], [...await web.evaluate(CHECK_SETTINGS), ...web.errors.splice(0)]);
     await web.evaluate("localStorage.clear()");
     await web.close();
+  }
+
+  // The mini window (/mini/, the same view the picture-in-picture window shows): Glance, Scope and Runs (with one
+  // recorded run) in a tall window and Glance in a short, wide one, in each design, and the tall one in Korean.
+  for (const [design, scheme, lang] of [["default", "dark", "en"], ["console", "dark", "en"], ["soft", "light", "en"], ["default", "light", "ko"]]) {
+    for (const [shape, width, height] of [["tall", 340, 560], ["wide", 520, 190]]) {
+      if (lang === "ko" && shape === "wide") continue;
+      const page = await openPage({ width, height, colorScheme: scheme });
+      current = { count: 4, mode: "serving", longNames: false };
+      await page.go(`${base}/mini/`);
+      await page.evaluate(`localStorage.clear(); localStorage.setItem("spark-scope-settings", JSON.stringify({ design: "${design}", lang: "${lang}" }))`);
+      await page.go(`${base}/mini/`);
+      await page.waitFor("document.querySelector('.m-metric') !== null");
+      for (const tab of shape === "tall" ? ["glance", "scope", "runs"] : ["glance"]) {
+        await page.evaluate(`document.querySelector('[data-tab="${tab}"]')?.click()`);
+        if (tab === "runs") {
+          await page.evaluate(`document.querySelector('[data-run="start"]').click()`);
+          await new Promise((resolve) => setTimeout(resolve, 4500));
+          await page.evaluate(`document.querySelector('[data-run="stop"]').click()`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const issues = await page.evaluate(CHECK_MINI);
+        const name = `mini-${shape}-${tab}-${design}-${scheme}${lang === "ko" ? "-ko" : ""}.png`;
+        await page.shoot(name);
+        report(name, [], [...issues, ...(lang === "ko" ? await englishLeft(page, fixtureState(4, "serving")) : []), ...page.errors.splice(0)]);
+      }
+      await page.evaluate("localStorage.clear()");
+      await page.close();
+    }
   }
 
   // The web page in Korean, opened with a settings link (?lang=ko): four nodes serving and with a fault, and the token
