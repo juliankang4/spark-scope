@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readingValue, nodeColor, lowContrast, PALETTE, compact, duration, tokenRate, chartPath, clockTime, eventTime, memory, memoryUnit, temperature, temperatureUnit, validateMonth, monthOptions, monthLabel, dayLabel, localDay, nodeOrder, linkText, fabricLayout, nodeLabel, labelWidth, nextTheme, COLORS } from '../public/view-data.js';
 import { loadTopology, publicTopology } from '../lib/topology.mjs';
-import { DEFAULTS, SETTINGS_KEY, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from '../public/settings.js';
+import { rackQuery, DEFAULTS, SETTINGS_KEY, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from '../public/settings.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const example = (count) => publicTopology(loadTopology(path.join(ROOT, 'examples', `topology.${count}-node.json`), { fallback: false }));
@@ -339,7 +339,7 @@ test('node card settings: four distinct known readings, known bars and panels, w
   assert.equal(DEFAULTS.readings[0], 'temp');
   // In a link the lists are comma-separated.
   const query = settingsQuery({ ...DEFAULTS, temp: 'f', readings: ['temp', 'power', 'disk', 'clock'], bars: ['unified', 'disk'], hide: ['engine'] }, null);
-  assert.equal(query, 'temp=f&readings=temp%2Cpower%2Cdisk%2Cclock&bars=unified%2Cdisk&hide=engine');
+  assert.equal(query, 'temp=f&readings=temp,power,disk,clock&bars=unified,disk&hide=engine');
   assert.deepEqual(settingsFromQuery(`?${query}`).settings, { ...DEFAULTS, temp: 'f', readings: ['temp', 'power', 'disk', 'clock'], bars: ['unified', 'disk'], hide: ['engine'] });
   assert.deepEqual(settingsFromQuery('?bars=').settings.bars, []);
   assert.deepEqual(settingsFromQuery('?readings=temp,power').settings.readings, DEFAULTS.readings);
@@ -369,7 +369,7 @@ test('node colours: palette names or hex by position, written without # in a lin
   assert.deepEqual(parseSettings({ colors: ['purple', '#FF8800', 'ff0000'] }).colors, ['purple', '#ff8800', '#ff0000']);
   for (const colors of [['purple', 'pink'], ['#ff88'], 'purple', Array(33).fill('blue')]) assert.deepEqual(parseSettings({ colors }).colors, [], String(colors));
   const query = settingsQuery({ ...DEFAULTS, colors: ['purple', '#ff8800'] }, null);
-  assert.equal(query, 'colors=purple%2Cff8800');
+  assert.equal(query, 'colors=purple,ff8800');
   assert.deepEqual(settingsFromQuery(`?${query}`).settings.colors, ['purple', '#ff8800']);
   // The colour a node gets: its pick, otherwise the default order (which never uses red).
   assert.equal(nodeColor([], 0), 'var(--blue)');
@@ -385,4 +385,12 @@ test('node colours: palette names or hex by position, written without # in a lin
   assert.equal(lowContrast('#c0392b'), 'dark');
   assert.equal(lowContrast('#7a7a7a'), null);
   assert.equal(lowContrast('purple'), null);
+});
+
+test('the kiosk URL carries only what a rack panel reads, with readable lists', () => {
+  assert.equal(rackQuery(DEFAULTS), '');
+  assert.equal(rackQuery({ ...DEFAULTS, temp: 'f', mem: 'gb', lang: 'ko', range: 15, readings: ['temp', 'power', 'disk', 'clock'], colors: ['purple', '#ff8800'], motion: 'still' }),
+    'temp=f&mem=gb&lang=ko&colors=purple,ff8800&motion=still');
+  assert.deepEqual(parseSettings({ motion: 'bounce' }).motion, 'step');
+  assert.deepEqual(settingsFromQuery('?motion=smooth').settings.motion, 'smooth');
 });

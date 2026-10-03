@@ -119,3 +119,6 @@ html:lang(ko){word-break:keep-all}
 .screen.narrow .out small{display:none}
 .screen.narrow .tok b{font-size:46px}
 .screen.narrow .tok span{font-size:17px}
+/* Three-digit temperatures (°F from 100) use smaller figures so they fit the same space as two. */
+.temp b.triple{font-size:100px;padding-top:16px}
+.bays[data-layout="compact"] .temp b.triple{font-size:58px;padding-top:10px}

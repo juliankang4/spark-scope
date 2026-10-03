@@ -128,6 +128,12 @@ test("a healthy node reads OK with usage-based memory and disk figures", () => {
   assert.equal(freeLabel(7.74), "7.7 GiB");
   assert.equal(freeLabel(999.6), "1.0 TiB");
   assert.equal(freeLabel(9.97), "10 GiB");
+  // "?mem=gb": decimal units, the same rounding rule.
+  assert.equal(freeLabel(3610, "gb"), "3.9 TB");
+  assert.equal(freeLabel(319.3, "gb"), "343 GB");
+  assert.equal(freeLabel(7.74, "gb"), "8.3 GB");
+  assert.equal(freeLabel(930.6, "gb"), "999 GB");
+  assert.equal(freeLabel(931, "gb"), "1.0 TB");
 });
 
 test("the bay header names the actual reasons, most severe first", () => {
@@ -304,6 +310,7 @@ test("temperature traces keep a sensible scale and caption, and odd inputs do no
   assert.deepEqual(valueRange([], 38, 64), [38, 64]);
   assert.equal(tempRangeLabel(points), "41–58°C");
   assert.equal(tempRangeLabel([{ value: 50.2 }, { value: 49.8 }]), "50°C");
+  assert.equal(tempRangeLabel(points, "f"), "106–136°F");
   assert.equal(tempRangeLabel([{ value: null }]), "no data");
   assert.equal(f1(null), "—");
   assert.equal(clockTime(null), "—");

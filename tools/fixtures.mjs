@@ -152,5 +152,5 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
     usage: { persistent: true, timeZone: "UTC", day: month.day, modelName: "example-model", today, error: null },
     startedAt: new Date(nowMs - 3 * 3600_000).toISOString(),
     updatedAt: new Date(nowMs).toISOString(),
-  }, { pollIntervals: { nodeMs: 5000, apiMs: 2000 }, version: VERSION });
+  }, { pollIntervals: { nodeMs: 5000, apiMs: 2000 }, version: VERSION, rackSeenAt: null });
 }
