@@ -1,10 +1,22 @@
 /* The mini window: a small, dense view that follows the page's theme, design, units and node colours (the tokens
    come from styles.css and designs.css). Classes start with m- so they never meet the dashboard's own. */
-body.m-page,body.m-pip{margin:0;padding:0;background:var(--paper);color:var(--ink);font:12px/1.35 var(--text-font);overflow-x:hidden}
+body.m-page,body.m-pip,.m-inline{margin:0;padding:0;background:var(--paper);color:var(--ink);font:12px/1.35 var(--text-font);overflow-x:hidden}
 .m-root{display:flex;flex-direction:column;gap:9px;padding:10px 12px 8px;min-height:100vh;box-sizing:border-box}
+/* In the dashboard page (Safari, phones) the view keeps to one column on a wide window, ends with its content
+   instead of the window, and is drawn a little larger on a phone (not on the narrowest, where it would run out of
+   width). No overflow clipping on the pane: that would make it its own scroll box and stop the header row from staying
+   in view. */
+.m-inline{overflow-x:visible}
+.m-inline .m-root{max-width:460px;margin:0 auto;min-height:0}
+@media (min-width:360px) and (max-width:640px) and (pointer:coarse){.m-inline .m-root{zoom:1.15}}
+.m-content{display:contents}
 .m-head{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px;color:var(--muted);min-width:0}
 .m-head b{color:var(--ink);font:600 12px var(--num-font);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .m-head>span{white-space:nowrap}
+.m-title{display:flex;align-items:center;gap:6px;min-width:0}
+.m-back{flex:none;display:flex;align-items:center;justify-content:center;width:24px;height:24px;margin:-3px 0 -3px -5px;padding:0;border:0;background:transparent;color:var(--ink);cursor:pointer}
+.m-back:hover{background:var(--hover)}
+.m-back svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .m-ok{color:var(--green)}.m-warn{color:var(--orange)}.m-crit{color:var(--red)}
 .m-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:currentColor;margin-right:5px;vertical-align:1px}
 .m-tabs{display:flex;border:1px solid var(--line)}
@@ -89,3 +101,15 @@ html[data-design=soft] .m-rec button,html[data-design=soft] .m-phase span{border
 html[data-design=console] .m-bar{background:repeating-linear-gradient(90deg,var(--meter) 0 5px,transparent 5px 7px)}
 html[data-design=console] .m-bar i{background:repeating-linear-gradient(90deg,var(--node) 0 5px,transparent 5px 7px)}
 html[data-design=console] .m-metric small::before{content:'> '}
+/* A phone or a tall window: the parts follow one another, each as tall as its content, after a rule and its name. */
+.m-stacked .m-body{flex:none}
+.m-stacked .m-foot{margin-top:0}
+.m-stacked>.m-head:first-child{position:sticky;top:0;z-index:1;margin:-10px -12px 0;padding:10px 12px 6px;background:var(--paper)}
+.m-part{margin:6px 0 0;padding-top:12px;border-top:1px solid var(--line);font:700 10px var(--num-font);letter-spacing:1px;text-transform:uppercase;color:var(--muted)}
+/* Touch screens: taller tabs and buttons to tap. */
+@media (pointer:coarse){
+  .m-tabs button{padding:10px 0;font-size:12px}
+  .m-link{padding:8px 0}
+  .m-back{width:36px;height:36px;margin:-8px 0 -8px -10px}
+  .m-rec button{padding:9px 14px}
+}

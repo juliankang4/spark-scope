@@ -8,7 +8,7 @@ All responses are JSON unless noted, carry the server's security headers and are
 
 - `GET /`: the web dashboard.
 - `GET /rack/`: the rack panel ([Rack panel](rack.md)).
-- `GET /mini/`: the mini window as a page, for browsers without document picture-in-picture ([Web page](dashboard.md#mini-window)).
+- `GET /mini/`: the mini window as a page of its own ([Web page](dashboard.md#mini-window)).
 
 ## `GET /api/state?minutes=15|60|360[&history=0]`
 

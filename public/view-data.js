@@ -350,10 +350,18 @@ export function timeoutSignal(ms) {
   return { signal: controller.signal, done: () => clearTimeout(timer) };
 }
 
+// A phone: the page opens in the mini view there, and the mini view stacks its parts instead of tabs. theme.js, which
+// cannot import this module, repeats the query.
+export const PHONE_QUERY = '(max-width: 640px) and (pointer: coarse)';
+
 // matchMedia().addEventListener needs Safari 14; older Safari only has addListener.
 export function onMediaChange(query, listener) {
   if (typeof query.addEventListener === 'function') query.addEventListener('change', listener);
   else if (typeof query.addListener === 'function') query.addListener(listener);
+}
+export function offMediaChange(query, listener) {
+  if (typeof query.removeEventListener === 'function') query.removeEventListener('change', listener);
+  else if (typeof query.removeListener === 'function') query.removeListener(listener);
 }
 
 // The readings a node card can show in its four slots (settings.readings). Each gives its value text and unit in the

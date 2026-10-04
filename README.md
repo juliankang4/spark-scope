@@ -7,7 +7,6 @@
   <a href="https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/juliankang4/spark-scope"></a>
   <img alt="Node.js 22.13 or later" src="https://img.shields.io/badge/node-%E2%89%A5%2022.13-339933?logo=nodedotjs&amp;logoColor=white">
-  <img alt="No npm dependencies" src="https://img.shields.io/badge/dependencies-none-brightgreen">
   <img alt="Engines: vLLM, SGLang and TensorFold" src="https://img.shields.io/badge/engines-vLLM%20%7C%20SGLang%20%7C%20TensorFold-76b900">
   <img alt="Runs on arm64 and x64" src="https://img.shields.io/badge/arch-arm64%20%7C%20x64-blue">
 </p>
@@ -36,7 +35,7 @@ It is one Node.js process with no npm dependencies. It polls each node (locally 
 - **Interconnect**: each QSFP cable's two planes, traffic and state (two or more nodes).
 - **Inference**: output tok/s over 15 minutes to 6 hours, prefill and decode rates, TTFT and TPOT p95 over the last 5 minutes, cache hit, KV cache and queue.
 - **Token ledger**: one month as a statement, a calendar or charts, with a table by model and a CSV export.
-- **Mini window**: a small window that stays on top (Chrome and Edge) for watching a model test, with runs recorded between Start and Stop.
+- **Mini window**: a small view for watching a model test, with runs recorded between Start and Stop. It stays on top of other windows in Chrome and Edge; in Safari and on phones the page switches to it.
 - **Rack panel**: a bay per node and a band with the cluster state, model and throughput.
 
 More in [Web page](docs/dashboard.md) and [Rack panel](docs/rack.md). The screenshots use synthetic data from `tools/fixtures.mjs`.

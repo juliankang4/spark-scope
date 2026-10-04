@@ -1,4 +1,5 @@
-import { COLORS, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, pickedServer, viewInference } from './view-data.js';
+import { mountMini } from './mini/mini-view.js';
+import { PHONE_QUERY, COLORS, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, pickedServer, viewInference } from './view-data.js';
 import { READING_IDS, rackQuery, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 import { t, setLanguage, translatePage, serverText, LANGUAGE_NAMES } from './i18n.js';
 import { hide as hideHelp } from './help.js';
@@ -426,7 +427,7 @@ function showSection(name){
 }
 dialog.querySelectorAll('[data-section]').forEach(button=>button.addEventListener('click',()=>showSection(button.dataset.section)));
 opener.addEventListener('click',()=>{syncForm();renderPreview();$('#settings-link').hidden=true;dialog.showModal();opener.setAttribute('aria-expanded','true')});
-dialog.addEventListener('close',()=>{hideHelp();opener.setAttribute('aria-expanded','false');opener.focus()});
+dialog.addEventListener('close',()=>{hideHelp();opener.setAttribute('aria-expanded','false');(inlineShown()?miniPane.querySelector('[data-back]'):opener)?.focus()});
 // Clicking the dimmed page outside the dialog closes it; a text selection dragged out of a field does not.
 let pressedOutside=false;
 dialog.addEventListener('pointerdown',event=>{pressedOutside=event.target===dialog});
@@ -434,28 +435,48 @@ dialog.addEventListener('click',event=>{if(event.target===dialog&&pressedOutside
 $('#settings-reset').addEventListener('click',()=>{const before=settings;settings=parseSettings(null);themeChoice=null;saveTheme(store,null);applyTheme();applySettings(changes(before))});
 // The clipboard needs HTTPS or localhost; on plain HTTP the link is shown selected, ready to copy by hand.
 // ---- mini window ----
-// Chrome and Edge keep it on top of other windows with document picture-in-picture; other browsers get a small window
-// at /mini/. The button (or M) opens it and closes it again.
-const miniButton=$('#mini-open'),MINI_SIZE={width:340,height:560};let mini=null;
+// Chrome and Edge keep it on top of other windows with document picture-in-picture. Without it (Safari, phones) the
+// page itself switches to the mini view and back, and the next visit opens in the view shown last; a phone starts in
+// the mini view (theme.js decides before the page is drawn). The button (or M) opens it and closes it again.
+const miniButton=$('#mini-open'),MINI_SIZE={width:340,height:560},VIEW_KEY='spark-scope-view',phoneQuery=matchMedia(PHONE_QUERY);
+const miniPane=document.createElement('div');miniPane.className='m-inline';document.body.append(miniPane);
+let mini=null,inlineView=null,dashboardScroll=0;
 function showMini(){miniButton.setAttribute('aria-pressed',String(Boolean(mini)));miniButton.title=t(mini?'mini.closeTitle':'mini.openTitle');miniButton.setAttribute('aria-label',miniButton.title)}
+const saveView=view=>{try{store?.setItem(VIEW_KEY,view)}catch{}};
+const inlineShown=()=>document.documentElement.dataset.view==='mini';
+// The mini view uses this page's settings, so a settings link that could not be saved still applies to it.
+function openInline(){
+  if(!inlineShown())dashboardScroll=window.scrollY;
+  document.documentElement.dataset.view='mini';mini={close:closeInline};saveView('mini');showMini();window.scrollTo(0,0);
+  if(!inlineView)inlineView=mountMini(document,window,{container:miniPane,onBack:closeInline,getSettings:()=>settings});
+  miniPane.querySelector('[data-back]')?.focus({preventScroll:true});
+}
+function closeInline(){
+  delete document.documentElement.dataset.view;mini=null;saveView('full');showMini();
+  // A run being recorded keeps going out of sight; otherwise the mini view stops asking the server.
+  if(inlineView&&!inlineView.recording()){inlineView.close();inlineView=null;miniPane.replaceChildren()}
+  window.scrollTo(0,dashboardScroll);miniButton.focus({preventScroll:true});
+  historyAt=0;poll();
+}
 async function toggleMini(){
   if(mini){mini.close();return}
-  if(window.documentPictureInPicture){
+  // A run still recording in the page's own mini view is shown again rather than a second view in picture-in-picture.
+  if(!inlineView&&!phoneQuery.matches&&window.documentPictureInPicture){
+    let pip=null;
     try{
-      const pip=await window.documentPictureInPicture.requestWindow(MINI_SIZE);
+      pip=await window.documentPictureInPicture.requestWindow(MINI_SIZE);
       for(const href of ['/styles.css','/designs.css','/mini/mini.css']){const link=pip.document.createElement('link');link.rel='stylesheet';link.href=location.origin+href;pip.document.head.append(link)}
       pip.document.body.className='m-pip';
-      const {mountMini}=await import('./mini/mini-view.js');
-      const view=mountMini(pip.document,pip,{onOpenDashboard:()=>window.focus()});
+      // Back closes the picture-in-picture window and returns to this tab.
+      const view=mountMini(pip.document,pip,{onBack:()=>{pip.close();window.focus()}});
       mini={close:()=>pip.close()};
       pip.addEventListener('pagehide',()=>{view.close();mini=null;showMini()});
       showMini();return;
-    }catch(error){console.warn('Spark Scope could not open a picture-in-picture window, opening a small window instead:',error)}
+    }catch(error){pip?.close();console.warn('Spark Scope could not open a picture-in-picture window, showing the mini view in the page instead:',error)}
   }
-  const win=window.open('/mini/','spark-scope-mini',`popup,width=${MINI_SIZE.width},height=${MINI_SIZE.height}`);if(!win)return;
-  mini={close:()=>win.close()};showMini();
-  const watch=setInterval(()=>{if(win.closed){clearInterval(watch);mini=null;showMini()}},1000);
+  openInline();
 }
+if(inlineShown())openInline();
 miniButton.addEventListener('click',()=>void toggleMini());
 // ---- keyboard shortcuts (shortcutAction in view-data.js) ----
 const keysDialog=$('#keys');
@@ -471,8 +492,8 @@ document.addEventListener('keydown',event=>{
   if(action==='settings'&&dialog.open&&!keysDialog.open){event.preventDefault();dialog.close();return}
   if(document.querySelector('dialog[open]'))return;
   event.preventDefault();
-  if(action==='scope'||action==='tokens'){const tab=$(action==='scope'?'#tab-scope':'#tab-tokens');selectTab(tab);tab.focus()}
-  else if(action==='mini'){if(getComputedStyle(miniButton).display!=='none')void toggleMini()}
+  if(action==='scope'||action==='tokens'){if(inlineShown())closeInline();const tab=$(action==='scope'?'#tab-scope':'#tab-tokens');selectTab(tab);tab.focus()}
+  else if(action==='mini')void toggleMini();
   else if(action==='settings')opener.click();
 });
 
@@ -507,8 +528,8 @@ $('#settings-copy').addEventListener('click',async()=>{
 showUnits();showLayout();showRange();syncForm();
 buildNodes();rebuildMonths();clearMonth('ledger.loading');selectTab($(location.hash==='#tokens'?'#tab-tokens':'#tab-scope'),false);void refresh();
 // With "pause while hidden" on (the default) a hidden tab sends no requests; when it is shown again it reloads the
-// chart history at once, so the gap fills in.
-function poll(){if(settings.pause&&document.hidden)return;void refresh();if(!$('#tokens').hidden)void refreshMonth()}
+// chart history at once, so the gap fills in. While the page shows the mini view, only the mini view polls.
+function poll(){if(settings.pause&&document.hidden||inlineShown())return;void refresh();if(!$('#tokens').hidden)void refreshMonth()}
 let pollTimer=null;
 function schedulePolls(){clearInterval(pollTimer);pollTimer=setInterval(poll,settings.refresh*1000)}
 schedulePolls();
