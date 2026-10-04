@@ -2,7 +2,7 @@
 
 [README](../README.md) · [Topology](topology.md) · [Configuration](configuration.md) · **Web page** · [Rack panel](rack.md) · [HTTP API](api.md) · [Development](development.md)
 
-The web dashboard at `/` has two tabs, Scope and Token ledger, plus a mini window and the settings. It follows the viewer's light or dark setting, works on phones and shows times in the viewer's time zone.
+The web dashboard at `/` has two tabs, Scope and Token ledger, plus a mini window and the settings. It follows the viewer's light or dark setting and shows times in the viewer's time zone. A phone opens it in the [mini window](#mini-window) view; the arrow there switches to the full dashboard, which works on phones too.
 
 <p align="center"><img src="screenshots/dashboard-phone-2-nodes.png" alt="Web dashboard on a phone, dark theme, two nodes joined by two cables, shown in three parts"></p>
 <p align="center"><sub>The dashboard on a phone (dark theme, two nodes joined by two cables), top to bottom in three parts.</sub></p>
@@ -47,11 +47,13 @@ Days begin at midnight in `SPARK_SCOPE_TIME_ZONE` (the server's time zone by def
 
 The button after the two tabs (or the `M` key) opens a small window to keep beside other windows while testing a model:
 
-- **Glance**: decode and prefill with five-minute sparklines, running and queued requests, KV cache, TTFT and TPOT p95, and a line per node (temperature, power, GPU and memory bars).
+- **Glance**: decode and prefill with five-minute sparklines, running and queued requests, KV cache, TTFT and TPOT p95, the prefix cache hit rate, and a line per node (temperature, power, GPU and memory bars).
 - **Scope**: the last two minutes of decode and prefill, prefill and decode shaded, with the node temperatures underneath.
 - **Runs**: records a test between Start and Stop: average and peak decode, peak prefill, the slowest TTFT p95, the hottest GPU, GPU energy and tokens, each compared with the run before. Runs are kept in the browser and exported as CSV.
 
-Chrome and Edge keep the mini window on top of other windows (document picture-in-picture); other browsers open it as a small window at `/mini/`. It follows the page's design, theme, units, node colours and language, and is not offered on phones and tablets.
+Chrome and Edge keep the mini window on top of other windows (document picture-in-picture). Safari has no such window, so there the page itself switches to the mini view, and the next visit opens in it again; a phone opens in the mini view from the start. The arrow at the top left goes back to the full dashboard (in Chrome and Edge it closes the mini window).
+
+In a window at least 720 pixels tall, and on a phone, Glance, Scope and Runs follow one another instead of sitting behind tabs. A run being recorded keeps going while the full dashboard is shown. The mini window follows the page's design, theme, units, node colours and language, and `/mini/` shows it as a page of its own.
 
 ## Settings
 

@@ -19,9 +19,11 @@ html,body{overflow-anchor:none}
 .header-actions .tabs button[aria-selected=true]{color:var(--blue)}
 /* The icon names the current choice: sun (light), moon (dark) or a half disc (follow the system). */
 .theme-toggle svg{display:none}.theme-toggle[data-choice="light"] .sun,.theme-toggle[data-choice="dark"] .moon,.theme-toggle[data-choice="system"] .auto{display:block}
-@media(max-width:760px){.header-actions button{width:44px;min-height:49px}.tabs button[aria-selected=true]:after{left:12px;right:12px}}
-@media(max-width:420px){.brand span{display:none}.brand{min-width:0}}
-@media(max-width:340px){.brand strong{font-size:16px}.statement th,.statement td,.model-table th,.model-table td{padding:7px 4px}#ledger-panel,.by-model{overflow-x:auto}}
+@media(max-width:760px){.header-actions button{flex:0 1 44px;min-width:0;min-height:49px}.header-actions .tabs{flex:0 1 auto;min-width:0}.header-actions .tabs button{padding:0}.tabs button[aria-selected=true]:after{left:12px;right:12px}}
+/* On a phone the brand keeps its full width and the five header buttons share what is left, 44 px each at most. */
+@media(max-width:520px){.brand span{display:none}}
+@media(max-width:440px){.top{grid-template-columns:auto minmax(0,1fr)}.header-actions{min-width:0;justify-content:flex-end}}
+@media(max-width:340px){.brand strong{font-size:16px}.brand{padding:13px 8px}.statement th,.statement td,.model-table th,.model-table td{padding:7px 4px}#ledger-panel,.by-model{overflow-x:auto}}
 
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 /* Token ledger: month buttons and CSV, the month's figures, the Statement, Calendar and Charts views, and the table by
@@ -282,9 +284,12 @@ button.plain{border:1px solid var(--line);background:transparent;color:var(--ink
 button.linkish{border:0;background:none;color:var(--blue);padding:0;font:inherit;text-decoration:underline;cursor:pointer}
 button.linkish:hover{background:none}
 
-/* The mini window button: pressed while the mini window is open; not offered on phones and tablets. */
+/* The mini window button: pressed while the mini window is open. Where the page shows the mini view itself
+   (html[data-view=mini], mini.css styles it), the dashboard is hidden; :root outranks a design's own body rule. */
 .header-actions .mini-open[aria-pressed=true]{background:transparent;color:var(--blue);box-shadow:inset 0 -4px 0 var(--blue)}
-@media (max-width:1050px),(pointer:coarse){.header-actions .mini-open{display:none}}
+.m-inline,html[data-view=mini] #shell{display:none}
+html[data-view=mini] .m-inline{display:block}
+:root[data-view=mini] body{padding:0;background:var(--paper)}
 /* Model servers: the strip under the node cards, the tag on each card and the name over each engine panel. */
 .servers{display:grid;gap:6px;padding:12px 22px;border-bottom:1px solid var(--line)}
 .server-row{display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;padding:7px 12px;border:1px solid var(--line);background:transparent;color:var(--ink);font-size:12px;text-align:left;min-width:0}

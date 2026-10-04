@@ -26,7 +26,7 @@ CI runs them on Node 22.13 and 24, on x64 and arm64, runs the render check below
 
 - the rack panel with one to six nodes, the longest ids and names, a 2560 x 480 bar and a 1024 x 600 screen;
 - the web dashboard on a desktop and a phone, the settings dialog, the explanations and the three designs in light and dark;
-- the mini window in each shape and tab;
+- the mini window in each shape and tab, stacked in a tall window, and inside the dashboard page on a phone and in a browser without document picture-in-picture;
 - the token ledger's three views over three months of a synthetic ledger in every design;
 - English and Korean.
 

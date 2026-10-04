@@ -1,10 +1,11 @@
 // The mini window: a small view for watching a model test (decode, prefill, temperatures and resources) next to
 // other windows. mountMini() draws it into a document: the always-on-top picture-in-picture window that the web
-// page opens in Chrome and Edge, or the plain /mini/ page that other browsers open as a small window. Timers and
-// requests run on the mini window's own `win`, so they keep their pace while the main tab is hidden.
+// page opens in Chrome and Edge, the dashboard page itself where that is missing (Safari, phones), or the plain
+// /mini/ page. Timers and requests run on the mini window's own `win`, so they keep their pace while the main tab is
+// hidden.
 import { t, setLanguage } from '../i18n.js';
 import { loadSettings, loadTheme } from '../settings.js';
-import { nodeOrder, nodeColor, finite, fixed, memory, memoryUnit, temperature, temperatureUnit, duration, clockTime, escapeHtml as esc, unknown, severalServers, modelServers, pickedServer, viewInference } from '../view-data.js';
+import { nodeOrder, nodeColor, finite, fixed, memory, memoryUnit, temperature, temperatureUnit, duration, clockTime, escapeHtml as esc, unknown, severalServers, modelServers, pickedServer, viewInference, PHONE_QUERY, onMediaChange, offMediaChange } from '../view-data.js';
 
 export const TABS = ['glance', 'scope', 'runs'];
 const TAB_KEY = 'spark-scope-mini-tab';
@@ -13,6 +14,9 @@ const SPARK_MS = 5 * 60_000;
 const SCOPE_MS = 2 * 60_000;
 const HOT_CELSIUS = 80;
 const MAX_RUNS = 20;
+// From this window height up, Glance and Scope fit one above the other without scrolling, so the tabs give way and
+// Runs follows below.
+const STACK_HEIGHT = 720;
 
 const store = (win) => { try { return win.localStorage; } catch { return null; } };
 const read = (win, key, fallback) => { try { return JSON.parse(store(win)?.getItem(key) ?? 'null') ?? fallback; } catch { return fallback; } };
@@ -95,19 +99,32 @@ export function runsCsv(runs) {
     .map((row) => row.map(cell).join(',')).join('\n') + '\n';
 }
 
-export function mountMini(doc, win, { onOpenDashboard } = {}) {
-  const html = doc.documentElement;
+// In a container other than the body (the dashboard page), the page keeps its own title, language and theme, and
+// getSettings hands over its settings.
+export function mountMini(doc, win, { onBack, container = doc.body, getSettings = null } = {}) {
+  const html = doc.documentElement, ownPage = container === doc.body;
   const origin = win.location.origin !== 'null' ? win.location.origin : '';
-  let settings = loadSettings(store(win)), latest = null, metas = [], samples = [], failed = false;
+  const readSettings = getSettings ?? (() => loadSettings(store(win)));
+  let settings = readSettings(), latest = null, metas = [], samples = [], failed = false;
   let tab = TABS.includes(read(win, TAB_KEY, null)) ? read(win, TAB_KEY, null) : 'glance';
   let run = null, runs = read(win, RUNS_KEY, []).filter((r) => r && finite(r.number)).slice(0, MAX_RUNS);
-  const root = doc.createElement('div');
+  // On a phone or in a tall window the three parts follow one another down the page instead of sitting behind tabs.
+  // A window 260 px tall or less shows only the one-line Glance (mini.css hides the tabs there).
+  const stackQuery = win.matchMedia(`${PHONE_QUERY}, (min-height: ${STACK_HEIGHT}px)`), shortQuery = win.matchMedia('(max-height: 260px)');
+  // The header row (back arrow, model, nodes) stays in place and only its text changes, so the arrow keeps keyboard
+  // focus without being rebuilt on every poll; the rest is redrawn into `content` (display: contents).
+  const root = doc.createElement('div'), head = doc.createElement('div'), content = doc.createElement('div');
   root.className = 'm-root';
-  doc.body.replaceChildren(root);
+  head.className = 'm-head';
+  head.innerHTML = '<span class="m-title"><button type="button" class="m-back" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5m6-6-6 6 6 6"/></svg></button><b></b></span><span><span class="m-dot"></span><span></span></span>';
+  content.className = 'm-content';
+  root.append(head, content);
+  container.replaceChildren(root);
 
   // Settings are read again on every poll, so a change on the main page reaches the mini window within one poll.
   function applySettings() {
-    settings = loadSettings(store(win));
+    settings = readSettings();
+    if (!ownPage) return;
     setLanguage(settings.lang);
     html.lang = settings.lang;
     const theme = loadTheme(store(win)) ?? (win.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
@@ -132,14 +149,20 @@ export function mountMini(doc, win, { onOpenDashboard } = {}) {
 
   function header() {
     const v = latest?.inference, nodes = latest?.nodes ?? {}, online = metas.filter((meta) => nodes[meta.id]?.ok).length;
-    const level = failed ? 'crit' : latest?.status === 'healthy' ? 'ok' : 'warn';
-    return `<div class="m-head"><b title="${esc(v?.modelName ?? '')}">${esc(v?.modelName ?? t('header.modelUnknown'))}</b><span class="m-${level}"><span class="m-dot"></span>${failed ? esc(t('mini.offline')) : esc(t('mini.nodesUp', { online, count: metas.length }))}</span></div>`;
+    const back = head.querySelector('[data-back]'), name = head.querySelector('b'), status = head.lastElementChild;
+    const set = (el, key, value) => { if (el[key] !== value) el[key] = value; };
+    set(back, 'title', t('mini.back'));
+    if (back.getAttribute('aria-label') !== back.title) back.setAttribute('aria-label', back.title);
+    set(name, 'textContent', v?.modelName ?? t('header.modelUnknown'));
+    set(name, 'title', v?.modelName ?? '');
+    set(status, 'className', `m-${failed ? 'crit' : latest?.status === 'healthy' ? 'ok' : 'warn'}`);
+    set(status.lastElementChild, 'textContent', failed ? t('mini.offline') : t('mini.nodesUp', { online, count: metas.length }));
   }
   const tabs = () => `<nav class="m-tabs" role="tablist">${TABS.map((name) => `<button type="button" role="tab" data-tab="${name}" aria-selected="${name === tab}">${esc(t(`mini.tab.${name}`))}</button>`).join('')}</nav>`;
   const metric = (label, value, unit, extra = '') => `<div class="m-metric"><small>${esc(label)}</small><b class="num">${value}<em>${unit}</em></b>${extra}</div>`;
   function chips() {
     const v = latest?.inference?.ok ? latest.inference : null;
-    return `<div class="m-chips"><span>${esc(t('mini.running'))} <b>${v ? fixed(v.runningRequests, 0) : unknown()}</b></span><span>${esc(t('mini.queue'))} <b>${v ? fixed(v.waitingRequests, 0) : unknown()}</b></span><span>KV <b>${v ? fixed(v.kvCachePercent, 0, '%') : unknown()}</b></span><span>TTFT <b>${v ? duration(v.ttftP95RecentSeconds) : unknown()}</b></span><span>TPOT <b>${v ? duration(v.tpotP95RecentSeconds) : unknown()}</b></span></div>`;
+    return `<div class="m-chips"><span>${esc(t('mini.running'))} <b>${v ? fixed(v.runningRequests, 0) : unknown()}</b></span><span>${esc(t('mini.queue'))} <b>${v ? fixed(v.waitingRequests, 0) : unknown()}</b></span><span>KV <b>${v ? fixed(v.kvCachePercent, 0, '%') : unknown()}</b></span><span>TTFT <b>${v ? duration(v.ttftP95RecentSeconds) : unknown()}</b></span><span>TPOT <b>${v ? duration(v.tpotP95RecentSeconds) : unknown()}</b></span><span>${esc(t('engine.cacheHit'))} <b>${v ? fixed(v.prefixCacheHitPercent, 0, '%') : unknown()}</b></span></div>`;
   }
   function nodeRows() {
     const nodes = latest?.nodes ?? {};
@@ -151,7 +174,7 @@ export function mountMini(doc, win, { onOpenDashboard } = {}) {
     }).join('')}</div>`;
   }
   function footer(note) {
-    return `<div class="m-foot"><span>${esc(note)}</span><button type="button" class="m-link" data-open-dashboard>${esc(t('mini.openDashboard'))}</button></div>`;
+    return `<div class="m-foot"><span>${esc(note)}</span></div>`;
   }
 
   function glance(now) {
@@ -165,7 +188,7 @@ export function mountMini(doc, win, { onOpenDashboard } = {}) {
       <div class="m-wide">${metric(t('mini.decode'), rate(v?.outputTokensPerSecond), 'tok/s')}${metric(t('mini.prefill'), rate(v ? prefillRate(v) : null), 'tok/s')}<div class="m-wide-nodes">${metas.map((meta) => { const gpu = nodes[meta.id]?.ok ? nodes[meta.id].gpu ?? {} : {}; return `<div style="--node:${color(meta.id)}"><span>${esc(meta.name)}</span><span class="m-bar"><i style="width:${finite(gpu.utilization) ? Math.max(0, Math.min(100, gpu.utilization)).toFixed(0) : 0}%"></i></span><span class="${hotClass(gpu.temperature)}">${finite(gpu.temperature) ? `${temperature(gpu.temperature, settings.temp)}°` : '—'}</span></div>`; }).join('')}</div></div>`;
   }
 
-  function scope(now) {
+  function scope(now, stacked = false) {
     const W = 312, H = 150, TH = 90, from = now - SCOPE_MS, points = samples.filter((s) => s.at >= from - 4000);
     const x = (at) => Math.max(0, Math.min(W, (at - from) / SCOPE_MS * W));
     const maxDecode = Math.max(40, ...points.map((p) => p.decode)) * 1.15, maxPrefill = Math.max(1000, ...points.map((p) => p.prefill)) * 1.1;
@@ -184,7 +207,7 @@ export function mountMini(doc, win, { onOpenDashboard } = {}) {
     const phases = ['idle', 'prefill', 'decode'].map((phase) => `<span class="${phase === current ? `m-on m-${phase}` : ''}">${esc(t(`mini.phase.${phase}`))}</span>`).join('');
     return `<div class="m-head"><div class="m-phase">${phases}</div><span class="num">${esc(t('mini.twoMinutes'))}</span></div>
       <div class="m-scope"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="${esc(t('mini.scopeLabel'))}" role="img">${bands}<line x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" stroke="var(--grid)"/>${bars}${line ? `<path d="${line}" fill="none" stroke="var(--blue)" stroke-width="2" vector-effect="non-scaling-stroke"/>` : ''}</svg><span class="m-lbl m-left">${esc(t('mini.decode'))} ${rate(last.decode)} tok/s</span><span class="m-lbl m-right">${esc(t('mini.prefill'))} ${rate(latest?.inference?.ok ? prefillRate(latest.inference) : null)}</span></div>
-      ${chips()}
+      ${stacked ? '' : chips()}
       <div class="m-head"><span>${esc(t('node.reading.temp'))}</span><span class="num ${hotClass(hottest?.temp)}">${hottest ? esc(t('mini.hottest', { temp: tempText(hottest.temp), node: hottest.meta.name })) : unknown()}</span></div>
       <div class="m-scope m-temps"><svg viewBox="0 0 ${W} ${TH}" preserveAspectRatio="none" aria-hidden="true"><line x1="0" x2="${W}" y1="${ty(HOT_CELSIUS).toFixed(1)}" y2="${ty(HOT_CELSIUS).toFixed(1)}" stroke="var(--red)" stroke-dasharray="3 4" opacity=".6" vector-effect="non-scaling-stroke"/>${tempLines}</svg><span class="m-lbl m-right m-hot" style="top:${Math.max(0, ty(HOT_CELSIUS) - 15).toFixed(0)}px">${tempText(HOT_CELSIUS)}</span></div>
       ${footer(t('mini.shading'))}`;
@@ -204,7 +227,7 @@ export function mountMini(doc, win, { onOpenDashboard } = {}) {
       <div><small>${esc(t('mini.run.hottest'))}</small><b class="${hotClass(r.hottest)}">${tempText(r.hottest)}</b> <em class="m-muted">${esc(node(r.hottestNode))}</em></div><div><small>${esc(t('mini.run.energy'))}</small><b>${fixed(r.energyWh, 2)} Wh</b></div>
       <div><small>${esc(t('mini.run.output'))}</small><b>${fixed(r.outputTokens, 0)}</b></div><div><small>${esc(t('mini.run.prompt'))}</small><b>${fixed(r.promptTokens, 0)}</b></div></div>`;
   }
-  function runsView(now) {
+  function runsView(now, stacked = false) {
     const v = latest?.inference?.ok ? latest.inference : null, previous = runs[0];
     const live = run ? finishRun({ ...run }, latest, (previous?.number ?? 0) + 1) : null;
     const control = run
@@ -212,19 +235,42 @@ export function mountMini(doc, win, { onOpenDashboard } = {}) {
       : `<div class="m-rec"><span class="m-state m-muted">${esc(t('mini.run.ready'))}</span><button type="button" data-run="start">${esc(t('mini.run.start'))}</button></div>`;
     const shown = live ?? previous;
     const list = runs.slice(0, 4).map((r) => `<div><span><b>${esc(t('mini.run.name', { n: r.number }))}</b> ${esc(clockTime(r.startedAt, { seconds: false, hour12: hour12() }))} | ${mmss(r.seconds)}</span><span>${rate(r.avgDecode)}</span><span>${duration(r.slowestTtft)} | ${finite(r.hottest) ? `${temperature(r.hottest, settings.temp)}°` : '—'}</span></div>`).join('');
-    return `${control}<div class="m-pair">${metric(t('mini.decodeNow'), rate(v?.outputTokensPerSecond), 'tok/s')}${metric(t('mini.prefillNow'), rate(v ? prefillRate(v) : null), 'tok/s')}</div>
+    return `${control}${stacked ? '' : `<div class="m-pair">${metric(t('mini.decodeNow'), rate(v?.outputTokensPerSecond), 'tok/s')}${metric(t('mini.prefillNow'), rate(v ? prefillRate(v) : null), 'tok/s')}</div>`}
       ${shown ? `<div class="m-head"><span>${esc(live ? t('mini.run.thisRun') : t('mini.run.lastRun', { n: shown.number }))}</span><span class="num">${mmss(shown.seconds)}</span></div>${runStats(shown, live ? previous : runs[1])}` : `<p class="m-empty">${esc(t('mini.run.none'))}</p>`}
       ${runs.length ? `<div class="m-rule"></div><div class="m-head"><span>${esc(t('mini.run.list'))}</span><span>${esc(t('mini.run.columns'))}</span></div><div class="m-runs">${list}</div>` : ''}
       <div class="m-foot"><span>${esc(t('mini.run.kept'))}</span>${runs.length ? `<button type="button" class="m-link" data-run="csv">${esc(t('mini.run.csv'))}</button>` : ''}</div>`;
   }
 
-  function render() {
-    const now = Date.now(), views = { glance, scope, runs: runsView };
-    root.innerHTML = `${header()}${tabs()}<div class="m-body m-tab-${tab}">${latest ? views[tab](now) : `<p class="m-empty">${esc(failed ? t('mini.offline') : t('mini.waiting'))}</p>`}</div>`;
+  // The redrawn control that had keyboard focus, found again after a redraw; Start and Stop take each other's place.
+  function focusedControl() {
+    const el = doc.activeElement;
+    if (!el || !content.contains(el)) return null;
+    if (el.dataset.tab) return `[data-tab="${el.dataset.tab}"]`;
+    if (el.dataset.run === 'start' || el.dataset.run === 'stop') return '[data-run="start"],[data-run="stop"]';
+    if (el.dataset.run) return `[data-run="${el.dataset.run}"]`;
+    return null;
   }
 
+  function render() {
+    const now = Date.now(), views = { glance, scope, runs: runsView }, focused = focusedControl();
+    const empty = `<p class="m-empty">${esc(failed ? t('mini.offline') : t('mini.waiting'))}</p>`;
+    const stacked = stackQuery.matches && !shortQuery.matches;
+    root.classList.toggle('m-stacked', stacked);
+    header();
+    if (stacked) {
+      // Scope and Runs leave out the request counts and current rates that Glance already shows above them.
+      content.innerHTML = `${latest ? TABS.map((name) => `<section class="m-body m-tab-${name}"${name === 'glance' ? '' : ` aria-label="${esc(t(`mini.tab.${name}`))}"`}>${name === 'glance' ? '' : `<h2 class="m-part">${esc(t(`mini.tab.${name}`))}</h2>`}${views[name](now, true)}</section>`).join('') : empty}`;
+    } else {
+      const shown = shortQuery.matches ? 'glance' : tab;
+      content.innerHTML = `${tabs()}<div class="m-body m-tab-${shown}">${latest ? views[shown](now) : empty}</div>`;
+    }
+    if (focused) content.querySelector(focused)?.focus({ preventScroll: true });
+  }
+
+  // A hidden tab stops asking with "pause while hidden" on, as the dashboard does, unless a run is being recorded.
   async function poll(first = false) {
     applySettings();
+    if (!first && settings.pause && doc.hidden && !run) return;
     try {
       const response = await win.fetch(`${origin}/api/state?minutes=15${first ? '' : '&history=0'}`, { cache: 'no-store' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -252,7 +298,7 @@ export function mountMini(doc, win, { onOpenDashboard } = {}) {
     const target = event.target.closest('button');
     if (!target) return;
     if (target.dataset.tab) { tab = target.dataset.tab; write(win, TAB_KEY, JSON.stringify(tab)); render(); return; }
-    if (target.hasAttribute('data-open-dashboard')) { onOpenDashboard ? onOpenDashboard() : win.open(`${origin}/`, '_blank'); return; }
+    if (target.hasAttribute('data-back')) { if (onBack) onBack(); else win.location.assign(`${origin}/`); return; }
     if (target.dataset.run === 'start' && latest) { run = startRun(latest, Date.parse(latest.updatedAt) || Date.now()); render(); return; }
     if (target.dataset.run === 'stop' && run) {
       runs = [finishRun(run, latest, (runs[0]?.number ?? 0) + 1), ...runs].slice(0, MAX_RUNS);
@@ -271,11 +317,22 @@ export function mountMini(doc, win, { onOpenDashboard } = {}) {
     }
   });
 
+  const shown = () => { if (!doc.hidden) void poll(); };
   applySettings();
   render();
+  onMediaChange(stackQuery, render);
+  onMediaChange(shortQuery, render);
+  doc.addEventListener('visibilitychange', shown);
   void poll(true);
   let timer = win.setInterval(() => void poll(), settings.refresh * 1000);
   return {
-    close() { win.clearInterval(timer); timer = null; },
+    close() {
+      win.clearInterval(timer);
+      timer = null;
+      offMediaChange(stackQuery, render);
+      offMediaChange(shortQuery, render);
+      doc.removeEventListener('visibilitychange', shown);
+    },
+    recording: () => run !== null,
   };
 }

@@ -7,7 +7,6 @@
   <a href="https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/juliankang4/spark-scope"></a>
   <img alt="Node.js 22.13 or later" src="https://img.shields.io/badge/node-%E2%89%A5%2022.13-339933?logo=nodedotjs&amp;logoColor=white">
-  <img alt="No npm dependencies" src="https://img.shields.io/badge/dependencies-none-brightgreen">
   <img alt="Engines: vLLM, SGLang and TensorFold" src="https://img.shields.io/badge/engines-vLLM%20%7C%20SGLang%20%7C%20TensorFold-76b900">
   <img alt="Runs on arm64 and x64" src="https://img.shields.io/badge/arch-arm64%20%7C%20x64-blue">
 </p>
@@ -38,7 +37,7 @@ npm 의존성 없이 Node.js 프로세스 하나로 동작합니다. 각 노드�
 - **노드 간 연결**: QSFP 케이블마다 두 논리 경로와 트래픽, 상태를 보여 줍니다(노드 2대 이상).
 - **추론**: 15분~6시간 범위의 출력 tok/s, prefill과 decode 속도, 최근 5분 TTFT·TPOT p95, 캐시 적중률, KV cache, 대기열을 보여 줍니다.
 - **토큰 사용량**: 한 달 사용량을 내역, 달력, 차트로 보여 주고 모델별 표와 CSV 내보내기도 있습니다.
-- **미니 창**: 모델 테스트를 지켜볼 때 쓰는 작은 창으로, 다른 창 위에 항상 떠 있습니다(Chrome, Edge). '측정 시작'부터 '중지'까지를 한 번의 측정으로 기록합니다.
+- **미니 창**: 모델 테스트를 지켜볼 때 쓰는 작은 창입니다. Chrome과 Edge에서는 다른 창 위에 항상 떠 있고, Safari와 휴대폰에서는 페이지가 미니 창 화면으로 바뀝니다. '측정 시작'부터 '중지'까지를 한 번의 측정으로 기록합니다.
 - **랙 패널**: 노드마다 베이가 하나씩 있고 하단 띠에 클러스터 상태, 모델, 처리량이 나옵니다.
 
 자세한 내용은 [웹 페이지](docs/dashboard.md)와 [랙 패널](docs/rack.md) 문서에 있습니다. 스크린샷은 `tools/fixtures.mjs`의 가상 데이터로 찍었습니다.

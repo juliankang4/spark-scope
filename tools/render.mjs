@@ -118,7 +118,9 @@ const send = (method, params = {}, sessionId) => new Promise((resolve, reject) =
 });
 
 // shift moves the page's clock (Date) by that many milliseconds, to match the ledger scenario's fixture server.
-async function openPage({ width, height, colorScheme = "dark", shift = 0 }) {
+// touch makes the page a touch screen (pointer: coarse), like a phone; noPip takes document picture-in-picture away,
+// like Safari.
+async function openPage({ width, height, colorScheme = "dark", shift = 0, touch = false, noPip = false }) {
   const { targetId } = await send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
   const errors = [];
@@ -135,6 +137,8 @@ async function openPage({ width, height, colorScheme = "dark", shift = 0 }) {
   await call("Log.enable");
   await call("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 600 });
   await call("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }, { name: "prefers-color-scheme", value: colorScheme }] });
+  if (touch) await call("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+  if (noPip) await call("Page.addScriptToEvaluateOnNewDocument", { source: "delete Window.prototype.documentPictureInPicture; delete window.documentPictureInPicture;" });
   if (shift) await call("Page.addScriptToEvaluateOnNewDocument", { source: `(() => { const Real = Date, shift = ${shift};
     function Shifted(...args) { return new.target ? (args.length ? new Real(...args) : new Real(Real.now() + shift)) : new Real(Real.now() + shift).toString(); }
     Shifted.prototype = Real.prototype; Shifted.now = () => Real.now() + shift; Shifted.parse = Real.parse; Shifted.UTC = Real.UTC; globalThis.Date = Shifted; })();` });
@@ -630,25 +634,28 @@ try {
   }
 
   // The mini window (/mini/, the same view the picture-in-picture window shows): Glance, Scope and Runs (with one
-  // recorded run) in a tall window and Glance in a short, wide one, in each design, and the tall one in Korean.
+  // recorded run) behind tabs in the default size, Glance in a short, wide window and all three stacked in a window
+  // taller than 720 px, in each design, and the default size in Korean.
   for (const [design, scheme, lang] of [["default", "dark", "en"], ["console", "dark", "en"], ["soft", "light", "en"], ["default", "light", "ko"]]) {
-    for (const [shape, width, height] of [["tall", 340, 560], ["wide", 520, 190]]) {
-      if (lang === "ko" && shape === "wide") continue;
+    for (const [shape, width, height] of [["tall", 340, 560], ["wide", 520, 190], ["stacked", 340, 1100]]) {
+      if (lang === "ko" && shape !== "tall") continue;
       const page = await openPage({ width, height, colorScheme: scheme });
       current = { count: 4, mode: "serving", longNames: false };
       await page.go(`${base}/mini/`);
       await page.evaluate(`localStorage.clear(); localStorage.setItem("spark-scope-settings", JSON.stringify({ design: "${design}", lang: "${lang}" }))`);
       await page.go(`${base}/mini/`);
       await page.waitFor("document.querySelector('.m-metric') !== null");
-      for (const tab of shape === "tall" ? ["glance", "scope", "runs"] : ["glance"]) {
+      for (const tab of shape === "tall" ? ["glance", "scope", "runs"] : shape === "stacked" ? ["all"] : ["glance"]) {
         await page.evaluate(`document.querySelector('[data-tab="${tab}"]')?.click()`);
-        if (tab === "runs") {
+        if (tab === "runs" || tab === "all") {
           await page.evaluate(`document.querySelector('[data-run="start"]').click()`);
           await new Promise((resolve) => setTimeout(resolve, 4500));
           await page.evaluate(`document.querySelector('[data-run="stop"]').click()`);
         }
         await new Promise((resolve) => setTimeout(resolve, 300));
         const issues = await page.evaluate(CHECK_MINI);
+        const layout = await page.evaluate("[!!document.querySelector('.m-stacked'), !!document.querySelector('.m-tabs')]");
+        if (shape === "stacked" ? !layout[0] || layout[1] : layout[0]) issues.push(`expected ${shape === "stacked" ? "stacked parts" : "tabs"}, got stacked ${layout[0]}, tabs ${layout[1]}`);
         const name = `mini-${shape}-${tab}-${design}-${scheme}${lang === "ko" ? "-ko" : ""}.png`;
         await page.shoot(name);
         report(name, [], [...issues, ...(lang === "ko" ? await englishLeft(page, fixtureState(4, "serving")) : []), ...page.errors.splice(0)]);
@@ -656,6 +663,81 @@ try {
       await page.evaluate("localStorage.clear()");
       await page.close();
     }
+  }
+
+  // The mini view inside the dashboard page. A phone (touch, 390 px) opens in it, with the parts stacked and the header
+  // row kept in view; Back returns to the dashboard, the next visit stays there and the button brings the mini view
+  // back. A run being recorded keeps going while the dashboard is shown.
+  for (const [lang, scheme] of [["en", "dark"], ["ko", "light"]]) {
+    const page = await openPage({ width: 390, height: 844, colorScheme: scheme, touch: true });
+    const suffix = `${scheme}${lang === "ko" ? "-ko" : ""}`;
+    current = { count: 4, mode: "serving", longNames: false };
+    await page.go(`${base}/`);
+    await page.evaluate(`localStorage.clear(); localStorage.setItem("spark-scope-settings", JSON.stringify({ lang: "${lang}" }))`);
+    await page.go(`${base}/`);
+    await page.waitFor("document.querySelector('.m-inline .m-metric') !== null");
+    await page.evaluate(`document.querySelector('[data-run="start"]').click()`);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    await page.evaluate(`document.querySelector('[data-back]').click()`);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    await page.evaluate(`document.querySelector('#mini-open').click()`);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await page.evaluate(`document.querySelector('[data-run="stop"]').click()`);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const opened = await page.evaluate(`(() => ({ view: document.documentElement.dataset.view ?? null, stacked: !!document.querySelector('.m-inline .m-stacked'), tabs: !!document.querySelector('.m-inline .m-tabs'), shell: getComputedStyle(document.querySelector('#shell')).display, run: JSON.parse(localStorage.getItem('spark-scope-runs') || '[]')[0]?.seconds ?? null }))()`);
+    const problems = [...await page.evaluate(CHECK_MINI), ...(lang === "ko" ? await englishLeft(page, fixtureState(4, "serving")) : []), ...page.errors.splice(0)];
+    if (opened.view !== "mini" || opened.shell !== "none") problems.push(`phone did not open in the mini view: ${JSON.stringify(opened)}`);
+    if (!opened.stacked || opened.tabs) problems.push("phone mini view not stacked");
+    if (!(opened.run >= 4)) problems.push(`the run did not keep recording behind the dashboard: ${opened.run} s`);
+    await page.shoot(`mini-page-phone-${suffix}.png`, { fullPage: true });
+    report(`mini-page-phone-${suffix}.png`, [`recorded run: ${opened.run} s`], problems);
+    const sticky = await page.evaluate("(async () => { scrollTo(0, 700); await new Promise((r) => setTimeout(r, 200)); return Math.round(document.querySelector('.m-root > .m-head').getBoundingClientRect().top); })()");
+    await page.shoot(`mini-page-phone-${suffix}-scrolled.png`);
+    report(`mini-page-phone-${suffix}-scrolled.png`, [`header row top: ${sticky}px`], sticky === 0 ? [] : [`header row scrolled away: ${sticky}px`]);
+    await page.evaluate(`document.querySelector('[data-back]').click()`);
+    await page.go(`${base}/`);
+    await page.waitFor("document.querySelectorAll('#nodes .node').length > 0 && /\\d/.test(document.querySelector('#updated-at').textContent)");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const back = await page.evaluate(`(() => ({ view: document.documentElement.dataset.view ?? null, stored: localStorage.getItem('spark-scope-view'), button: getComputedStyle(document.querySelector('#mini-open')).display }))()`);
+    const backProblems = [...await page.evaluate(CHECK_WEB), ...page.errors.splice(0)];
+    if (back.view !== null || back.stored !== "full") backProblems.push(`Back did not keep the dashboard: ${JSON.stringify(back)}`);
+    if (back.button === "none") backProblems.push("no mini button on the phone dashboard");
+    await page.shoot(`web-phone-after-mini-${suffix}.png`);
+    report(`web-phone-after-mini-${suffix}.png`, [], backProblems);
+    await page.evaluate(`document.querySelector('#mini-open').click()`);
+    await page.waitFor("document.querySelector('.m-inline .m-metric') !== null");
+    if (await page.evaluate("document.documentElement.dataset.view") !== "mini") report(`mini-page-phone-${suffix}-reopen`, [], ["the button did not bring the mini view back"]);
+    await page.evaluate("localStorage.clear()");
+    await page.close();
+  }
+
+  // A desktop browser without document picture-in-picture (Safari): the button switches the page to the mini view, in
+  // one centred column, stacked in a tall window and behind tabs in a short one; the next visit opens in it again.
+  for (const [design, scheme, height] of [["default", "light", 1000], ["soft", "dark", 1000], ["console", "dark", 640]]) {
+    const page = await openPage({ width: 1440, height, colorScheme: scheme, noPip: true });
+    current = { count: 4, mode: "serving", longNames: false };
+    await page.go(`${base}/`);
+    await page.evaluate(`localStorage.clear(); localStorage.setItem("spark-scope-settings", JSON.stringify({ design: "${design}" }))`);
+    await page.go(`${base}/`);
+    await page.waitFor("document.querySelectorAll('#nodes .node').length > 0");
+    await page.evaluate(`document.querySelector('#mini-open').click()`);
+    await page.waitFor("document.querySelector('.m-inline .m-metric') !== null");
+    await page.go(`${base}/`);
+    await page.waitFor("document.querySelector('.m-inline .m-metric') !== null");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const box = await page.evaluate(`(() => { const r = document.querySelector('.m-inline .m-root').getBoundingClientRect(); return { view: document.documentElement.dataset.view ?? null, width: Math.round(r.width), left: Math.round(r.left), right: Math.round(innerWidth - r.right), stacked: !!document.querySelector('.m-stacked'), tabs: !!document.querySelector('.m-inline .m-tabs'), title: document.title }; })()`);
+    const problems = [...await page.evaluate(CHECK_MINI), ...page.errors.splice(0)];
+    if (box.view !== "mini") problems.push("the next visit did not open in the mini view");
+    if (box.width > 460 || Math.abs(box.left - box.right) > 1) problems.push(`mini view not one centred column: ${box.width} px, ${box.left}/${box.right}`);
+    if (height >= 720 ? !box.stacked || box.tabs : box.stacked || !box.tabs) problems.push(`wrong layout for a ${height} px window: stacked ${box.stacked}, tabs ${box.tabs}`);
+    const name = `mini-page-desktop-${design}-${scheme}-${height}.png`;
+    await page.shoot(name);
+    report(name, [`column ${box.width} px, title "${box.title}"`], problems);
+    await page.evaluate(`document.querySelector('[data-back]').click()`);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (await page.evaluate("document.documentElement.dataset.view ?? null") !== null) report(`${name} back`, [], ["Back did not return to the dashboard"]);
+    await page.evaluate("localStorage.clear()");
+    await page.close();
   }
 
   // The web page in Korean, opened with a settings link (?lang=ko): four nodes serving and with a fault, and the token
