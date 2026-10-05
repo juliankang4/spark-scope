@@ -192,6 +192,12 @@ const utcDate = (key) => { const [y, m, d = 1] = key.split('-').map(Number); ret
 export const monthLabel = (month, lang) => t('format.monthLabel', calendar(utcDate(month), 'UTC'), lang);
 export const monthName = (month, lang) => t('format.month', calendar(utcDate(month), 'UTC'), lang);
 export const dayLabel = (day, lang) => t('format.dayLabel', calendar(utcDate(day), 'UTC'), lang);
+// A statement week's heading from its first shown day: "Week of Oct 6", or in Korean the week's place in the month
+// (1 to 6), counting the week of the 1st as the first and each Monday after it as the start of the next.
+export function weekLabel(day, lang) {
+  const at = utcDate(day), firstWeekday = (new Date(utcDate(day.slice(0, 7))).getUTCDay() + 6) % 7;
+  return t(`format.week${Math.floor((Number(day.slice(8)) - 1 + firstWeekday) / 7) + 1}`, calendar(at, 'UTC'), lang);
+}
 export function monthOptions(first, current) {
   if (!/^\d{4}-\d{2}$/.test(first || '')) first = current;
   const options = [];

@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STRINGS, LANGUAGES, LANGUAGE_NAMES, t, setLanguage, language, queryLanguage, serverText, hasOwnString, locale } from '../public/i18n.js';
-import { monthLabel, monthName, dayLabel, clockTime, eventTime, linkText, compact, systemStateText, roleName } from '../public/view-data.js';
+import { monthLabel, monthName, dayLabel, weekLabel, clockTime, eventTime, linkText, compact, systemStateText, roleName } from '../public/view-data.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (file) => readFileSync(path.join(ROOT, file), 'utf8');
@@ -100,6 +100,11 @@ test('ledger months and days read in the chosen language; Korean matches the pla
   assert.equal(monthName('2026-09', 'ko'), korean(Date.UTC(2026, 8, 1), { month: 'long' }));
   assert.ok(!monthName('2026-09', 'ko').includes('2026'));
   assert.equal(t('ledger.monthTotal', { month: monthName('2026-09') }), 'September total');
+  // Statement weeks: May 2027 starts on a Saturday, so the 1st opens the first week and Monday the 31st the sixth.
+  assert.equal(weekLabel('2027-05-03'), 'Week of May 3');
+  for (const [day, n] of [['2027-05-01', 1], ['2027-05-03', 2], ['2027-05-31', 6], ['2026-06-08', 2]]) {
+    assert.equal(weekLabel(day, 'ko'), STRINGS.ko[`format.week${n}`].replace('{month}', String(Number(day.slice(5, 7)))), day);
+  }
   // The page language is the default.
   assert.equal(inLanguage('ko', () => monthLabel('2026-09')), monthLabel('2026-09', 'ko'));
 });

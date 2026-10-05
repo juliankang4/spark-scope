@@ -177,7 +177,7 @@ export function nodeView(meta, node, { inferenceOk = false, lastOkAt = null, now
   if (diskPct !== null && diskPct >= DISK_WARN_PERCENT) warn.push(t("rack.reason.disk", { percent: diskPct }));
   if (memFreeGiB !== null && memFreeGiB < MEMORY_WARN_GIB) warn.push(t("rack.reason.memoryFree", { free: freeLabel(memFreeGiB, mem) }));
   if (kernel?.total > 0 && recent(kernel.lastAt)) {
-    const count = `${kernel.capped ? "≥" : ""}${kernel.total}`;
+    const count = kernel.capped ? `≥${kernel.total}` : kernel.total;
     warn.push(kernel.lastAt ? t("rack.reason.kernel", { count, time: clockTime(kernel.lastAt, clock) }) : t("rack.reason.kernelNoTime", { count }));
   }
 

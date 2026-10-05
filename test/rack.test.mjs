@@ -148,7 +148,7 @@ test("the bay header names the actual reasons, most severe first", () => {
     kernelEvents: { total: 1, capped: false, lastAt: "2026-09-26T06:12:17.345Z" },
   }), { nowMs: Date.parse("2026-09-26T06:20:00Z"), clock });
   assert.equal(view.level, "warn");
-  assert.deepEqual(view.reasons, ["disk 97%", "kernel 1 (06:12)"]);
+  assert.deepEqual(view.reasons, ["disk 97%", "1 kernel error (06:12)"]);
   const hot = nodeView(META["1"], healthy({ gpu: { utilization: 99, temperature: 91, powerWatts: 30, thermalSlowdown: true }, disk: { usedPercent: 97, availableBytes: GIB } }), { links: nodeLinks(ringState({ "4-1": "down" }), "1") });
   assert.equal(hot.level, "crit");
   assert.deepEqual(hot.reasons.slice(0, 2), ["thermal slowdown", "Link 4–1 down"]);
@@ -161,7 +161,7 @@ test("past kernel warnings and restarts clear after ten minutes, ongoing conditi
     disk: { usedPercent: 97, availableBytes: 31 * GIB },
   });
   const soon = nodeView(META["2"], node, { nowMs: Date.parse("2026-09-26T06:19:00Z"), clock });
-  assert.deepEqual(soon.reasons, ["restarted ×2", "disk 97%", "kernel 1 (06:12)"]);
+  assert.deepEqual(soon.reasons, ["restarted ×2", "disk 97%", "1 kernel error (06:12)"]);
   const later = nodeView(META["2"], node, { nowMs: Date.parse("2026-09-26T06:30:00Z"), clock });
   assert.deepEqual(later.reasons, ["disk 97%"]);
   assert.equal(nodeView(META["2"], healthy({ kernelEvents: { total: 3, capped: false, lastAt: null } })).level, "good");
@@ -170,7 +170,7 @@ test("past kernel warnings and restarts clear after ten minutes, ongoing conditi
 test("an unreachable node is critical and never shows zeros for unknown values", () => {
   const view = nodeView(META["3"], { ok: false, collected: true, host: "spark-3", error: "timeout" }, { lastOkAt: "2026-09-26T06:44:00Z", clock });
   assert.equal(view.level, "crit");
-  assert.deepEqual(view.reasons, ["no response"]);
+  assert.deepEqual(view.reasons, ["not responding"]);
   assert.equal(view.lastOk, "06:44");
   assert.equal(view.temp, undefined);
 });
@@ -384,7 +384,7 @@ test('with several model servers the band adds up their output and shows a chip 
   const view = clusterView(all, { clock });
   assert.deepEqual(view.chips, [{ name: 'big-model', level: 'good', value: '40.0', unit: 'tok/s' }, { name: 'Small', level: 'idle', value: 'idle' }]);
   assert.equal(view.lines[0], '');
-  assert.deepEqual(serverChips([{ id: 'c', inference: { ok: false } }]), [{ name: 'c', level: 'crit', value: 'not answering' }]);
+  assert.deepEqual(serverChips([{ id: 'c', inference: { ok: false } }]), [{ name: 'c', level: 'crit', value: 'not responding' }]);
   // ?server=b: the band follows that server alone, with its own model line and no chips.
   const one = rackFocus(state, 'a');
   assert.equal(one.focusServer, 'a');
