@@ -2,7 +2,7 @@
 // the CSV export. Everything here works on one /api/usage month (and the month before it, for the comparison) and
 // returns markup or plain values; app.js fetches the months, keeps the chosen view and day, and handles the clicks.
 import { t, locale } from './i18n.js';
-import { finite, fixed, compact, unknown, escapeHtml as esc, dayLabel, monthName } from './view-data.js';
+import { finite, fixed, compact, unknown, escapeHtml as esc, dayLabel, weekLabel, monthName } from './view-data.js';
 import { helpButton } from './help.js';
 
 // Model colours in the order of the month's table (largest first). Orange is left out: it is the output bars' colour.
@@ -98,7 +98,7 @@ export function kpiHtml(usage, previous, unreported = {}) {
   const versus = monthComparison(usage, previous);
   if (versus) {
     const rounded = Math.round(versus.change), sign = rounded > 0 ? '+' : rounded < 0 ? '−' : '';
-    const period = versus.whole ? monthName(versus.previousMonth) : `${dayLabel(`${versus.previousMonth}-01`)} – ${dayLabel(dayKey(versus.previousMonth, versus.lastDay))}`;
+    const period = versus.whole ? monthName(versus.previousMonth) : t('ledger.kpi.vsDays', { month: monthName(versus.previousMonth), day: versus.lastDay });
     items.push(item('', `${t('ledger.kpi.vsLast')}${helpButton('help.vsLastMonth')}`, `${sign}${Math.abs(rounded)}%`, t('ledger.kpi.vsSub', { value: compact(versus.previousTotal), period })));
   }
   return items.join('');
@@ -134,7 +134,7 @@ export function statementHtml(usage, unreported = {}) {
       const bar = `<i style="width:${(day.output / maxOutput * 100).toFixed(1)}%"></i>`;
       return `<tr${attrs('')}><th scope="row">${date}<span class="day-models">${chips(day, colors)}</span></th><td class="model-col">${chips(day, colors)}</td>${figures(day, bar)}</tr>`;
     }).join('');
-    return `<tr class="week"><th scope="row">${t('ledger.week', { day: dayLabel(week[0]) })}</th><td class="model-col"></td>${weekFigures}</tr>${rows}`;
+    return `<tr class="week"><th scope="row">${weekLabel(week[0])}</th><td class="model-col"></td>${weekFigures}</tr>${rows}`;
   }).join('');
   const label = t(current ? 'ledger.monthToDate' : 'ledger.monthTotal', { month: monthName(usage.month) });
   const head = `<thead><tr><th scope="col">${t('ledger.date')}</th><th scope="col" class="model-col">${t('ledger.model')}</th><th scope="col" class="wide-col">${t('ledger.cacheRead')}</th><th scope="col" class="wide-col">${t('ledger.newInput')}</th><th scope="col">${t('ledger.output')}</th><th class="bar-col" aria-hidden="true"></th><th scope="col">${t('ledger.logicalInput')}</th><th scope="col">${t('ledger.requests')}</th></tr></thead>`;
