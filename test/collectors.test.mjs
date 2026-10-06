@@ -374,6 +374,18 @@ test("a journal that shows no kernel lines (no access, only the account's own jo
   assert.equal(node.kernelEvents.available, false);
 });
 
+test("a failed unit whose file is gone is not counted and does not leave the node degraded", async () => {
+  const systemctl = (failed) => `case "$1" in is-system-running) echo degraded ;; --failed) printf '%s\\n' ${failed} ;; esac`;
+  const gone = "'snap-thunderbird-1261.mount not-found failed failed snap-thunderbird-1261.mount'";
+  const real = "'nginx.service loaded failed failed A high performance web server'";
+  const stale = await withFakeCommand("systemctl", systemctl(gone), () => collectNode({ id: "1", name: "this", host: "local", local: true }));
+  assert.equal(stale.systemState, "running");
+  assert.equal(stale.failedUnits, 0);
+  const mixed = await withFakeCommand("systemctl", systemctl(`${gone} ${real}`), () => collectNode({ id: "1", name: "this", host: "local", local: true }));
+  assert.equal(mixed.systemState, "degraded");
+  assert.equal(mixed.failedUnits, 1);
+});
+
 test("a server that nvidia-smi names after the Python interpreter is named by its launcher script", { skip: process.platform !== "linux" && "reads /proc" }, async () => {
   const { mkdtempSync, writeFileSync, chmodSync, rmSync } = await import("node:fs");
   const os = await import("node:os");
