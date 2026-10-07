@@ -142,12 +142,32 @@ export function statementHtml(usage, unreported = {}) {
   return `<table class="statement"><caption class="sr-only">${t('ledger.tableCaption')}</caption>${head}<tbody>${rows}</tbody><tfoot><tr class="total"><th scope="row">${esc(label)}</th><td class="model-col"></td>${figures(usage.totals, '')}</tr></tfoot></table>`;
 }
 
-// Calendar: the month as a grid shaded by output (more output, more colour), a mark on the days a model changed, and
-// the selected day's figures beside it.
-export function calendarHtml(usage, previous, selected, unreported = {}) {
+// The figures a calendar day can show and be shaded by. New input + output leaves out cache reads, the prompt parts the
+// server had already processed; Total tokens is logical input plus output. keys are the counts each one is made of.
+export const CALENDAR_METRICS = {
+  output: { label: 'ledger.output', keys: ['output'], value: (day) => day.output },
+  work: { label: 'ledger.cal.work', keys: ['compute', 'output'], value: (day) => day.compute + day.output },
+  total: { label: 'ledger.totalTokens', keys: ['input', 'output'], value: (day) => day.total },
+};
+export const calendarMetric = (name) => (Object.hasOwn(CALENDAR_METRICS, name) ? name : 'output');
+// A day's figure, unknown when a count it is made of is not exported and that count is 0 for the day. A day with input
+// but neither new input nor cache read was recorded without the split (an engine that did not export it then), so its
+// new input is unknown even if today's engine exports it.
+function metricFigure(metric, day, unreported) {
+  const value = metric.value(day);
+  const noSplit = metric.keys.includes('compute') && day.input > 0 && !day.compute && !day.cache;
+  if (noSplit || metric.keys.some((key) => unreported[key] && !day[key])) return { text: unknown(), title: '', missing: true, value };
+  return { text: compact(value), title: full(value), missing: false, value };
+}
+
+// Calendar: the month as a grid shaded by the chosen figure (more of it, more colour), a mark on the days a model
+// changed, and the selected day's figures beside it.
+export function calendarHtml(usage, previous, selected, unreported = {}, metricName = 'output') {
+  const name = calendarMetric(metricName), metric = CALENDAR_METRICS[name], label = t(metric.label);
   const colors = modelColors(usage), byDay = new Map(usage.days.map((day) => [day.day, day]));
   const changes = modelChanges(usage.days, previous?.month === previousMonth(usage.month) ? previous.days : []);
-  const current = usage.day?.slice(0, 7) === usage.month, through = throughDay(usage), maxOutput = Math.max(1, ...usage.days.map((day) => day.output));
+  const current = usage.day?.slice(0, 7) === usage.month, through = throughDay(usage), maxValue = Math.max(1, ...usage.days.map((day) => metricFigure(metric, day, unreported)).filter((f) => !f.missing).map((f) => f.value || 0));
+  const switcher = `<div class="cal-metric"><div class="ranges" role="group" aria-label="${esc(t('ledger.cal.metric'))}">${Object.entries(CALENDAR_METRICS).map(([key, item]) => `<button type="button" data-cal-metric="${key}" aria-pressed="${key === name}">${t(item.label)}</button>`).join('')}</div>${helpButton('help.calMetric')}</div>`;
   const heads = Array.from({ length: 7 }, (_, i) => `<span class="dow" aria-hidden="true">${esc(weekday(`2024-01-0${i + 1}`))}</span>`).join('');
   const blanks = '<span></span>'.repeat(mondayFirst(`${usage.month}-01`));
   const cells = Array.from({ length: daysInMonth(usage.month) }, (_, i) => {
@@ -155,12 +175,13 @@ export function calendarHtml(usage, previous, selected, unreported = {}) {
     const classes = ['cal-day', current && key === usage.day ? 'today' : ''];
     if (i + 1 > through) return `<button type="button" class="${[...classes, 'future'].join(' ')}" disabled><span class="d">${i + 1}</span></button>`;
     if (!day) return `<button type="button" class="${[...classes, 'empty'].join(' ')}" data-day="${key}" aria-pressed="${pressed}" title="${esc(t('ledger.bar.noRecord', { day: dayLabel(key) }))}"><span class="d">${i + 1}</span></button>`;
-    const level = Math.round(8 + 42 * Math.sqrt(day.output / maxOutput));
+    const f = metricFigure(metric, day, unreported), level = f.missing ? 0 : Math.round(8 + 42 * Math.sqrt(Math.max(0, f.value) / maxValue));
     const mark = changes.has(key) ? `<i class="switch" title="${t('ledger.modelChanged')}"></i>` : '';
-    return `<button type="button" class="${classes.join(' ').trim()}" data-day="${key}" aria-pressed="${pressed}" style="--level:${level}%" title="${esc(t('ledger.bar.output', { day: dayLabel(key), count: fixed(day.output, 0) }))}">${mark}<span class="d">${i + 1}</span><b>${figure('output', day.output, unreported).text}</b><small>${t('ledger.cal.requests', { value: fixed(day.requests, 0) })}</small></button>`;
+    const title = t('ledger.cal.title', { day: dayLabel(key), metric: label, count: f.missing ? unknown() : fixed(f.value, 0) });
+    return `<button type="button" class="${classes.join(' ').trim()}" data-day="${key}" aria-pressed="${pressed}" style="--level:${level}%" title="${esc(title)}">${mark}<span class="d">${i + 1}</span><b${f.missing ? ' class="unknown-value"' : ''}>${f.text}</b><small>${t('ledger.cal.requests', { value: fixed(day.requests, 0) })}</small></button>`;
   }).join('');
   const legend = `<div class="keys"><span><i class="shade" style="--level:10%"></i>${t('ledger.cal.less')}</span><span><i class="shade" style="--level:50%"></i>${t('ledger.cal.more')}</span><span><i class="switch-key"></i>${t('ledger.modelChanged')}</span></div>`;
-  return `<div class="cal-view"><div><div class="cal" role="group" aria-label="${esc(t('ledger.cal.label', { month: monthName(usage.month) }))}">${heads}${blanks}${cells}</div>${legend}</div><aside class="day-detail" aria-live="polite">${detailHtml(usage, byDay.get(selected), selected, colors, unreported)}</aside></div>`;
+  return `<div class="cal-view"><div>${switcher}<div class="cal" role="group" aria-label="${esc(t('ledger.cal.label', { metric: label, month: monthName(usage.month) }))}">${heads}${blanks}${cells}</div>${legend}</div><aside class="day-detail" aria-live="polite">${detailHtml(usage, byDay.get(selected), selected, colors, unreported)}</aside></div>`;
 }
 
 function detailHtml(usage, day, selected, colors, unreported) {

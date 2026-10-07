@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ledgerCsv, monthComparison, modelChanges, modelColors, previousMonth, daysInMonth, statementHtml, calendarHtml, chartsHtml, kpiHtml, CSV_COLUMNS, MODEL_COLORS } from '../public/ledger.js';
-import { validateMonth } from '../public/view-data.js';
+import { ledgerCsv, monthComparison, modelChanges, modelColors, previousMonth, daysInMonth, statementHtml, calendarHtml, calendarMetric, chartsHtml, kpiHtml, CSV_COLUMNS, MODEL_COLORS } from '../public/ledger.js';
+import { validateMonth, compact, unknown } from '../public/view-data.js';
 import { usageMonth, LEDGER_SCENARIO } from '../tools/fixtures.mjs';
 
 const scenario = (month) => usageMonth(month, LEDGER_SCENARIO.now, { start: LEDGER_SCENARIO.start });
@@ -90,6 +90,46 @@ test('the views cover the whole month: weeks from Monday, every calendar day, an
   // Today and the comparison show only in the current month.
   assert.equal((kpiHtml(june, may).match(/class="kpi/g) ?? []).length, 6);
   assert.equal((kpiHtml(may, april).match(/class="kpi/g) ?? []).length, 4);
+});
+
+test('the calendar shows and shades by output, new input + output or total tokens, and marks the chosen one', () => {
+  const [, may, june] = LEDGER_SCENARIO.months.map(scenario);
+  const day = june.days.find((item) => item.day === '2027-06-02');
+  const shown = (html) => html.match(/data-day="2027-06-02"[^>]*>(?:<i[^>]*><\/i>)?<span class="d">2<\/span><b[^>]*>([^<]*)<\/b>/)?.[1];
+  const pressed = (html) => html.match(/data-cal-metric="(\w+)" aria-pressed="true"/)?.[1];
+  const output = calendarHtml(june, may, '2027-06-02');
+  assert.equal(shown(output), compact(day.output));
+  assert.equal(pressed(output), 'output');
+  const work = calendarHtml(june, may, '2027-06-02', {}, 'work');
+  assert.equal(shown(work), compact(day.compute + day.output));
+  assert.equal(pressed(work), 'work');
+  const total = calendarHtml(june, may, '2027-06-02', {}, 'total');
+  assert.equal(shown(total), compact(day.total));
+  assert.match(total, /title="[^"]*Total tokens [\d,]+"/);
+  // The busiest day by the chosen figure, and only that day, gets the darkest shade (day cells only, not the legend).
+  // In May the most output and the most new input + output fall on different days.
+  const levels = (html) => new Map([...html.matchAll(/data-day="([\d-]+)"[^>]*style="--level:(\d+)%"/g)].map((match) => [match[1], Number(match[2])]));
+  const busiest = (value) => may.days.reduce((best, item) => (value(item) > value(best) ? item : best)).day;
+  const byOutput = busiest((item) => item.output), byWork = busiest((item) => item.compute + item.output);
+  assert.notEqual(byOutput, byWork);
+  const shades = Object.fromEntries(['output', 'work', 'total'].map((name) => [name, levels(calendarHtml(may, null, '2027-05-01', {}, name))]));
+  assert.equal(shades.output.get(byOutput), 50);
+  assert.equal(shades.work.get(byWork), 50);
+  assert.equal(shades.total.get(busiest((item) => item.total)), 50);
+  assert.ok(shades.output.get(byWork) < 50 && shades.work.get(byOutput) < 50);
+  // A name from an older browser falls back to output.
+  assert.equal(calendarMetric('tokens'), 'output');
+  assert.equal(pressed(calendarHtml(june, may, '2027-06-02', {}, 'tokens')), 'output');
+  // Without new input, New input + output reads unknown rather than output alone.
+  const noSplit = { ...june, days: june.days.map((item) => ({ ...item, compute: 0, cache: 0 })) };
+  assert.equal(shown(calendarHtml(noSplit, may, '2027-06-02', { compute: true, cache: true }, 'work')), unknown());
+  assert.equal(shown(calendarHtml(noSplit, may, '2027-06-02', { compute: true, cache: true }, 'output')), compact(day.output));
+  // A day recorded without the split reads unknown too when today's engine exports it, and does not set the scale.
+  const oldDay = { ...june, days: june.days.map((item) => (item.day === '2027-06-02' ? { ...item, compute: 0, cache: 0, output: item.output * 100 } : item)) };
+  const mixed = calendarHtml(oldDay, may, '2027-06-02', {}, 'work');
+  assert.equal(shown(mixed), unknown());
+  assert.equal(levels(mixed).get('2027-06-02'), 0);
+  assert.equal(Math.max(...levels(mixed).values()), 50);
 });
 
 test('without the cache and new-input split, the input chart draws logical input as one series', () => {
