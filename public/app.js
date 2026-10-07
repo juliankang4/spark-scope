@@ -3,7 +3,7 @@ import { PHONE_QUERY, COLORS, PALETTE, nodeColor, lowContrast, nodeOrder, linkTe
 import { READING_IDS, rackQuery, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 import { t, setLanguage, translatePage, serverText, LANGUAGE_NAMES } from './i18n.js';
 import { hide as hideHelp } from './help.js';
-import { kpiHtml, statementHtml, calendarHtml, chartsHtml, modelTableHtml, ledgerCsv, previousMonth } from './ledger.js';
+import { kpiHtml, statementHtml, calendarHtml, calendarMetric, chartsHtml, modelTableHtml, ledgerCsv, previousMonth } from './ledger.js';
 const $ = selector => document.querySelector(selector);
 // Display settings (units, clock, chart range, refresh, language) from this browser; a settings link replaces them
 // and is then taken out of the address, so a reload does not apply it again.
@@ -261,6 +261,9 @@ function setHtml(selector,html){const el=$(selector);if(el.innerHTML!==html)el.i
 let unreported={};
 // The ledger view (statement, calendar or charts), the day picked in the calendar, and the month as last drawn.
 let ledgerView='statement',pickedDay=null,shownMonth=null;
+// The figure the calendar shows and shades by (output, new input + output, or total), kept in this browser.
+const CAL_METRIC_KEY='spark-scope-calendar-metric';
+let calMetric=calendarMetric((()=>{try{return store?.getItem(CAL_METRIC_KEY)}catch{return null}})());
 // Past months change rarely; the month before the selected one (for the comparison) is fetched again after 5 minutes.
 const pastMonths=new Map();
 let redrawMonth=()=>{};
@@ -277,10 +280,12 @@ function renderMonth(usage,previous) {
   setHtml('#month-metrics',kpiHtml(usage,previous,unreported));
   // The calendar opens on today in the current month, otherwise on the month's last day with records.
   if(!pickedDay?.startsWith(selectedMonth))pickedDay=current?usage.day:usage.days.at(-1)?.day??`${selectedMonth}-01`;
-  const focused=document.activeElement?.closest?.('#ledger-panel [data-day]')?.dataset.day;
+  const focused=document.activeElement?.closest?.('#ledger-panel [data-day]')?.dataset.day,focusedMetric=document.activeElement?.closest?.('#ledger-panel [data-cal-metric]')?.dataset.calMetric,focusedHelp=document.activeElement?.closest?.('#ledger-panel [data-help]')?.dataset.help;
   $('#ledger-panel').dataset.month=usage.month;
-  setHtml('#ledger-panel',ledgerView==='calendar'?calendarHtml(usage,previous,pickedDay,unreported):ledgerView==='charts'?chartsHtml(usage,previous,unreported):statementHtml(usage,unreported));
+  setHtml('#ledger-panel',ledgerView==='calendar'?calendarHtml(usage,previous,pickedDay,unreported,calMetric):ledgerView==='charts'?chartsHtml(usage,previous,unreported):statementHtml(usage,unreported));
   if(focused)$(`#ledger-panel [data-day="${focused}"]`)?.focus();
+  if(focusedMetric)$(`#ledger-panel [data-cal-metric="${focusedMetric}"]`)?.focus();
+  if(focusedHelp)$(`#ledger-panel [data-help="${focusedHelp}"]`)?.focus();
   setHtml('#model-table',modelTableHtml(usage,unreported));
   const csv=$('#token-csv'),label=t('ledger.csvLabel',{month:monthLabel(selectedMonth)});csv.disabled=false;csv.title=label;csv.setAttribute('aria-label',label);
   renderToday(latest?.usage);
@@ -314,7 +319,11 @@ function showLedgerView(view,focus=false){
   redrawMonth();
 }
 document.querySelectorAll('[data-ledger-tab]').forEach(tab=>{tab.addEventListener('click',()=>showLedgerView(tab.dataset.ledgerTab));tab.addEventListener('keydown',event=>{const tabs=[...document.querySelectorAll('[data-ledger-tab]')],index=tabs.indexOf(tab);const next={ArrowRight:index+1,ArrowLeft:index-1,Home:0,End:tabs.length-1}[event.key];if(next===undefined)return;event.preventDefault();showLedgerView(tabs[(next+tabs.length)%tabs.length].dataset.ledgerTab,true)})});
-$('#ledger-panel').addEventListener('click',event=>{const day=event.target.closest('[data-day]');if(day&&!day.disabled){pickedDay=day.dataset.day;redrawMonth()}});
+$('#ledger-panel').addEventListener('click',event=>{
+  const metric=event.target.closest('[data-cal-metric]');
+  if(metric){calMetric=calendarMetric(metric.dataset.calMetric);try{store?.setItem(CAL_METRIC_KEY,calMetric)}catch{}redrawMonth();return}
+  const day=event.target.closest('[data-day]');if(day&&!day.disabled){pickedDay=day.dataset.day;redrawMonth()}
+});
 // The CSV is built here from the month on screen and saved through a temporary Blob URL.
 $('#token-csv').addEventListener('click',()=>{
   if(!shownMonth)return;

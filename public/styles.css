@@ -89,6 +89,7 @@ html,body{overflow-anchor:none}
 .cal-day.today .d{color:var(--blue);font-weight:700}
 .cal-day .switch{position:absolute;top:7px;right:7px;width:7px;height:7px;background:var(--orange)}
 .cal-view .keys{margin-top:10px}
+.cal-metric{display:flex;align-items:center;gap:6px;margin-bottom:10px}.cal-metric .ranges{flex-wrap:wrap}
 .shade{border:1px solid var(--line);background:color-mix(in srgb,var(--blue) var(--level),var(--screen))}.switch-key{background:var(--orange)}
 .day-detail{display:grid;gap:12px;align-content:start;min-width:0;padding:16px;border:1px solid var(--line)}
 .day-detail h3{margin:0;font:700 17px var(--num-font)}

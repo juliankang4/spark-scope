@@ -16,7 +16,7 @@ The web dashboard at `/` has two tabs, Scope and Token ledger, plus a mini windo
 - **Trends.** GPU temperature and free memory per node, and today's token totals.
 - **Model servers** (with [several](topology.md#model-servers)). A row per server above the chart: its name, nodes, state (serving, idle, not responding), output and queue; each node card names its server. With **All at once** (the default) the chart draws each server's output in its colour (the colour of its first node) with the total on top, and every server gets its own engine panel. With **One at a time** a row picks the server the chart, the big figure and the engine panel follow. The header lists the servers and the status line counts the APIs that answer.
 
-A round `?` next to a label (memory units, the latency figures, cache hit, the link table, total tokens, the change against the previous month) explains it on hover, focus or tap.
+A round `?` next to a label (memory units, the latency figures, cache hit, the link table, total tokens, the change against the previous month, the calendar's figures) explains it on hover, focus or tap.
 
 ## Token ledger
 
@@ -25,7 +25,7 @@ A round `?` next to a label (memory units, the latency figures, cache hit, the l
 One month at a time, picked with the month buttons (on a phone, a list), under a row of figures: total tokens, today's output and requests (current month only), logical input with its cache hit rate, output with its average per day of use, requests with output per request, and the change against the same days of the previous month (when the ledger covers that month from its first day).
 
 - **Statement** (the default): each day with its model and token counts, grouped by week with subtotals and the month's total.
-- **Calendar**: the days shaded by output, a mark where the model changed, and the picked day's figures.
+- **Calendar**: each day's output, new input + output (cache reads left out) or total tokens, picked above the grid and remembered in the browser; the days are shaded by that figure, with a mark where the model changed and the picked day's figures beside it.
 - **Charts**: logical input and output per day on separate scales across the whole month, and the running total against the previous month.
 
 A table by model sits under every view, and the CSV button saves the month with one row per day and model.

@@ -906,6 +906,19 @@ try {
         await web.shoot(name, { fullPage: true });
         const problems = [...found.issues, ...await web.evaluate(CHECK_WEB), ...(lang === "ko" ? await englishLeft(web, fixtureState(4, "serving")) : []), ...web.errors.splice(0)];
         report(name, [found.summary], problems);
+        // The calendar's two other figures, then back to output so the next month opens on it.
+        if (view === "calendar") {
+          for (const metric of ["work", "total", "output"]) {
+            await web.evaluate(`document.querySelector('[data-cal-metric="${metric}"]').click()`);
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            if (metric === "output") break;
+            const shown = await web.evaluate(CHECK_LEDGER(view, expect)), pressed = await web.evaluate(`document.querySelector('[data-cal-metric][aria-pressed=true]')?.dataset.calMetric`);
+            const metricName = `ledger-${design}-${scheme}-${label}-${month}-calendar-${metric}${lang === "ko" ? "-ko" : ""}.png`;
+            await web.shoot(metricName, { fullPage: true });
+            const metricProblems = [...shown.issues, ...(pressed === metric ? [] : [`switch shows ${pressed}, expected ${metric}`]), ...await web.evaluate(CHECK_WEB), ...(lang === "ko" ? await englishLeft(web, fixtureState(4, "serving")) : []), ...web.errors.splice(0)];
+            report(metricName, [shown.summary], metricProblems);
+          }
+        }
       }
     }
     // Once: the CSV button saves the month on screen (June), one row per day and model under the header.
