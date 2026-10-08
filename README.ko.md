@@ -1,13 +1,13 @@
 <h1 align="center">Spark Scope</h1>
 
-<p align="center">NVIDIA DGX Spark 계열 장비와 그 위에서 돌아가는 vLLM, SGLang, TensorFold 또는 llama.cpp 서버를 지켜보는<br>읽기 전용 대시보드와 랙 패널입니다.</p>
+<p align="center">NVIDIA DGX Spark 계열 장비와 그 위에서 돌아가는 vLLM, SGLang, TensorFold, llama.cpp 또는 Strata 서버를 지켜보는<br>읽기 전용 대시보드와 랙 패널입니다.</p>
 
 <p align="center">
   <a href="https://github.com/juliankang4/spark-scope/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/juliankang4/spark-scope"></a>
   <a href="https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/juliankang4/spark-scope"></a>
   <img alt="Node.js 22.13 or later" src="https://img.shields.io/badge/node-%E2%89%A5%2022.13-339933?logo=nodedotjs&amp;logoColor=white">
-  <img alt="Engines: vLLM, SGLang, TensorFold and llama.cpp" src="https://img.shields.io/badge/engines-vLLM%20%7C%20SGLang%20%7C%20TensorFold%20%7C%20llama.cpp-76b900">
+  <img alt="Engines: vLLM, SGLang, TensorFold, llama.cpp and Strata" src="https://img.shields.io/badge/engines-vLLM%20%7C%20SGLang%20%7C%20TensorFold%20%7C%20llama.cpp%20%7C%20Strata-76b900">
   <img alt="Runs on arm64 and x64" src="https://img.shields.io/badge/arch-arm64%20%7C%20x64-blue">
 </p>
 
@@ -19,11 +19,11 @@
 
 ## 소개
 
-Spark Scope는 NVIDIA DGX Spark 계열 장비(DGX Spark, ASUS Ascent GX10, MSI EdgeXpert 등 GB10 장비)와 그 위에서 실행 중인 vLLM, SGLang, TensorFold 또는 llama.cpp 서버를 모니터링합니다. 노드 한 대부터 작은 클러스터까지 쓸 수 있습니다.
+Spark Scope는 NVIDIA DGX Spark 계열 장비(DGX Spark, ASUS Ascent GX10, MSI EdgeXpert 등 GB10 장비)와 그 위에서 실행 중인 vLLM, SGLang, TensorFold, llama.cpp 또는 Strata 서버를 모니터링합니다. 노드 한 대부터 작은 클러스터까지 쓸 수 있습니다.
 
 원래는 10인치 랙에 넣은 제 4노드 링(ASUS GX10 3대와 MSI EdgeXpert 1대)을 보려고 만들었습니다. 이 저장소에는 그 대시보드를 올렸습니다. 제 호스트 이름은 지웠고 노드 1대와 2대 구성에 맞게 레이아웃을 다시 짰습니다. GX10용 2U 랙 모듈은 [MakerWorld](https://makerworld.com/en/models/3380382)에 있습니다.
 
-npm 의존성 없이 Node.js 프로세스 하나로 동작합니다. 각 노드에서 로컬이나 SSH로 데이터를 수집하고 추론 서버의 Prometheus 메트릭을 읽고 토큰 사용량을 SQLite에 기록합니다. 페이지는 두 개입니다. 하나는 `/`의 웹 대시보드(위 화면)이고 다른 하나는 바 디스플레이나 Raspberry Pi 키오스크에 띄우는 `/rack/`의 1920 x 480 랙 패널입니다.
+npm 의존성 없이 Node.js 프로세스 하나로 동작합니다. 각 노드에서 로컬이나 SSH로 데이터를 수집하고 추론 서버의 메트릭을 읽고 토큰 사용량을 SQLite에 기록합니다. 페이지는 두 개입니다. 하나는 `/`의 웹 대시보드(위 화면)이고 다른 하나는 바 디스플레이나 Raspberry Pi 키오스크에 띄우는 `/rack/`의 1920 x 480 랙 패널입니다.
 
 ![노드 4대를 보여 주는 랙 패널](docs/screenshots/rack-4-nodes-ko.png)
 
@@ -56,7 +56,7 @@ npm 의존성 없이 Node.js 프로세스 하나로 동작합니다. 각 노드�
   nvm 같은 버전 관리자를 써도 됩니다. 일부 Node 버전은 시작할 때 "SQLite is an experimental feature" 경고를 띄우는데, 동작에는 문제가 없습니다.
 - 모니터링할 각 노드에는 `bash`, `nvidia-smi`, 기본 coreutils가 있는 Linux가 필요합니다. DGX OS에는 이미 다 들어 있습니다. `systemd`, `journalctl`, `docker`는 있으면 씁니다.
 - 원격 노드를 보려면 대시보드를 돌리는 머신에 SSH 클라이언트가 있어야 하고 각 노드에 key 기반 SSH로 접속할 수 있어야 합니다.
-- 추론 서버는 선택 사항입니다. Prometheus 메트릭을 내보내는 vLLM(메트릭이 기본으로 켜져 있음), SGLang(`--enable-metrics`로 시작), TensorFold(메트릭이 항상 켜져 있음), llama.cpp(`llama-server`를 `--metrics`로 시작) 중 하나면 됩니다.
+- 추론 서버는 선택 사항입니다. 메트릭을 내보내는 vLLM(메트릭이 기본으로 켜져 있음), SGLang(`--enable-metrics`로 시작), TensorFold(메트릭이 항상 켜져 있음), llama.cpp(`llama-server`를 `--metrics`로 시작), Strata(메트릭이 항상 켜져 있음) 중 하나면 됩니다.
 
 ### Spark 없이 체험하기
 
@@ -85,7 +85,7 @@ Spark에서 <http://127.0.0.1:8787/> 주소를 엽니다. 네트워크에 노출
 ssh -L 8787:127.0.0.1:8787 you@your-spark
 ```
 
-SGLang 기본 포트를 쓴다면 `SPARK_SCOPE_API_URL=http://127.0.0.1:30000`, TensorFold나 llama.cpp라면 `http://127.0.0.1:8080`으로 지정합니다. 추론 서버가 없어도 노드 카드는 그대로 작동하고 추론 패널에는 `unknown`이나 `stopped`가 표시됩니다.
+SGLang 기본 포트를 쓴다면 `SPARK_SCOPE_API_URL=http://127.0.0.1:30000`, TensorFold, llama.cpp, Strata라면 `http://127.0.0.1:8080`으로 지정합니다. 추론 서버가 없어도 노드 카드는 그대로 작동하고 추론 패널에는 `unknown`이나 `stopped`가 표시됩니다.
 
 ## 환경에 맞게 적용하기
 
@@ -145,9 +145,9 @@ SGLang 기본 포트를 쓴다면 `SPARK_SCOPE_API_URL=http://127.0.0.1:30000`, 
 
 노드 쪽 권한 중 두 가지는 선택 사항입니다. 커널 오류 요약을 보려면 커널 저널(`journalctl -k`)을 읽을 수 있어야 합니다. root가 아닌 계정은 `systemd-journal`이나 `adm` 그룹에 넣으면 됩니다. 이 권한이 없으면 패널에 "커널 진단 정보 없음"이 표시됩니다. 컨테이너 세부 정보를 보려면 Docker 소켓에 접근할 수 있어야 합니다. 그런데 `docker` 그룹 멤버십은 root 권한과 같으므로, 이 대시보드만 보려고 그 권한을 주어서는 안 됩니다. 권한이 없으면 컨테이너 세부 정보가 나오지 않습니다.
 
-### vLLM, SGLang, TensorFold 또는 llama.cpp
+### vLLM, SGLang, TensorFold, llama.cpp 또는 Strata
 
-`SPARK_SCOPE_API_URL`에 추론 서버 주소를 지정합니다. 여러 노드로 서빙한다면 API가 떠 있는 노드를 가리켜야 합니다. vLLM과 TensorFold는 메트릭이 기본으로 켜져 있습니다. SGLang은 `--enable-metrics`, llama.cpp는 `--metrics`를 붙여 시작해야 합니다. llama.cpp의 진행 중 출력 속도를 보려면 기본으로 켜져 있는 `/slots`도 필요합니다. `/slots`를 끄거나 접근할 수 없으면 요청 처리 중 속도는 `unknown`으로 나옵니다. 엔진마다 일부 수치의 측정 방식이 다르거나 제공하지 않는 값이 있습니다. 그 차이는 [추론 엔진](docs/configuration.md#inference-engines) 항목에 정리했습니다. 다른 엔진도 노드 카드에서는 인식하지만 메트릭은 읽지 않습니다.
+`SPARK_SCOPE_API_URL`에 추론 서버 주소를 지정합니다. 여러 노드로 서빙한다면 API가 떠 있는 노드를 가리켜야 합니다. vLLM, TensorFold, Strata는 메트릭이 기본으로 켜져 있습니다. SGLang은 `--enable-metrics`, llama.cpp는 `--metrics`를 붙여 시작해야 합니다. llama.cpp의 진행 중 출력 속도를 보려면 기본으로 켜져 있는 `/slots`도 필요합니다. `/slots`를 끄거나 접근할 수 없으면 요청 처리 중 속도는 `unknown`으로 나옵니다. Strata를 API 키와 함께 시작했다면 대시보드가 키를 보내지 않으므로 읽을 수 없습니다. 엔진마다 일부 수치의 측정 방식이 다르거나 제공하지 않는 값이 있습니다. 그 차이는 [추론 엔진](docs/configuration.md#inference-engines) 항목에 정리했습니다. 다른 엔진도 노드 카드에서는 인식하지만 메트릭은 읽지 않습니다.
 
 노드를 그룹으로 나눠 따로 서빙한다면(케이블로 연결한 노드 2대가 각자 자기 모델을 돌리거나, 4대를 2 + 2로, 3대를 2 + 1로 나눈 경우) `SPARK_SCOPE_API_URL` 대신 `topology.json`에 그룹마다 모델 서버를 적고 API와 노드를 지정합니다.
 
@@ -195,7 +195,7 @@ sudo loginctl enable-linger "$USER"   # 로그인 세션 없이도 계속 실행
 
 | 변수 | 기본값 | 용도 |
 |---|---|---|
-| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | 추론 서버입니다. vLLM은 8000, SGLang은 30000, TensorFold와 llama.cpp는 8080 포트를 씁니다. |
+| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | 추론 서버입니다. vLLM은 8000, SGLang은 30000, TensorFold, llama.cpp, Strata는 8080 포트를 씁니다. |
 | `SPARK_SCOPE_HOST` | `127.0.0.1` | listen 주소입니다. `0.0.0.0`으로 두면 다른 머신에서도 접속할 수 있습니다. [보안](#보안)을 함께 봐야 합니다. |
 | `SPARK_SCOPE_PORT` | `8787` | listen 포트입니다. |
 | `SPARK_SCOPE_TOPOLOGY` | `~/.config/spark-scope/topology.json` | 토폴로지 파일입니다. 이 파일이 없으면 저장소에 들어 있는 노드 1대용 `topology.json`을 씁니다. |

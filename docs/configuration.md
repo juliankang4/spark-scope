@@ -10,7 +10,7 @@ The server is set with environment variables, all optional. Display preferences 
 |---|---|---|
 | `SPARK_SCOPE_HOST` | `127.0.0.1` | Listen address. Set `0.0.0.0` (or a specific address) to serve other machines; see [Security](../README.md#security). |
 | `SPARK_SCOPE_PORT` | `8787` | Listen port. |
-| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | Base URL of the OpenAI-compatible inference server, `http://` or `https://` and without a user name or password. With [model servers](topology.md#model-servers) in `topology.json`, each server's `api` is used instead. The dashboard reads `/health`, `/metrics` and `/v1/models`, plus `/slots` for llama.cpp live output speed while requests run. vLLM listens on 8000 by default, SGLang on 30000, TensorFold and llama.cpp on 8080. |
+| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | Base URL of the OpenAI-compatible inference server, `http://` or `https://` and without a user name or password. With [model servers](topology.md#model-servers) in `topology.json`, each server's `api` is used instead. The dashboard reads `/health`, `/metrics` and `/v1/models`, plus `/slots` for llama.cpp live output speed while requests run. vLLM listens on 8000 by default, SGLang on 30000, TensorFold, llama.cpp and Strata on 8080. |
 | `SPARK_SCOPE_TOPOLOGY` | `~/.config/spark-scope/topology.json` if it exists, otherwise `topology.json` next to `server.mjs` | Topology file. When set explicitly, a missing file is an error. |
 | `SPARK_SCOPE_USAGE_DB` | `$XDG_DATA_HOME/spark-scope/usage.sqlite` (`~/.local/share/...`) | Token ledger database. The directory is created if needed. |
 | `SPARK_SCOPE_TIME_ZONE` | the server's time zone | IANA time zone (for example `America/Los_Angeles`) that decides where ledger days begin. The page shows it next to the ledger. |
@@ -49,6 +49,14 @@ As a service, the same variables go on `Environment=` lines in the unit ([Runnin
   - completed request counts stay `unknown`: running and deferred request gauges are not counters of completed requests;
   - TTFT and TPOT p95, KV cache usage and cache hit rate read `unknown`;
   - speculative acceptance uses the reported draft and accepted token counters when available.
+- **Strata**: read from the JSON that its `/metrics` returns by default. Its metrics are always on and its default API port is 8080. Tested with 0.1.41. Differences:
+  - the dashboard reads only `/health`, `/metrics` and `/v1/models`. None of them loads the model or counts as activity for Strata's `--idle-unload`, so polling neither wakes an unloaded model nor keeps a loaded one from unloading. A server that has unloaded its model, or started with `lazy_load` and not loaded it yet, reads as idle with zero output speed;
+  - live output speed is `live.tok_s`, which Strata reports only while generating, so it reads `unknown` while a prompt is read. The completed output counter feeds the ledger, not live speed;
+  - running requests are 1 while Strata reads a prompt or generates, or `live.running` when it serves several requests at once (`"parallel": N`); waiting requests are `live.queued` plus `live.waiting`;
+  - input totals are `totals.prompt_tokens`, which includes the tokens reused from Strata's prompt cache, and computed input is that total minus `totals.reused`. The cache hit rate is reused over prompt tokens. The `hit_rate` of each request belongs to Strata's expert cache, a different measure, and is not used;
+  - TTFT and TPOT p95 and KV cache usage read `unknown`: the JSON has no latency histogram or KV usage reading;
+  - speculative acceptance is accepted over offered draft tokens;
+  - a server started with an API key answers `/metrics` with HTTP 401, so the dashboard cannot read it: it sends no key.
 - Other engines (Ollama, TensorRT-LLM, Triton) are recognised by process or image name on the node cards, but their throughput and token metrics are not read.
 
-The engine label comes from the metric names or the GPU process name, and the number of serving nodes from how many nodes run a GPU process; neither is assumed. In multi-node serving, point `SPARK_SCOPE_API_URL` at the node that hosts the API.
+The engine label comes from the metric names (or Strata's JSON format) or the GPU process name, and the number of serving nodes from how many nodes run a GPU process; neither is assumed. In multi-node serving, point `SPARK_SCOPE_API_URL` at the node that hosts the API.

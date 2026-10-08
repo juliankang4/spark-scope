@@ -1,0 +1,20 @@
+{
+  "idle": {
+    "engine": { "model": "example-model", "version": "0.1.41" },
+    "live": { "state": "idle", "queued": 0, "tok_s": null },
+    "requests": [],
+    "totals": { "since": 1791473197.1213338, "requests": 0, "prompt_tokens": 0, "reused": 0, "output_tokens": 0, "prompt_ms": 0, "drafts_offered": 0, "drafts_accepted": 0 }
+  },
+  "running": {
+    "engine": { "model": "example-model", "version": "0.1.41" },
+    "live": { "state": "generating", "queued": 0, "tok_s": 148 },
+    "requests": [],
+    "totals": { "since": 1791473197.1213338, "requests": 0, "prompt_tokens": 0, "reused": 0, "output_tokens": 0, "prompt_ms": 0, "drafts_offered": 0, "drafts_accepted": 0 }
+  },
+  "completed": {
+    "engine": { "model": "example-model", "version": "0.1.41" },
+    "live": { "state": "idle", "queued": 0, "tok_s": null },
+    "requests": [{ "prompt_tokens": 24, "reused": 0, "output_tokens": 64, "decode_tok_s": 237.8, "hit_rate": 0.896 }],
+    "totals": { "since": 1791473197.1213338, "requests": 1, "prompt_tokens": 24, "reused": 0, "output_tokens": 64, "prompt_ms": 327.3, "drafts_offered": 48, "drafts_accepted": 48 }
+  }
+}

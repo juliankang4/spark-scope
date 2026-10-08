@@ -254,6 +254,7 @@ test("engine names come only from metric prefixes and known process or image nam
   assert.equal(knownEngine("vllm/vllm-openai:latest"), "vLLM");
   assert.equal(knownEngine("ollama"), "Ollama");
   assert.equal(knownEngine("tensorfold"), "TensorFold");
+  assert.equal(knownEngine("strata"), "Strata");
   assert.equal(knownEngine("python3"), null);
   const { readEngineMetrics } = await import("../lib/engines/index.mjs");
   for (const [engine, prefix] of [["vLLM", "vllm"], ["SGLang", "sglang"], ["TensorFold", "tensorfold"]]) {
@@ -664,6 +665,72 @@ test("llama.cpp b11193 reads slots only while requests run and keeps completed c
   });
 });
 
+test("Strata 0.1.41 captured JSON maps counters and live state from /metrics alone, with latency and KV usage unknown", async () => {
+  const { readFileSync } = await import("node:fs");
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/strata-v0.1.41.json", import.meta.url), "utf8"));
+  assert.deepEqual(Object.keys(fixture), ["idle", "running", "completed"]);
+  const { InferenceCollector } = await import("../lib/collectors.mjs");
+  await withFakeEngine(JSON.stringify(fixture.idle), async (url, setMetrics, _setHealth, setModels, _setSlots, requested) => {
+    setModels([{ id: "example-alias" }, { id: "example-model" }]);
+    const collector = new InferenceCollector(url);
+    const poll = async (metrics) => {
+      setMetrics(typeof metrics === "string" ? metrics : JSON.stringify(metrics));
+      return collector.collect();
+    };
+    const idle = await collector.collect();
+    assert.equal(idle.ok, true);
+    assert.equal(idle.engine, "Strata");
+    assert.equal(idle.modelName, "example-model", "the model Strata reports wins over the first entry of its model list");
+    assert.deepEqual(idle.modelAliases, ["example-alias", "example-model"]);
+    assert.equal(idle.processStartedAt, "2026-10-08T15:26:37.121Z");
+    assert.equal(idle.completedRequestsTotal, 0);
+    assert.equal(idle.outputTokensPerSecond, 0);
+    assert.equal(idle.runningRequests, 0);
+    assert.equal(idle.waitingRequests, 0);
+    const running = await poll(fixture.running);
+    assert.equal(running.outputTokensPerSecond, 148);
+    assert.equal(running.runningRequests, 1);
+    assert.equal(running.generationTokensTotal, 0, "the live rate does not come from the completed counter");
+    const completed = await poll(fixture.completed);
+    assert.equal(completed.completedRequestsTotal, 1);
+    assert.equal(completed.generationTokensTotal, 64);
+    assert.equal(completed.promptTokensTotal, 24);
+    assert.equal(completed.promptComputeTokensTotal, 24);
+    assert.equal(completed.promptCacheTokensTotal, 0);
+    assert.ok(Math.abs(completed.promptTokensPerSecond - 24 / 0.3273) < 1e-9);
+    assert.equal(completed.outputTokensPerSecond, 0, "the finished request's decode rate is not kept");
+    assert.equal(completed.prefixCacheHitPercent, 0, "requests[].hit_rate belongs to the expert cache");
+    assert.equal(completed.speculativeAcceptancePercent, 100);
+    for (const key of ["ttftP95Seconds", "tpotP95Seconds", "kvCachePercent"]) assert.equal(completed[key], null, key);
+    const next = (live, totals) => ({ ...fixture.completed, live: { ...fixture.completed.live, ...live }, totals: { ...fixture.completed.totals, ...totals } });
+    const reused = await poll(next({}, { requests: 2, prompt_tokens: 64, reused: 16, prompt_ms: 627.3 }));
+    assert.equal(reused.promptTokensTotal, 64);
+    assert.equal(reused.promptComputeTokensTotal, 48);
+    assert.equal(reused.promptCacheTokensTotal, 16);
+    assert.equal(reused.prefixCacheHitPercent, 25);
+    assert.ok(Math.abs(reused.promptTokensPerSecond - 40 / 0.3) < 1e-9);
+    assert.ok(Math.abs(reused.promptComputeTokensPerSecond - 24 / 0.3) < 1e-9);
+    assert.ok(Math.abs(reused.promptCacheTokensPerSecond - 16 / 0.3) < 1e-9);
+    const reading = await poll(next({ state: "reading" }));
+    assert.equal(reading.runningRequests, 1);
+    assert.equal(reading.outputTokensPerSecond, null, "Strata reports no rate while it reads a prompt");
+    const batch = await poll(next({ state: "generating", running: 3, queued: 1, waiting: 2, tok_s: 90 }));
+    assert.equal(batch.runningRequests, 3);
+    assert.equal(batch.waitingRequests, 3);
+    assert.equal(batch.outputTokensPerSecond, 90);
+    const unloaded = await poll({ engine: { model: "example-model", version: null }, live: { state: "unloaded", queued: 0, tok_s: null }, requests: [], totals: fixture.idle.totals });
+    assert.equal(unloaded.ok, true, "a server that has not loaded its model yet has no engine version key");
+    assert.equal(unloaded.runningRequests, 0);
+    assert.equal(unloaded.outputTokensPerSecond, 0);
+    const partial = await poll({ engine: {}, live: { state: "starting" }, requests: [], totals: { output_tokens: "64", prompt_tokens: 8, reused: 9, prompt_ms: -1, since: 1e20 } });
+    for (const key of ["generationTokensTotal", "promptComputeTokensTotal", "promptTokensPerSecond", "runningRequests", "waitingRequests", "completedRequestsTotal", "prefixCacheHitPercent", "processStartedAt"]) assert.equal(partial[key], null, key);
+    assert.equal((await poll("{invalid")).error, "invalid metrics JSON");
+    assert.equal((await poll("{}")).error, "unsupported metrics JSON format");
+    assert.equal((await poll({ ...fixture.idle, live: {} })).error, "unsupported metrics JSON format");
+    assert.equal(requested.includes("/slots"), false, "a Strata poll reads /health, /metrics and /v1/models only");
+  });
+});
+
 test("vLLM data-parallel engines are added up, and metrics an engine does not export stay unknown", async () => {
   const { InferenceCollector } = await import("../lib/collectors.mjs");
   const engines = (output) => [
@@ -850,9 +917,10 @@ test("response bodies the collector does not read are released, so connections a
   // A large /health page (as some proxies serve) and a failing /v1/models: neither body is read.
   const big = "x".repeat(512 * 1024);
   const sockets = new Set();
+  let metrics = 'vllm:num_requests_running{model_name="example-model"} 0\nvllm:generation_tokens_total{model_name="example-model"} 1\n';
   const server = createServer((request, response) => {
     if (request.url === "/health") return response.end(big);
-    if (request.url === "/metrics") return response.end('vllm:num_requests_running{model_name="example-model"} 0\nvllm:generation_tokens_total{model_name="example-model"} 1\n');
+    if (request.url === "/metrics") return response.end(metrics);
     response.writeHead(500).end(big);
   });
   server.on("connection", (socket) => sockets.add(socket));
@@ -864,10 +932,12 @@ test("response bodies the collector does not read are released, so connections a
       const reading = await collector.collect();
       assert.equal(reading.ok, true, reading.error ?? "");
     }
+    metrics = "{invalid";
+    for (let i = 0; i < 20; i += 1) assert.equal((await collector.collect()).error, "invalid metrics JSON");
     await new Promise((resolve) => setTimeout(resolve, 300));
     const open = [...sockets].filter((socket) => !socket.destroyed).length;
     // Unread bodies kept their connections open (about 40 after 20 polls); released ones are closed or reused.
-    assert.ok(open <= 6, `${open} of ${sockets.size} connections still open after 20 polls`);
+    assert.ok(open <= 6, `${open} of ${sockets.size} connections still open after 40 polls`);
   } finally {
     for (const socket of sockets) socket.destroy();
     await new Promise((resolve) => server.close(resolve));
