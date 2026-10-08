@@ -27,7 +27,8 @@
   "scripts": {
     "start": "node server.mjs",
     "demo": "node tools/demo.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "check": "node tools/check.mjs"
   },
   "engines": {
     "node": ">=22.13"
