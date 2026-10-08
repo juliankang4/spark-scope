@@ -6,20 +6,22 @@ import { Script } from "node:vm";
 const SCRIPT = /\.(mjs|js)$/;
 const TEXT = /(\.(mjs|js|css|html|svg|json|xml|yml|yaml|desktop)$)|(^|\/)spark-scope-kiosk$/;
 const FORBIDDEN = ["dependencies", "devDependencies", "optionalDependencies"];
-// Split so the check can scan its own file.
-const STOPGAP = new RegExp(`\\b(?:${["TO" + "DO", "FIX" + "ME", "HA" + "CK"].join("|")})\\b|${["eslint-" + "disable", "@ts-" + "ignore", "@ts-" + "nocheck"].join("|")}`);
+const STOPGAP_FROM_SPLIT_WORDS = new RegExp(`\\b(?:${["TO" + "DO", "FIX" + "ME", "HA" + "CK"].join("|")})\\b|${["eslint-" + "disable", "@ts-" + "ignore", "@ts-" + "nocheck"].join("|")}`);
 
 process.chdir(execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8", cwd: import.meta.dirname }).trim());
 const tracked = execFileSync("git", ["ls-files"], { encoding: "utf8" }).split("\n").filter(Boolean);
 const problems = [];
 
-// The pages decide which .js files the browser runs as classic scripts; the rest are modules.
+// The server serves public/ at the site root, so "/theme.js?v=1" is public/theme.js.
+const PAGE_ROOT = "public";
 const CLASSIC = new Set();
 for (const page of tracked.filter((file) => file.endsWith(".html"))) {
   for (const [, attrs] of readFileSync(page, "utf8").matchAll(/<script\b([^>]*)>/g)) {
     if (/\btype\s*=\s*["']?module/.test(attrs)) continue;
     const src = /\bsrc\s*=\s*["']([^"']+)["']/.exec(attrs)?.[1];
-    if (src) CLASSIC.add(path.normalize(path.join(path.dirname(page), src)));
+    if (!src) continue;
+    const url = new URL(src, `http://site/${path.relative(PAGE_ROOT, page)}`);
+    if (url.host === "site") CLASSIC.add(path.join(PAGE_ROOT, decodeURIComponent(url.pathname)));
   }
 }
 
@@ -41,7 +43,7 @@ for (const file of tracked) {
   }
   if (TEXT.test(file)) {
     readFileSync(file, "utf8").split("\n").forEach((line, index) => {
-      if (STOPGAP.test(line)) problems.push(`${file}:${index + 1}: stopgap marker: ${line.trim()}`);
+      if (STOPGAP_FROM_SPLIT_WORDS.test(line)) problems.push(`${file}:${index + 1}: stopgap marker: ${line.trim()}`);
     });
   }
 }
