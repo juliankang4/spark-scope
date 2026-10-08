@@ -26,6 +26,16 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm test
 
+  check:
+    name: repository checks (npm run check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm run check
+
   render:
     name: render check (rack panel and web page)
     # The runner image ships Google Chrome, which tools/render.mjs finds on its own.
@@ -53,3 +63,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: shellcheck kiosk/spark-scope-kiosk
+
+  # The one required check for branch protection: a failure, cancellation or skip in any job fails it.
+  ci-passed:
+    name: CI passed
+    needs: [test, render, shellcheck, check]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every needed job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          failed=$(printf '%s' "$NEEDS" | jq -r 'to_entries[] | select(.value.result != "success") | "\(.key): \(.value.result)"')
+          if [ -n "$failed" ]; then echo "$failed"; exit 1; fi
