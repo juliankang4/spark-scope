@@ -1,9 +1,3 @@
-// Development check: renders the rack panel and the web dashboard with synthetic data (tools/fixtures.mjs) for
-// one to six nodes, the longest ids and names, a 1024 x 600 screen and a phone in headless Chrome, in English and in
-// Korean, saves PNGs and reports clipped or overlapping text on the rack panel, overflow or script errors on the web
-// page and in its settings dialog, and English words left untranslated on the Korean pages.
-// Nothing is collected and no other machine is contacted.
-//
 //   node tools/render.mjs                 # PNGs go to $OUT or <tmp>/spark-scope-renders
 //   CHROME=/path/to/chrome node tools/render.mjs
 //
@@ -21,7 +15,7 @@ import { t } from "../public/i18n.js";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC = path.join(ROOT, "public");
 const OUT = process.env.OUT || path.join(os.tmpdir(), "spark-scope-renders");
-const COUNTS = (process.env.COUNTS || "1,2,3,4,5,6").split(",").map(Number);
+const COUNTS = (process.env.COUNTS || "1,2,3,4,5,6,7,8").split(",").map(Number);
 mkdirSync(OUT, { recursive: true });
 
 function findChrome() {
@@ -47,7 +41,7 @@ const server = createServer((request, response) => {
   const url = new URL(request.url, "http://localhost");
   if (url.pathname === "/api/state") {
     if (current.mode === "lost") { response.writeHead(503).end("{}"); return; }
-    const state = fixtureState(current.count, current.mode, fixtureNow(), { longNames: current.longNames, servers: current.servers ?? 0, offGroup: current.offGroup ?? false, discreteGpu: current.discreteGpu ?? false });
+    const state = fixtureState(current.count, current.mode, fixtureNow(), { longNames: current.longNames, servers: current.servers ?? 0, offGroup: current.offGroup ?? false, gpuWorkstations: current.gpuWorkstations ?? 0 });
     if (current.unknownGpu) {
       const [, second, third] = state.topology.nodes.map((meta) => state.nodes[meta.id].gpu);
       second.memory = { kind: null, totalBytes: null, usedBytes: null, availableBytes: null };
@@ -243,6 +237,12 @@ const CHECK_WEB = `(() => {
     const text = group.querySelector("text").getBBox(), shape = group.querySelector("circle, rect").getBBox();
     if (text.x < shape.x - 1 || text.x + text.width > shape.x + shape.width + 1) issues.push("diagram label outside its node: " + group.querySelector("text").textContent);
   }
+  const grid = document.querySelector("#nodes"), cards = [...grid.children].map((card) => card.getBoundingClientRect());
+  if (grid.getClientRects().length && cards.length) {
+    const right = grid.getBoundingClientRect().right, ends = new Map();
+    for (const card of cards) ends.set(Math.round(card.top), Math.max(ends.get(Math.round(card.top)) ?? 0, card.right));
+    for (const [top, end] of ends) if (right - end > 2) issues.push("empty cell after the node cards in the row at " + top + " px");
+  }
   const svg = document.querySelector(".fabric");
   if (svg && !document.querySelector("#fabric-panel").hidden) {
     const box = svg.getBBox(), view = svg.viewBox.baseVal;
@@ -366,7 +366,7 @@ const CHECK_MINI = `(() => {
   const issues = [];
   if (document.documentElement.scrollWidth > innerWidth) issues.push("mini window scrolls sideways");
   if (innerHeight < 260 && document.documentElement.scrollHeight > innerHeight + 1) issues.push("wide layout taller than the window: " + document.documentElement.scrollHeight);
-  for (const el of document.querySelectorAll(".m-metric b, .m-l1 > span, .m-chips span, .m-stats b, .m-runs span, .m-foot span, .m-tabs button, .m-phase span, .m-head > span")) {
+  for (const el of document.querySelectorAll(".m-metric b, .m-l1 > span, .m-servers span:not(.m-name), .m-chips span, .m-stats b, .m-runs span, .m-foot span, .m-tabs button, .m-phase span, .m-head > span")) {
     if (el.getClientRects().length && el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).textOverflow !== "ellipsis") issues.push("text wider than its box: " + el.textContent.trim().slice(0, 40));
   }
   if (!document.querySelector(".m-root")) issues.push("mini window not drawn");
@@ -394,7 +394,8 @@ try {
       const name = `rack-${count}-node-${mode}.png`;
       await rack.shoot(name);
       const missingFonts = Object.entries(result.fonts).filter(([, ok]) => !ok).map(([font]) => `font not loaded: ${font}`);
-      report(name, [...result.bays, `band: ${result.band}`], [...result.issues, ...missingFonts, ...rack.errors.splice(0)]);
+      const bayCount = result.bays.length === Math.min(count, 4) ? [] : [`${result.bays.length} bays for ${count} nodes`];
+      report(name, [...result.bays, `band: ${result.band}`], [...result.issues, ...bayCount, ...missingFonts, ...rack.errors.splice(0)]);
     }
     // Lost connection: the next poll fails and the panel dims.
     current = { count, mode: "serving" };
@@ -505,11 +506,16 @@ try {
   }
   await smallKo.close();
 
-  // Web dashboard at desktop and phone widths.
-  for (const [label, width, height, scheme] of [["desktop", 1440, 1000, "light"], ["phone", 390, 844, "dark"]]) {
+  const allCounts = [...COUNTS.map((count) => [count, false]), [4, true]];
+  for (const [label, width, height, scheme, counts, modes] of [
+    ["desktop", 1440, 1000, "light", allCounts, ["serving", "fault"]],
+    ["tablet", 1024, 768, "light", COUNTS.filter((count) => count >= 4).map((count) => [count, false]), ["serving"]],
+    ["tablet-768", 768, 1024, "light", [[5, false], [7, false]], ["serving"]],
+    ["phone", 390, 844, "dark", allCounts, ["serving", "fault"]],
+  ]) {
     const web = await openPage({ width, height, colorScheme: scheme });
-    for (const [count, longNames] of [...COUNTS.map((count) => [count, false]), [4, true]]) {
-      for (const mode of ["serving", "fault"]) {
+    for (const [count, longNames] of counts) {
+      for (const mode of modes) {
         current = { count, mode, longNames };
         await web.go(`${base}/`);
         await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && /\\d/.test(document.querySelector('#updated-at').textContent)");
@@ -816,9 +822,9 @@ try {
     await web.close();
   }
 
-  const gpuCase = { count: 4, mode: "serving", longNames: false, discreteGpu: true, unknownGpu: true };
-  const gpuState = () => fixtureState(4, "serving", Date.now(), { discreteGpu: true });
-  const gpuLabels = (lang, [unified, unknown, discrete]) => [unified, unknown, unknown, unified, discrete].map((key) => (/^V?RAM$/.test(key) ? key : t(key, {}, lang)));
+  const gpuCase = { count: 4, mode: "serving", longNames: false, gpuWorkstations: 1, unknownGpu: true };
+  const gpuState = (sparkCount = 4) => fixtureState(sparkCount, "serving", Date.now(), { gpuWorkstations: 1 });
+  const gpuLabels = (lang, [unified, unknown, discrete], sparkCount = 4) => [unified, unknown, unknown, ...Array(sparkCount - 3).fill(unified), discrete].map((key) => (/^V?RAM$/.test(key) ? key : t(key, {}, lang)));
   for (const [design, label, width, height, scheme, query] of [["default", "desktop", 1440, 1000, "light", ""], ["default", "phone", 390, 844, "dark", "temp=f&mem=gb"], ["console", "desktop", 1440, 1000, "dark", ""], ["soft", "desktop", 1440, 1000, "dark", "mem=gb"], ["soft", "phone", 390, 844, "light", ""], ["default", "desktop", 1440, 1000, "light", "lang=ko"], ["default", "phone", 390, 844, "dark", "lang=ko&temp=f&mem=gb"]]) {
     const web = await openPage({ width, height, colorScheme: scheme });
     const lang = query.includes("lang=ko") ? "ko" : "en";
@@ -875,28 +881,25 @@ try {
   for (const [width, height, query] of [[1920, 480, ""], [1920, 480, "?lang=ko&temp=f&mem=gb"], [1024, 600, "?width=819&lang=ko"]]) {
     const page = await openPage({ width, height });
     const lang = query.includes("lang=ko") ? "ko" : "en";
-    current = gpuCase;
+    current = { ...gpuCase, count: 3 };
     await page.go(`${base}/rack/${query}`);
     await page.waitFor("document.querySelectorAll('.bay').length > 0 && !document.querySelector('.bay:empty')");
     await new Promise((resolve) => setTimeout(resolve, 300));
     const result = await page.evaluate(CHECK_RACK);
     const meters = await page.evaluate("[...document.querySelectorAll('.bay')].map((bay) => { const meter = bay.querySelectorAll('.meter')[1]; return meter ? meter.querySelector('span').firstChild.textContent + ' ' + meter.querySelector('b').textContent : 'no meters'; })");
-    const problems = [...result.issues, ...(lang === "ko" ? await englishLeft(page, gpuState()) : []), ...page.errors.splice(0)];
-    const expected = gpuLabels(lang, ["RAM", "rack.meter.memory", "VRAM"]);
+    const problems = [...result.issues, ...(lang === "ko" ? await englishLeft(page, gpuState(3)) : []), ...page.errors.splice(0)];
+    const expected = gpuLabels(lang, ["RAM", "rack.meter.memory", "VRAM"], 3);
     if (meters.length !== expected.length) problems.push(`${meters.length} bays, expected ${expected.length}`);
     meters.forEach((meter, index) => {
       if (!meter.startsWith(expected[index] + " ")) problems.push(`bay ${index + 1} meter: ${meter}`);
       if ((index === 1 || index === 2) !== meter.endsWith(" —%")) problems.push(`bay ${index + 1} value: ${meter}`);
     });
-    const name = `rack-5-node-gpu-memory-${width}x${height}${query ? `-${query.slice(1).replace(/[=&]/g, "-")}` : ""}.png`;
+    const name = `rack-4-node-gpu-memory-${width}x${height}${query ? `-${query.slice(1).replace(/[=&]/g, "-")}` : ""}.png`;
     await page.shoot(name);
     report(name, [`meters: ${meters.join(" / ")}`, ...result.bays, `truncated: ${result.truncated.join(" / ") || "none"}`], problems);
     await page.close();
   }
 
-  // Nodes in several model servers (topology.json "servers"): the rack band's chips and the bays' server names, the web
-  // page's server list, a line and an engine panel per server ("all at once") or the picked one ("one at a time"),
-  // with a server switched off and with a fault, in English and Korean.
   const SERVER_CASES = [
     { count: 2, mode: "serving", label: "2-node-1-1" },
     { count: 3, mode: "serving", label: "3-node-2-1" },
@@ -905,8 +908,28 @@ try {
     { count: 4, mode: "fault", label: "4-node-2-2-fault" },
     { count: 4, mode: "serving", servers: 3, label: "4-node-1-2-1" },
     { count: 4, mode: "serving", longNames: true, offGroup: true, label: "4-node-2-2-long-names-off" },
+    { count: 4, mode: "serving", servers: 4, label: "4-node-1-1-1-1" },
+    { count: 4, mode: "serving", gpuWorkstations: 1, label: "5-node-4-1" },
+    { count: 4, mode: "serving", gpuWorkstations: 3, label: "7-node-4-1-1-1" },
+    { count: 4, mode: "serving", gpuWorkstations: 4, label: "8-node-4-1-1-1-1" },
+    { count: 4, mode: "fault", gpuWorkstations: 4, label: "8-node-4-1-1-1-1-fault" },
+    { count: 8, mode: "serving", servers: 4, label: "8-node-2-2-2-2" },
+    { count: 4, mode: "serving", gpuWorkstations: 4, longNames: true, label: "8-node-4-1-1-1-1-long-names" },
   ];
-  const serverFixture = (item) => ({ count: item.count, mode: item.mode, longNames: Boolean(item.longNames), servers: item.servers ?? 2, offGroup: Boolean(item.offGroup) });
+  const serverFixture = (item) => ({ count: item.count, mode: item.mode, longNames: Boolean(item.longNames), servers: item.servers ?? (item.gpuWorkstations ? 0 : 2), offGroup: Boolean(item.offGroup), gpuWorkstations: item.gpuWorkstations ?? 0 });
+  const CHECK_STRIP = `(() => {
+    const issues = [], strip = document.querySelector('#servers').getBoundingClientRect(), status = document.querySelector('.status').getBoundingClientRect();
+    if (Math.abs(strip.top - status.bottom) > 1 || strip.bottom > document.querySelector('#nodes').getBoundingClientRect().top + 1) issues.push('server strip not between the status line and the node cards');
+    const lines = new Map();
+    for (const row of document.querySelectorAll('#servers .server-row')) { const box = row.getBoundingClientRect(), top = Math.round(box.top); lines.set(top, [...(lines.get(top) ?? []), box.width]); }
+    for (const widths of lines.values()) if (Math.max(...widths) - Math.min(...widths) > 1) issues.push('uneven server segments: ' + widths.map(Math.round).join(' / '));
+    for (const tag of document.querySelectorAll('#nodes [data-server-tag]:not([hidden])')) if (getComputedStyle(tag).borderLeftStyle !== 'none') issues.push('server name on a card has a border: ' + tag.textContent);
+    for (const role of document.querySelectorAll('#nodes .role')) if (new Set([...role.children].filter((item) => item.getClientRects().length).map((item) => Math.round(item.getBoundingClientRect().top))).size > 1) issues.push('role line wraps: ' + role.innerText.replace(/\\s+/g, ' '));
+    for (const role of document.querySelectorAll('#nodes [data-node="role"]')) if (role.getClientRects().length && role.scrollWidth > role.clientWidth + 1) issues.push('role cut short: ' + role.textContent);
+    for (const item of document.querySelectorAll('#nodes .role > span')) if (item.getClientRects().length && item.scrollWidth > item.clientWidth + 1 && item.title !== item.textContent) issues.push('cut role item without its full title: ' + item.textContent);
+    for (const name of document.querySelectorAll('#servers [data-cell="name"]')) if (name.title !== name.textContent) issues.push('server name without its full title: ' + name.textContent);
+    return { issues, lines: [...lines.values()].map((widths) => widths.length).join(' + ') };
+  })()`;
   // Every chip on the band keeps its lamp, and its figure while shown, inside the line; only the names may be cut short.
   const CHECK_CHIPS = `(() => { const line = document.querySelector('#cl-line1').getBoundingClientRect(); return [...document.querySelectorAll('#cl-line1 .chip')].filter((chip) => { const figure = chip.querySelector('b'), last = getComputedStyle(figure).display === 'none' ? chip.querySelector('.lamp') : figure, box = last.getBoundingClientRect(); return box.right > line.right + 1 || box.width < 4; }).map((chip) => 'chip cut off: ' + chip.textContent); })()`;
   for (const [width, height] of [[1920, 480], [1024, 600]]) {
@@ -930,16 +953,17 @@ try {
     }
     await serversRack.close();
   }
-  for (const [label, width, height, scheme] of [["desktop", 1440, 1000, "light"], ["phone", 390, 844, "dark"]]) {
+  for (const [label, width, height, scheme] of [["desktop", 1440, 1000, "light"], ["desktop-1290", 1290, 900, "light"], ["phone", 390, 844, "dark"], ["phone-320", 320, 640, "dark"]]) {
     const web = await openPage({ width, height, colorScheme: scheme });
     for (const item of SERVER_CASES) {
-      for (const query of ["", "?servers=one&server=b", "?lang=ko"]) {
+      for (const query of label.includes("-") ? ["", "?lang=ko"] : ["", "?servers=one&server=b", "?lang=ko"]) {
         current = serverFixture(item);
         await web.evaluate("localStorage.clear()");
         await web.go(`${base}/${query}`);
         await web.waitFor("document.querySelectorAll('#servers .server-row').length > 1 && /\\d/.test(document.querySelector('#updated-at').textContent)");
         await new Promise((resolve) => setTimeout(resolve, 300));
         const issues = await web.evaluate(CHECK_WEB);
+        const strip = await web.evaluate(CHECK_STRIP);
         const info = await web.evaluate(`(() => ({
           status: document.querySelector('#status-title').textContent,
           servers: [...document.querySelectorAll('#servers .server-row')].map((row) => row.innerText.replace(/\\s+/g, ' ')).join(' / '),
@@ -949,11 +973,49 @@ try {
         const english = query === "?lang=ko" ? await englishLeft(web, fixtureState(fixture.count, fixture.mode, Date.now(), fixture)) : [];
         const name = `web-${label}-servers-${item.label}${query === "?lang=ko" ? "-ko" : query ? "-one" : ""}.png`;
         await web.shoot(name, { fullPage: true });
-        report(name, [`status: ${info.status}`, `servers: ${info.servers}`, `engine panels: ${info.engines}`], [...issues, ...english, ...web.errors.splice(0)]);
+        report(name, [`status: ${info.status}`, `servers: ${info.servers}`, `strip lines: ${strip.lines}`, `engine panels: ${info.engines}`], [...issues, ...strip.issues, ...english, ...web.errors.splice(0)]);
       }
     }
     await web.evaluate("localStorage.clear()");
     await web.close();
+  }
+  const CONTRAST = (selector) => `(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    if (!el) return null;
+    const rgb = (color) => { const n = color.match(/[\\d.]+/g).slice(0, 3).map(Number); return color.startsWith('color(') ? n : n.map((v) => v / 255); };
+    const lum = (color) => rgb(color).map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+    const a = lum(getComputedStyle(el).color), b = lum(getComputedStyle(document.body).backgroundColor);
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  })()`;
+  for (const [label, lang, design, scheme] of [["4-node-2-2", "en", "default", "dark"], ["8-node-4-1-1-1-1", "en", "default", "dark"], ["8-node-4-1-1-1-1", "ko", "default", "light"], ["8-node-2-2-2-2", "en", "default", "dark"], ["8-node-4-1-1-1-1", "en", "console", "dark"], ["8-node-4-1-1-1-1", "en", "soft", "light"], ["8-node-4-1-1-1-1-long-names", "en", "soft", "dark"]]) {
+    const item = SERVER_CASES.find((entry) => entry.label === label), fixture = serverFixture(item);
+    for (const [shape, width, height] of [["tall", 340, 560], ["wide", 520, 190], ["stacked", 340, 1100]]) {
+      if ((lang === "ko" || design !== "default") && shape !== "tall") continue;
+      const page = await openPage({ width, height, colorScheme: scheme });
+      current = fixture;
+      await page.go(`${base}/mini/`);
+      await page.evaluate(`localStorage.clear(); localStorage.setItem("spark-scope-settings", JSON.stringify({ lang: "${lang}", design: "${design}" }))`);
+      await page.go(`${base}/mini/`);
+      await page.waitFor("document.querySelector('.m-metric') !== null");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const info = await page.evaluate(`(() => ({
+        rows: [...document.querySelectorAll('.m-servers > div')].filter((row) => [...row.children].some((cell) => cell.getClientRects().length)).map((row) => [...row.children].map((cell) => cell.textContent).join(' ').trim()),
+        nodes: [...document.querySelectorAll('.m-node, .m-wide-nodes > div')].filter((node) => node.getClientRects().length).length,
+        scroll: document.documentElement.scrollHeight,
+      }))()`);
+      const problems = [...await page.evaluate(CHECK_MINI), ...(lang === "ko" ? await englishLeft(page, fixtureState(fixture.count, fixture.mode, Date.now(), fixture)) : []), ...page.errors.splice(0)];
+      const servers = fixtureState(fixture.count, fixture.mode, Date.now(), fixture).servers.length;
+      if (shape !== "wide" && info.rows.length !== servers + 1) problems.push(`${info.rows.length} server rows, expected ${servers} and the total`);
+      if (info.nodes !== fixture.count + fixture.gpuWorkstations) problems.push(`${info.nodes} nodes shown`);
+      if (shape === "tall" && info.scroll > height) problems.push(`Glance taller than the window: ${info.scroll}px`);
+      const contrast = await page.evaluate(CONTRAST(".m-servers .m-serving"));
+      if (shape !== "wide" && !(contrast >= 4.5)) problems.push(`"serving" contrast ${contrast?.toFixed(2)}:1`);
+      const name = `mini-servers-${label}-${shape}-${design}-${scheme}${lang === "ko" ? "-ko" : ""}.png`;
+      await page.shoot(name, { fullPage: shape !== "wide" });
+      report(name, [`servers: ${info.rows.join(" / ")}`, `nodes: ${info.nodes}, page height ${info.scroll}px`, `"serving" contrast ${contrast?.toFixed(2)}:1`], problems);
+      await page.evaluate("localStorage.clear()");
+      await page.close();
+    }
   }
 
   // The token ledger over the scenario's three months (fixtures.mjs): records starting on the 23rd, a complete month

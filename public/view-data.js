@@ -55,6 +55,7 @@ export function modelServers(state) {
 export const severalServers = (state) => modelServers(state).length > 1;
 // A server's name on the pages: its configured name, else the model it serves, else its id.
 export const serverName = (server) => server?.name || (server?.inference?.ok && server.inference.modelName) || server?.id || '';
+export const serverStateKey = (server) => (!server?.inference ? 'checking' : server.inference.ok ? 'serving' : server.inferenceState === 'stopped' ? 'idle' : 'down');
 // The server a node serves in, or null for a node in none.
 export const serverOfNode = (servers, id) => servers.find((server) => server.nodes?.includes(id)) ?? null;
 // The node index whose colour a server takes: its first node's, so its chart line and tags match that node's card.

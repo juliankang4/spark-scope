@@ -69,6 +69,8 @@ export function orderedNodes(state) {
   if (Array.isArray(metas) && metas.length) return metas;
   return Object.keys(state?.nodes ?? {}).map((id) => ({ id, name: state.nodes[id]?.name ?? state.nodes[id]?.host ?? id, role: state.nodes[id]?.role, collect: true, inference: true }));
 }
+export const BAYS = 4;
+export const bayNodes = (state) => orderedNodes(state).slice(0, BAYS);
 
 export function linkLevel(link) {
   if (!link) return "idle";

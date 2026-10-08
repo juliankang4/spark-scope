@@ -21,8 +21,8 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=
 // The engine moves through a 20-second cycle so the charts and the mini window have something to show: a prefill
 // burst (2 s), decoding (12 s), then idle (6 s). GPU load and temperature follow it.
 // servers and offGroup split the nodes into model servers (see fixtures.mjs); later servers run slower.
-export function liveState(count, fixtureMode, now, { servers = 0, offGroup = false, discreteGpu = false } = {}) {
-  const state = fixtureState(count, fixtureMode, now, { servers, offGroup, discreteGpu });
+export function liveState(count, fixtureMode, now, { servers = 0, offGroup = false, gpuWorkstations = 0 } = {}) {
+  const state = fixtureState(count, fixtureMode, now, { servers, offGroup, gpuWorkstations });
   const readings = state.servers.map((server) => server.inference);
   if (!readings.some((v) => v?.ok)) return state;
   const cycle = now % 20_000, prefill = cycle < 2000, decode = cycle >= 2000 && cycle < 14_000;
@@ -83,7 +83,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (!MODES.includes(mode)) fail(`--mode takes ${MODES.join(", ")}`);
   if (!Number.isInteger(port) || port < 0 || port > 65535) fail("--port takes 0 to 65535");
   if (!Number.isInteger(servers) || servers < 1 || servers > nodes) fail("--servers takes 1 to the number of nodes");
-  const server = demoServer(nodes, mode, { servers, offGroup: values.off, discreteGpu: values.discrete });
+  const server = demoServer(nodes, mode, { servers, offGroup: values.off, gpuWorkstations: Number(values.discrete) });
   const totalNodes = nodes + Number(values.discrete), totalServers = servers + Number(values.discrete);
   server.listen(port, "127.0.0.1", () => {
     console.log(`Spark Scope demo: http://127.0.0.1:${server.address().port}/ (${totalNodes} node${totalNodes === 1 ? "" : "s"}${totalServers > 1 ? ` as ${totalServers} model servers${values.off ? ", the last one off" : ""}` : ""}, ${mode}; made-up data). Ctrl+C stops it.`);

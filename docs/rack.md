@@ -4,7 +4,7 @@
 
 Open `/rack/` (for example <http://127.0.0.1:8787/rack/>). The panel is laid out at 1920 x 480 and scales to fit the window, so it suits the common 1920 x 480 bar displays and works, letterboxed, on anything else.
 
-Each node gets a bay with its GPU temperature (with the last hour drawn behind it), GPU load, GPU memory and disk use (RAM on a GB10, where it is unified memory; VRAM on a discrete GPU; Memory when the GPU does not report its kind), power, TSOC and a coloured dot per link. The bottom band shows the cluster state, the model and engine, node and link counts with the total GPU power, output tok/s over the last five minutes and today's tokens.
+Each of the first four nodes in `topology.json` gets a bay with its GPU temperature (with the last hour drawn behind it), GPU load, GPU memory and disk use (RAM on a GB10, where it is unified memory; VRAM on a discrete GPU; Memory when the GPU does not report its kind), power, TSOC and a coloured dot per link. The bottom band shows the cluster state, the model and engine, node and link counts with the total GPU power, output tok/s over the last five minutes and today's tokens.
 
 ![Rack panel showing a node that stopped responding](screenshots/rack-4-nodes-fault.png)
 <p align="center"><sub>One node not responding and its two links down: the bays name the cause, the band keeps the counts.</sub></p>
@@ -18,9 +18,10 @@ The panel polls `/api/state` every 2 seconds without the history and fetches the
 
 ## Layout by node count
 
+- The panel has four bays at most: with more nodes, those after the fourth in topology order are left out of the bays, while the band still counts them and adds their output to the total.
 - Three or four nodes share the width. Two nodes get two centred bays. A single node gets one wide bay with its meters side by side and no link dots.
 - With two cables between two nodes, each bay shows a numbered dot per cable (`2 #1`, `2 #2`).
-- When a bay would be narrower than 460 logical pixels (five or more nodes at 1920, or a narrow `?width`), the bays switch to a compact layout: the name above the status, the temperature above the meters, smaller type, and link dots without peer names. Below about 200 pixels per bay labels are cut short.
+- When a bay would be narrower than 460 logical pixels (a narrow `?width`), the bays switch to a compact layout: the name above the status, the temperature above the meters, smaller type, and link dots without peer names. Below about 200 pixels per bay labels are cut short.
 - A long node name is cut short with an ellipsis before the status is. Peer names next to the link dots are left out when an id is longer than six characters; give links a short `label` in `topology.json` if their default label (`<id>–<id>`) is long.
 
 ## What the bays and the band say

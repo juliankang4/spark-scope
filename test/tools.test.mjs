@@ -24,8 +24,8 @@ test("the demo serves the pages and moving made-up data without touching anythin
   assert.ok(decode.inference.outputTokensPerSecond > 50);
   assert.ok(Date.parse(decode.inference.prefillUpdatedAt) < base + 8000);
   assert.equal(idle.inference.runningRequests, 0);
-  assert.equal(Object.keys(liveState(2, "fault", base).nodes).length, 2);
-  const mixed = liveState(4, "serving", base + 8000, { discreteGpu: true });
+  for (let count = 1; count <= 8; count++) assert.equal(Object.keys(liveState(count, "fault", base).nodes).length, count);
+  const mixed = liveState(4, "serving", base + 8000, { gpuWorkstations: 1 });
   assert.equal(Object.keys(mixed.nodes).length, 5);
   assert.equal(mixed.nodes["5"].gpu.memory.kind, "discrete");
   assert.equal(mixed.servers[0].serving.parallel, 4);
@@ -33,7 +33,7 @@ test("the demo serves the pages and moving made-up data without touching anythin
   const unified = fixtureState(1, "serving").nodes["1"];
   assert.equal(unified.gpu.memory.kind, "unified");
   assert.equal(unified.gpu.memory.availableBytes, unified.memory.availableBytes);
-  const fixture = fixtureState(1, "serving", Date.now(), { discreteGpu: true });
+  const fixture = fixtureState(1, "serving", Date.now(), { gpuWorkstations: 1 });
   assert.equal(fixture.nodes["1"].gpu.memory.kind, "unified");
   assert.equal(fixture.nodes["2"].gpu.memory.totalBytes, 32 * 1024 ** 3);
   assert.notEqual(fixture.nodes["2"].gpu.memory.totalBytes, fixture.nodes["2"].memory.totalBytes);

@@ -5,7 +5,7 @@
 // hidden.
 import { t, setLanguage } from '../i18n.js';
 import { loadSettings, loadTheme } from '../settings.js';
-import { nodeOrder, nodeColor, finite, fixed, memory, memoryUnit, gpuMemory, memoryWording, temperature, temperatureUnit, duration, clockTime, escapeHtml as esc, unknown, severalServers, modelServers, pickedServer, viewInference, PHONE_QUERY, onMediaChange, offMediaChange } from '../view-data.js';
+import { nodeOrder, nodeColor, finite, fixed, memory, memoryUnit, gpuMemory, memoryWording, temperature, temperatureUnit, duration, clockTime, escapeHtml as esc, unknown, severalServers, modelServers, pickedServer, viewInference, combinedInference, serverName, serverStateKey, serverColorIndex, PHONE_QUERY, onMediaChange, offMediaChange } from '../view-data.js';
 
 export const TABS = ['glance', 'scope', 'runs'];
 const TAB_KEY = 'spark-scope-mini-tab';
@@ -164,9 +164,18 @@ export function mountMini(doc, win, { onBack, container = doc.body, getSettings 
     const v = latest?.inference?.ok ? latest.inference : null;
     return `<div class="m-chips"><span>${esc(t('mini.running'))} <b>${v ? fixed(v.runningRequests, 0) : unknown()}</b></span><span>${esc(t('mini.queue'))} <b>${v ? fixed(v.waitingRequests, 0) : unknown()}</b></span><span>KV <b>${v ? fixed(v.kvCachePercent, 0, '%') : unknown()}</b></span><span>TTFT <b>${v ? duration(v.ttftP95RecentSeconds) : unknown()}</b></span><span>TPOT <b>${v ? duration(v.tpotP95RecentSeconds) : unknown()}</b></span><span>${esc(t('engine.cacheHit'))} <b>${v ? fixed(v.prefixCacheHitPercent, 0, '%') : unknown()}</b></span></div>`;
   }
+  function serverRows() {
+    const list = modelServers(latest);
+    if (list.length < 2) return '';
+    const rows = list.map((server) => {
+      const v = server.inference?.ok ? server.inference : null, key = serverStateKey(server);
+      return `<div style="--node:${nodeColor(settings.colors, serverColorIndex(server, metas))}"><span class="m-name" title="${esc(serverName(server))}"><i></i><span>${esc(serverName(server))}</span></span><span class="num">${rate(v?.outputTokensPerSecond)} tok/s</span><span class="m-${key}">${esc(t(`servers.state.${key}`))}</span></div>`;
+    }).join('');
+    return `<div class="m-servers">${rows}<div class="m-total"><span>${esc(t('chart.legend.total'))}</span><span class="num">${rate(combinedInference(list)?.outputTokensPerSecond)} tok/s</span><span></span></div></div>`;
+  }
   function nodeRows() {
     const nodes = latest?.nodes ?? {};
-    return `<div class="m-nodes">${metas.map((meta) => {
+    return `<div class="m-nodes${metas.length > 4 ? ' m-two' : ''}">${metas.map((meta) => {
       const node = nodes[meta.id], ok = Boolean(node?.ok), gpu = ok ? node.gpu ?? {} : {};
       const load = finite(gpu.utilization) ? Math.max(0, Math.min(100, gpu.utilization)) : 0;
       const { kind, usedBytes: used, totalBytes: total } = gpuMemory(node), memPct = finite(used) && finite(total) && total > 0 ? 100 * used / total : 0;
@@ -183,7 +192,7 @@ export function mountMini(doc, win, { onBack, container = doc.body, getSettings 
     const gpuMems = metas.map((meta) => gpuMemory(nodes[meta.id])), wording = memoryWording(gpuMems.map((item) => item.kind));
     const fullest = gpuMems.filter((item) => finite(item.usedBytes) && finite(item.totalBytes) && item.totalBytes > 0).sort((a, b) => b.usedBytes / b.totalBytes - a.usedBytes / a.totalBytes)[0];
     return `<div class="m-pair">${metric(t('mini.decode'), rate(v?.outputTokensPerSecond), 'tok/s', spark('decode', 'var(--blue)', now))}${metric(t('mini.prefill'), rate(v ? prefillRate(v) : null), 'tok/s', spark('prefill', 'var(--orange)', now))}</div>
-      ${chips()}<div class="m-rule"></div>${nodeRows()}
+      ${chips()}${serverRows()}<div class="m-rule"></div>${nodeRows()}
       <div class="m-chips m-spread"><span>${esc(t('mini.gpuPower'))} <b>${fixed(watts)} W</b></span><span>${esc(t(wording === 'unified' ? 'mini.mostMemory' : 'mini.mostGpuMemory'))} <b>${fullest ? `${memory(fullest.usedBytes, settings.mem)} / ${memory(fullest.totalBytes, settings.mem, 0)} ${memoryUnit(settings.mem)}` : unknown()}</b></span></div>
       ${footer(t('mini.updated', { time: clockTime(latest?.updatedAt, { hour12: hour12() }) }))}
       <div class="m-wide">${metric(t('mini.decode'), rate(v?.outputTokensPerSecond), 'tok/s')}${metric(t('mini.prefill'), rate(v ? prefillRate(v) : null), 'tok/s')}<div class="m-wide-nodes">${metas.map((meta) => { const gpu = nodes[meta.id]?.ok ? nodes[meta.id].gpu ?? {} : {}; return `<div style="--node:${color(meta.id)}"><span>${esc(meta.name)}</span><span class="m-bar"><i style="width:${finite(gpu.utilization) ? Math.max(0, Math.min(100, gpu.utilization)).toFixed(0) : 0}%"></i></span><span class="${hotClass(gpu.temperature)}">${finite(gpu.temperature) ? `${temperature(gpu.temperature, settings.temp)}°` : '—'}</span></div>`; }).join('')}</div></div>`;

@@ -27,8 +27,7 @@ function rawTopology(count) {
 
 // longNames: the longest ids (16 characters) and long display names, to check truncation in every view.
 const longId = (id) => `gb10-rack-node-${id}`.slice(0, 16);
-// servers: split the nodes into that many model servers, the first ones larger (4 nodes as 2 + 2, 3 as 2 + 1).
-function topologyFor(count, { longNames = false, servers = 0, discreteGpu = false } = {}) {
+function topologyFor(count, { longNames = false, servers = 0, gpuWorkstations = 0 } = {}) {
   const raw = rawTopology(count);
   if (longNames) {
     for (const node of raw.nodes) Object.assign(node, { id: longId(node.id), name: `spark-cluster-node-${node.id}-tokyo` });
@@ -41,11 +40,11 @@ function topologyFor(count, { longNames = false, servers = 0, discreteGpu = fals
       return { id: String.fromCharCode(97 + k), api: `http://spark-${k + 1}:8000`, nodes: ids.slice(from, to) };
     });
   }
-  if (discreteGpu) {
-    const id = String(count + 1);
-    raw.servers ??= [{ id: "a", api: "http://example-engine:8000", nodes: raw.nodes.map(node => node.id) }];
+  if (gpuWorkstations) raw.servers ??= [{ id: "a", api: "http://example-engine:8000", nodes: raw.nodes.map(node => node.id) }];
+  for (let k = 1; k <= gpuWorkstations; k++) {
+    const id = String(count + k);
     raw.nodes.push({ id, name: `gpu-${id}`, host: `gpu-${id}`, role: "NODE", hardware: "GPU workstation" });
-    raw.servers.push({ id: "gpu", api: `http://gpu-${id}:8000`, nodes: [id] });
+    raw.servers.push({ id: `gpu-${id}`, api: `http://gpu-${id}:8000`, nodes: [id] });
   }
   return normalizeTopology(raw);
 }
@@ -58,9 +57,11 @@ const FAULTS = {
   4: { unreachable: ["3"], darkLinks: ["2-3", "3-4"], apiDown: true },
   5: { unreachable: ["4"], darkLinks: ["3-4", "4-5"], apiDown: true },
   6: { unreachable: ["4"], darkLinks: ["3-4", "4-5"], apiDown: true },
+  7: { unreachable: ["5"], darkLinks: ["4-5", "5-6"], apiDown: true },
+  8: { unreachable: ["5"], darkLinks: ["4-5", "5-6"], apiDown: true },
 };
 
-function nodeSample(topology, meta, index, { nowMs, ok, proc, darkNics, hot, discreteGpu }) {
+function nodeSample(topology, meta, index, { nowMs, ok, proc, darkNics, hot, sparkCount }) {
   const updatedAt = new Date(nowMs).toISOString();
   const base = { id: meta.id, name: meta.name, host: meta.host, local: meta.local, role: meta.role, expectedRank: null, updatedAt };
   if (!ok) return { ...base, ok: false, collected: true, hostname: meta.host, latencyMs: 4500, error: `${meta.host}: timed out after 4500 ms` };
@@ -68,14 +69,14 @@ function nodeSample(topology, meta, index, { nowMs, ok, proc, darkNics, hot, dis
     const up = !darkNics.has(`${meta.id}:${nic}`);
     return [nic, { available: true, up, speedGbps: up ? 200 : -0.001, rxBytes: 1e12, txBytes: 1e12, errors: 0, dropped: 0, rateGbps: up ? (proc ? 2.4 + index * 0.9 + k * 0.3 : 0.01) : null }];
   }));
-  const discrete = discreteGpu && index === topology.nodes.length - 1;
+  const discrete = index >= sparkCount;
   const total = (discrete ? 64 : 121.7) * GIB;
   const available = discrete ? 40 * GIB : (proc ? 9.5 : 101) * GIB + index * 1.3 * GIB;
   const gpuTotal = discrete ? 32 * GIB : total;
   const gpuAvailable = discrete ? (proc ? 12 : 30) * GIB : available;
   return {
     ...base, ok: true, collected: true, hostname: meta.local ? "spark-1" : meta.host,
-    rank: proc && !discrete && topology.nodes.length - (discreteGpu ? 1 : 0) > 1 ? index : null,
+    rank: proc && !discrete && sparkCount > 1 ? index : null,
     inferenceProcessUp: proc, inferenceProcessReady: proc, processMemoryBytes: proc ? (discrete ? 20 : 98) * GIB : 0,
     inference: { up: proc, engine: proc ? "vLLM" : null, processName: proc ? discrete ? "VLLM::EngineCore" : `VLLM::Worker_TP${index}` : null },
     latencyMs: meta.local ? 38 : 22 + index * 3, uptimeSeconds: 86400 * 3, systemState: "running", failedUnits: 0,
@@ -109,7 +110,7 @@ function serverHistory(t, wave, serving, k) {
 }
 
 // serving: per model server, whether its API serves (one value for a single server).
-function history(topology, nowMs, { serving, unreachable, discreteGpu }) {
+function history(topology, nowMs, { serving, unreachable, sparkCount }) {
   const points = [];
   const servers = topology.servers ?? [{ id: "default" }];
   const servingOf = Array.isArray(serving) ? serving : [serving];
@@ -128,7 +129,7 @@ function history(topology, nowMs, { serving, unreachable, discreteGpu }) {
       ...(topology.servers ? { servers: Object.fromEntries(servers.map((server, k) => [server.id, each[k]])) } : {}),
       nodes: Object.fromEntries(topology.nodes.map((meta, index) => [meta.id, unreachable.has(meta.id) && t > -6
         ? { temperature: null, memoryAvailableBytes: null }
-        : { temperature: (busy ? 56 : 42) + index * 2 + 3 * wave, memoryAvailableBytes: discreteGpu && index === topology.nodes.length - 1 ? (busy ? 12 : 30) * GIB : (busy ? 10 : 100) * GIB + index * GIB }])),
+        : { temperature: (busy ? 56 : 42) + index * 2 + 3 * wave, memoryAvailableBytes: index >= sparkCount ? (busy ? 12 : 30) * GIB : (busy ? 10 : 100) * GIB + index * GIB }])),
     });
   }
   return points;
@@ -200,8 +201,8 @@ export function usageMonth(month, nowMs, { start } = {}) {
 }
 
 // servers: split the nodes into that many model servers; offGroup: the last one is switched off (no process, no API).
-export function fixtureState(count, mode, nowMs = Date.now(), { longNames = false, servers = 0, offGroup = false, discreteGpu = false } = {}) {
-  const topology = topologyFor(count, { longNames, servers, discreteGpu });
+export function fixtureState(count, mode, nowMs = Date.now(), { longNames = false, servers = 0, offGroup = false, gpuWorkstations = 0 } = {}) {
+  const topology = topologyFor(count, { longNames, servers, gpuWorkstations });
   const fault = mode === "fault" ? FAULTS[count] : {};
   const nodeId = (id) => (longNames ? longId(id) : id);
   const unreachable = new Set((fault.unreachable ?? []).map(nodeId));
@@ -213,7 +214,7 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
   const groups = topology.servers ?? [{ id: "default", name: null, nodes: topology.nodes.map((meta) => meta.id), implicit: true }];
   const offIds = new Set(offGroup && topology.servers ? groups.at(-1).nodes : []);
   const nodes = Object.fromEntries(topology.nodes.map((meta, index) => [meta.id,
-    nodeSample(topology, meta, index, { nowMs, ok: !unreachable.has(meta.id), proc: proc && !offIds.has(meta.id), darkNics, hot: (fault.hot ?? []).map(nodeId).includes(meta.id), discreteGpu })]));
+    nodeSample(topology, meta, index, { nowMs, ok: !unreachable.has(meta.id), proc: proc && !offIds.has(meta.id), darkNics, hot: (fault.hot ?? []).map(nodeId).includes(meta.id), sparkCount: count })]));
   const apiUp = proc && !fault.apiDown;
   const inference = apiUp
     ? {
@@ -251,7 +252,7 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
     nodes,
     ringLinks,
     serving: serverList[0].serving,
-    history: history(topology, nowMs, { serving: readings.map((reading) => reading.ok), unreachable, discreteGpu }),
+    history: history(topology, nowMs, { serving: readings.map((reading) => reading.ok), unreachable, sparkCount: count }),
     historyStats: { activeOutputTokensPerSecond: apiUp ? 54.8 : null, activeSamples: apiUp ? 280 : 0, windowMinutes: 60 },
     usage: { persistent: true, timeZone: "UTC", day: month.day, modelName: "example-model", today, error: null },
     startedAt: new Date(nowMs - 3 * 3600_000).toISOString(),

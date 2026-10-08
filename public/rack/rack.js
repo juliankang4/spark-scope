@@ -1,5 +1,5 @@
 import {
-  orderedNodes, nodeLinks, nodeView, reasonText, clusterView, seriesPoints, timePaths, valueRange, tempRangeLabel, f1, compact, freeLabel, panelWidth, bayLayout, BRAND, degrees, degreeUnit, bayColor, bayColorStyle, rackFocus,
+  bayNodes, nodeLinks, nodeView, reasonText, clusterView, seriesPoints, timePaths, valueRange, tempRangeLabel, f1, compact, freeLabel, panelWidth, bayLayout, BRAND, degrees, degreeUnit, bayColor, bayColorStyle, rackFocus,
 } from "./rack-view.js";
 import { modelServers, serverOfNode, serverName } from "../view-data.js";
 import { t, setLanguage, queryLanguage, translatePage } from "../i18n.js";
@@ -82,7 +82,7 @@ function syncBays(metas) {
   const ids = metas.map((meta) => meta.id).join(",");
   if (bays.dataset.ids === ids) return;
   bays.dataset.ids = ids;
-  bays.dataset.count = metas.length <= 4 ? String(metas.length) : "many";
+  bays.dataset.count = String(metas.length);
   bays.dataset.layout = bayLayout(metas.length, BW);
   bays.style.setProperty("--bays", String(metas.length));
   bays.innerHTML = metas.map((meta) => `<div class="bay" data-node="${escapeHtml(meta.id)}"></div>`).join("");
@@ -216,7 +216,7 @@ function fitChips(line) {
 
 function renderBays() {
   const toMs = Date.parse(latest.updatedAt) || Date.now();
-  const metas = orderedNodes(latest);
+  const metas = bayNodes(latest);
   syncBays(metas);
   metas.forEach((meta, index) => renderBay(meta, toMs, index));
   // The footers were fitted with the fonts at hand; a font that loads after this draw refits them.

@@ -1,5 +1,5 @@
 import { mountMini } from './mini/mini-view.js';
-import { PHONE_QUERY, COLORS, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, gpuMemory, memoryWording, readingLabel, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, pickedServer, viewInference } from './view-data.js';
+import { PHONE_QUERY, COLORS, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, gpuMemory, memoryWording, readingLabel, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, serverStateKey, pickedServer, viewInference } from './view-data.js';
 import { READING_IDS, rackQuery, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 import { t, setLanguage, translatePage, serverText, LANGUAGE_NAMES } from './i18n.js';
 import { hide as hideHelp } from './help.js';
@@ -42,7 +42,7 @@ const BADGE_LEVELS={serving:'good',idle:'idle',noGpuData:'warn',noResponse:'crit
 let nodesKey=null;
 function syncNodes(next) {
   const key=topologyKey(next);if(nodesKey===key)return;
-  nodesKey=key;metas=next;$('#nodes').dataset.count=metas.length<=6?String(metas.length):'many';
+  nodesKey=key;metas=next;$('#nodes').dataset.count=metas.length<=8?String(metas.length):'many';
   $('#brand-count').textContent=metas.length>1?`× ${metas.length}`:'';buildNodes();
 }
 // Sensors and the TP rank are shown only when a node reports them; ACPI zones keep their firmware names.
@@ -59,11 +59,11 @@ function renderNode(meta,node,root=$('#nodes')) {
   const pending=meta.collect===false||node?.collected===false,ok=Boolean(node?.ok);el.classList.toggle('is-unknown',!ok);
   const target=meta.local?t('node.target.local'):meta.host??t('node.target.noHost');
   set('title',meta.name);set('role',[roleName(meta.role),meta.hardware].filter(Boolean).join(' | '));
-  // With several model servers, the server this node serves in, in that server's colour.
-  const tag=el.querySelector('[data-server-tag]'),server=servers.length>1?serverOfNode(servers,meta.id):null;tag.hidden=!server;if(server){tag.textContent=serverName(server);tag.style.setProperty('--server',serverColor(server))}
+  const tag=el.querySelector('[data-server-tag]'),server=servers.length>1?serverOfNode(servers,meta.id):null;tag.hidden=!server;tag.textContent=tag.title=server?serverName(server):'';
   const state=pending?'notCollected':!ok?'noResponse':node.gpu?.available===false?'noGpuData':node.inferenceProcessReady?'serving':'idle';
   set('state',t(`node.badge.${state}`));el.querySelector('.badge').dataset.level=BADGE_LEVELS[state]??'idle';
   set('connection',pending?t('node.connection.notCollected',{target}):ok?`${target} | ${fixed(node.latencyMs,0)} ms`:t('node.connection.statusUnknown',{target}));
+  for(const name of ['role','connection']){const field=el.querySelector(`[data-node="${name}"]`);field.title=field.textContent}
   // GPU load: the figure with a small "%", and --load for the designs that draw it as a ring or a bar.
   const gpu=ok?node.gpu:{},load=finite(gpu?.utilization)?Math.max(0,Math.min(100,gpu.utilization)):null,gauge=el.querySelector('[data-node="gpu"]');
   const gaugeHtml=load===null?esc(u):`${fixed(gpu.utilization,0)}<small>%</small>`;if(gauge.innerHTML!==gaugeHtml)gauge.innerHTML=gaugeHtml;
@@ -204,28 +204,27 @@ function fillEngine(block,v,stopped) {
   block.querySelectorAll('.help[data-help-note]').forEach(button=>{button.dataset.helpNote=''});
   block.querySelectorAll('[data-field]').forEach(el=>{const key=el.dataset.field;let result=empty;if(v?.ok){if(key==='requests')result=`${fixed(v.runningRequests,0)} / ${fixed(v.waitingRequests,0)}`;else if(key.endsWith('RecentSeconds'))result=recentLatency(el,v,key);else if(key.endsWith('Seconds'))result=duration(v[key]);else if(key.endsWith('Percent'))result=fixed(v[key],1,'%');else result=tokenRate(v[key])}el.textContent=result});
 }
-// One row per model server: its model, nodes, state, output and queue. In "one at a time" a row picks the server
-// that the chart and the engine panel follow. The rows are rebuilt only when the servers or the view change and
-// otherwise updated in place, so a poll never takes the keyboard focus or a click away.
 const serverCell=(row,name,value)=>{const el=row.querySelector(`[data-cell="${name}"]`);if(el.textContent!==value)el.textContent=value};
 function serverState(row,key){serverCell(row,'state',key==='unknown'?unknown():t(`servers.state.${key}`));row.querySelector('[data-cell="state"]').dataset.state=key}
+function syncServerRows(box,list,one){
+  const key=`${one}|${list.map(server=>server.id).join(',')}`;if(box.dataset.key===key)return;
+  box.dataset.key=key;
+  const cells='<i></i><b data-cell="name"></b><span class="num" data-cell="output"></span><span class="server-meta"><span data-cell="nodes"></span><span class="server-state" data-cell="state"></span><span class="num" data-cell="queue"></span></span>';
+  box.innerHTML=list.map(server=>one?`<button type="button" class="server-row" data-server="${esc(server.id)}">${cells}</button>`:`<div class="server-row" data-server="${esc(server.id)}">${cells}</div>`).join('');
+}
+function fillServerRow(row,server,pick){
+  const v=server.inference,name=serverName(server);
+  row.querySelector('i').style.background=serverColor(server);
+  serverCell(row,'name',name);row.querySelector('[data-cell="name"]').title=name;serverCell(row,'nodes',t('servers.nodes',{count:server.nodes.length}));
+  serverState(row,serverStateKey(server));
+  serverCell(row,'output',v?.ok?`${fixed(v.outputTokensPerSecond)} tok/s`:unknown());serverCell(row,'queue',t('servers.queue',{queue:v?.ok?fixed(v.waitingRequests,0):unknown()}));
+  if(pick!==null)row.setAttribute('aria-pressed',String(server.id===pick));
+}
 function renderServers(state) {
   const box=$('#servers'),list=modelServers(state);box.hidden=list.length<2;if(list.length<2)return;
-  const one=settings.servers==='one',key=`${one}|${list.map(server=>server.id).join(',')}`;
-  if(box.dataset.key!==key){
-    box.dataset.key=key;
-    const cells='<i></i><b data-cell="name"></b><span data-cell="nodes"></span><span class="server-state" data-cell="state"></span><span class="num" data-cell="output"></span><span class="num" data-cell="queue"></span>';
-    box.innerHTML=list.map(server=>one?`<button type="button" class="server-row" data-server="${esc(server.id)}">${cells}</button>`:`<div class="server-row" data-server="${esc(server.id)}">${cells}</div>`).join('');
-  }
+  const one=settings.servers==='one';syncServerRows(box,list,one);
   const pick=one?pickedServer(list,settings.server).id:null;
-  list.forEach((server,index)=>{
-    const row=box.children[index],v=server.inference;
-    row.querySelector('i').style.background=serverColor(server);
-    serverCell(row,'name',serverName(server));serverCell(row,'nodes',t('servers.nodes',{count:server.nodes.length}));
-    serverState(row,!v?'checking':v.ok?'serving':server.inferenceState==='stopped'?'idle':'down');
-    serverCell(row,'output',v?.ok?`${fixed(v.outputTokensPerSecond)} tok/s`:unknown());serverCell(row,'queue',t('servers.queue',{queue:v?.ok?fixed(v.waitingRequests,0):unknown()}));
-    if(one)row.setAttribute('aria-pressed',String(server.id===pick));
-  });
+  list.forEach((server,index)=>fillServerRow(box.children[index],server,pick));
 }
 $('#servers').addEventListener('click',event=>{const row=event.target.closest('button[data-server]');if(!row||row.dataset.server===settings.server)return;const before=settings;settings=parseSettings({...settings,server:row.dataset.server});applySettings(changes(before))});
 function failedState() {

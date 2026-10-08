@@ -36,7 +36,7 @@ It is one Node.js process with no npm dependencies. It polls each node (locally 
 - **Inference**: output tok/s over 15 minutes to 6 hours, prefill and decode rates, TTFT and TPOT p95 over the last 5 minutes, cache hit, KV cache and queue.
 - **Token ledger**: one month as a statement, a calendar or charts, with a table by model and a CSV export.
 - **Mini window**: a small view for watching a model test, with runs recorded between Start and Stop. It stays on top of other windows in Chrome and Edge; in Safari and on phones the page switches to it.
-- **Rack panel**: a bay per node and a band with the cluster state, model and throughput.
+- **Rack panel**: a bay for each of the first four nodes and a band with the cluster state, model and throughput.
 
 More in [Web page](docs/dashboard.md) and [Rack panel](docs/rack.md). The screenshots use synthetic data from `tools/fixtures.mjs`.
 
@@ -156,7 +156,7 @@ When the nodes serve in separate groups (two cabled nodes each running its own m
 ]
 ```
 
-One dashboard then shows every server: a row per server above the chart, a line and an engine panel for each (or one at a time, in the settings), chips on the rack panel's band, and one token ledger for all of them. Fields and rules: [Model servers](docs/topology.md#model-servers).
+One dashboard then shows every server: a strip under the status line with a segment per server, a line and an engine panel for each (or one at a time, in the settings), chips on the rack panel's band, and one token ledger for all of them. Fields and rules: [Model servers](docs/topology.md#model-servers).
 
 ### Running as a service
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { nodeView, clusterView, timePaths, compact, freeLabel, orderedNodes, nodeLinks, linkReason, reasonText, seriesPoints, panelWidth, bayLayout, valueRange, tempRangeLabel, clockTime, f1 } from "../public/rack/rack-view.js";
+import { nodeView, clusterView, timePaths, compact, freeLabel, orderedNodes, bayNodes, nodeLinks, linkReason, reasonText, seriesPoints, panelWidth, bayLayout, valueRange, tempRangeLabel, clockTime, f1 } from "../public/rack/rack-view.js";
 import { compact as webCompact } from "../public/view-data.js";
 import { loadTopology, publicTopology } from "../lib/topology.mjs";
 
@@ -41,6 +41,7 @@ test("bays follow the topology order and show display names, not SSH targets", (
   assert.equal(nodeView(META["1"], undefined).role, "Head");
   // A payload without topology still renders its nodes.
   assert.deepEqual(orderedNodes({ nodes: { a: { host: "box-a" } } }).map((meta) => meta.name), ["box-a"]);
+  assert.deepEqual(bayNodes({ topology: { nodes: [...TOPOLOGY.nodes, { id: "5" }, { id: "6" }] } }).map((meta) => meta.id), TOPOLOGY.nodes.map((meta) => meta.id));
 });
 
 test("in a ring each bay's link dots show the previous neighbour first, then the next", () => {
