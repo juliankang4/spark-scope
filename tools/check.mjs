@@ -12,16 +12,15 @@ process.chdir(execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: 
 const tracked = execFileSync("git", ["ls-files"], { encoding: "utf8" }).split("\n").filter(Boolean);
 const problems = [];
 
-// The server serves public/ at the site root, so "/theme.js?v=1" is public/theme.js.
-const PAGE_ROOT = "public";
+const PUBLIC_WEB_ROOT = "public";
 const CLASSIC = new Set();
 for (const page of tracked.filter((file) => file.endsWith(".html"))) {
   for (const [, attrs] of readFileSync(page, "utf8").matchAll(/<script\b([^>]*)>/g)) {
     if (/\btype\s*=\s*["']?module/.test(attrs)) continue;
     const src = /\bsrc\s*=\s*["']([^"']+)["']/.exec(attrs)?.[1];
     if (!src) continue;
-    const url = new URL(src, `http://site/${path.relative(PAGE_ROOT, page)}`);
-    if (url.host === "site") CLASSIC.add(path.join(PAGE_ROOT, decodeURIComponent(url.pathname)));
+    const url = new URL(src, `http://site/${path.relative(PUBLIC_WEB_ROOT, page)}`);
+    if (url.host === "site") CLASSIC.add(path.join(PUBLIC_WEB_ROOT, decodeURIComponent(url.pathname)));
   }
 }
 
