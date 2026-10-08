@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -327,6 +327,49 @@ test("requests for another site's host name are refused, every response carries 
     assert.equal((await rawRequest(base, ["GET /%E0%A4%A HTTP/1.1", "Host: localhost", "Connection: close"])).status, 400);
   } finally {
     const exited = new Promise((resolve) => child.on("exit", resolve));
+    child.kill("SIGTERM");
+    await exited;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("node memory kinds survive GPU failures independently and unified memory uses the current RAM reading", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-memory-kind-"));
+  writeFileSync(path.join(directory, "ssh"), `#!/bin/sh
+while IFS= read -r line; do :; done
+for arg in "$@"; do
+  case "$arg" in fixture-*) snapshot="$NODE_FIXTURE_DIR/$arg.txt" ;; esac
+done
+while IFS= read -r line; do echo "$line"; done < "$snapshot"
+`);
+  chmodSync(path.join(directory, "ssh"), 0o755);
+  const sample = (id, gpu, status, available) => writeFileSync(path.join(directory, `fixture-${id}.txt`),
+    `hostname|test-node\ngpu|${gpu}\ngpu_status|${status}\nmemory|131072000,${available},0,0\n`);
+  sample("u", "0, 40, 10, 200, P8, Not Active, Not Active, [N/A], [N/A], NVIDIA GB10, Integrated GPU", "ok", 16000000);
+  sample("d", "0, 40, 10, 200, P8, Not Active, Not Active, 16384, 32768, NVIDIA Discrete, Workstation", "ok", 32000000);
+  sample("x", "", "error", 24000000);
+  const layout = { nodes: ["u", "d", "x"].map(id => ({ id, host: `fixture-${id}` })), links: [] };
+  const { child, base } = await startServer(directory, {
+    PATH: `${directory}:${process.env.PATH}`, NODE_FIXTURE_DIR: directory, SPARK_SCOPE_NODE_INTERVAL_MS: "1000",
+  }, layout);
+  try {
+    const first = await waitFor(base, state => state.nodes.u?.gpu?.memory?.kind === "unified" && state.nodes.d?.gpu?.memory?.kind === "discrete", "reported kinds");
+    assert.equal(first.nodes.x.gpu.memory.kind, null);
+    for (const [index, status] of ["timeout", "stuck", "error"].entries()) {
+      sample("u", "", status, 24000000 + index);
+      sample("d", "", status, 48000000 + index);
+      const next = await waitFor(base, state => state.nodes.u?.gpu?.status === status && state.nodes.d?.gpu?.status === status, status);
+      assert.equal(next.nodes.u.gpu.memory.kind, "unified");
+      assert.equal(next.nodes.u.gpu.memory.availableBytes, (24000000 + index) * 1024);
+      assert.equal(next.nodes.u.gpu.memory.totalBytes, next.nodes.u.memory.totalBytes);
+      assert.equal(next.nodes.d.gpu.memory.kind, "discrete");
+      assert.equal(next.nodes.d.gpu.memory.totalBytes, null);
+      assert.equal(next.nodes.d.gpu.memory.usedBytes, null);
+      assert.equal(next.nodes.d.gpu.memory.availableBytes, null);
+      assert.equal(next.nodes.x.gpu.memory.kind, null);
+    }
+  } finally {
+    const exited = new Promise(resolve => child.once("exit", resolve));
     child.kill("SIGTERM");
     await exited;
     rmSync(directory, { recursive: true, force: true });

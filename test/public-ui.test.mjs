@@ -118,6 +118,7 @@ test('one node, or nodes without links, draw no interconnect diagram', () => {
   assert.equal(fabricLayout(null), null);
   // A link to a node the topology does not list is skipped rather than drawn to nowhere.
   assert.equal(fabricLayout({ nodes: example(2).nodes, links: [{ id: 'x', nodes: ['1', '9'] }] }), null);
+  assert.deepEqual(fabricLayout({ ...example(4), nodes: [...example(4).nodes, { id: '5' }] }), fabricLayout(example(4)));
 });
 
 test('two cables between two nodes are drawn as two visibly separate lines', () => {
@@ -216,7 +217,7 @@ test("a poll without history adds its own sample to the history the page already
   const state = {
     updatedAt: '2026-10-02T03:00:02Z',
     inference: { ok: true, updatedAt: '2026-10-02T03:00:02Z', outputTokensPerSecond: 61.3, promptTokensPerSecond: 2104, runningRequests: 2, waitingRequests: 0 },
-    nodes: { 1: { ok: true, gpu: { temperature: 57 }, memory: { availableBytes: 9.5 * 2 ** 30 } }, 2: { ok: false } },
+    nodes: { 1: { ok: true, gpu: { temperature: 57, memory: { kind: 'unified', availableBytes: 9.5 * 2 ** 30 } }, memory: { availableBytes: 9.5 * 2 ** 30 } }, 2: { ok: false } },
   };
   const point = livePoint(state);
   assert.deepEqual(point, {
@@ -345,10 +346,10 @@ test('node card settings: four distinct known readings, known bars and panels, w
   assert.deepEqual(settingsFromQuery('?readings=temp,power').settings.readings, DEFAULTS.readings);
 });
 
-test('card readings give text, unit and warning in the chosen units', () => {
+test('card readings give text, unit and warning in the chosen units', async () => {
   const GIB = 2 ** 30;
   const settings = { ...DEFAULTS, temp: 'f' };
-  const node = { ok: true, gpu: { temperature: 86, powerWatts: 31.52, clockMHz: 2405 }, memory: { availableBytes: 1.5 * GIB },
+  const node = { ok: true, gpu: { temperature: 86, powerWatts: 31.52, clockMHz: 2405, memory: { kind: 'unified', totalBytes: 128 * GIB, availableBytes: 1.5 * GIB, usedBytes: 126.5 * GIB } }, memory: { availableBytes: 1.5 * GIB },
     disk: { totalBytes: 1000 * GIB, availableBytes: 40 * GIB, usedPercent: 96 }, cpu: { load1: 1.834, cores: 20 }, nvmeCelsius: 48, processMemoryBytes: 98.2 * GIB };
   const read = (id) => readingValue(id, node, settings);
   assert.deepEqual(read('temp'), { text: '187', unit: '°F', warn: true });
@@ -362,6 +363,19 @@ test('card readings give text, unit and warning in the chosen units', () => {
   assert.equal(readingValue('temp', { ok: false }, settings).text, 'unknown');
   assert.equal(readingValue('temp', node, { ...settings, tempWarn: 90 }).warn, false);
   assert.equal(readingValue('mem', node, { ...settings, mem: 'gb' }).unit, 'GB');
+  const { gpuMemory, memoryWording, readingLabel, livePoint } = await import('../public/view-data.js');
+  const discrete = { ...node, gpu: { ...node.gpu, memory: { kind: 'discrete', totalBytes: 32 * GIB, availableBytes: 12 * GIB, usedBytes: 20 * GIB } }, memory: { availableBytes: 40 * GIB } };
+  const unknown = { ...discrete, gpu: { ...node.gpu, memory: { kind: null, totalBytes: null, usedBytes: null, availableBytes: null } } };
+  for (const [sample, wording, text, free] of [[node, 'unified', '1.5', 1.5 * GIB], [discrete, 'gpu', '12.0', 12 * GIB], [unknown, 'gpu', 'unknown', null]]) {
+    assert.equal(memoryWording([gpuMemory(sample).kind]), wording);
+    assert.equal(readingLabel('mem', { wording }), wording === 'unified' ? 'node.reading.mem' : 'node.reading.gpuMem');
+    assert.equal(readingValue('mem', sample, settings).text, text);
+    assert.equal(livePoint({ updatedAt: '2026-10-02T03:00:02Z', nodes: { 1: sample } }).nodes[1].memoryAvailableBytes, free);
+  }
+  assert.equal(gpuMemory({ ...discrete, ok: false }).availableBytes, null);
+  assert.equal(readingValue('mem', { ...discrete, gpu: {} }, settings).text, 'unknown');
+  assert.equal(readingValue('mem', unknown, settings).unit, '');
+  assert.equal(memoryWording(['unified', 'discrete']), 'gpu');
 });
 
 test('node colours: palette names or hex by position, written without # in a link', () => {

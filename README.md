@@ -31,7 +31,7 @@ It is one Node.js process with no npm dependencies. It polls each node (locally 
 
 ### What it shows
 
-- **Nodes**: GPU load, temperature, power, clock and free memory, with disk, CPU, NVMe and NIC temperatures, thermal zones, the inference container and kernel errors in the details.
+- **Nodes**: GPU load, temperature, power, clock and free GPU memory (unified memory on a GB10, the card's own on a discrete GPU), with disk, CPU, NVMe and NIC temperatures, thermal zones, the inference container and kernel errors in the details.
 - **Interconnect**: each QSFP cable's two planes, traffic and state (two or more nodes).
 - **Inference**: output tok/s over 15 minutes to 6 hours, prefill and decode rates, TTFT and TPOT p95 over the last 5 minutes, cache hit, KV cache and queue.
 - **Token ledger**: one month as a statement, a calendar or charts, with a table by model and a CSV export.
@@ -64,7 +64,7 @@ cd spark-scope
 npm run demo
 ```
 
-This serves the dashboard at <http://127.0.0.1:8787/>, with the rack panel at `/rack/` and the mini window at `/mini/`, all on made-up data. `npm run demo -- --nodes 2 --mode fault` shows two nodes with a fault (modes: `serving`, `fault`, `idle`); `--servers 2` splits the nodes into two model servers (`--off` switches the last one off); `--port` picks another port. Nothing is collected or written, and no other machine is contacted.
+This serves the dashboard at <http://127.0.0.1:8787/>, with the rack panel at `/rack/` and the mini window at `/mini/`, all on made-up data. `npm run demo -- --nodes 2 --mode fault` shows two nodes with a fault (modes: `serving`, `fault`, `idle`); `--servers 2` splits the nodes into two model servers (`--off` switches the last one off); `--discrete` adds a separate GPU workstation with its own VRAM after the Sparks; `--port` picks another port. Nothing is collected or written, and no other machine is contacted.
 
 ### One node: the dashboard on the Spark itself
 
@@ -212,7 +212,7 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Limitations
 
-- Only the first GPU reported by `nvidia-smi` is shown per node, which matches GB10 systems.
+- Only the first GPU reported by `nvidia-smi` is shown per node, its VRAM included; a machine with several GPUs shows GPU 0. GB10 systems have one.
 - TSOC/TS1P temperatures and the A/B plane layout are specific to DGX Spark-class hardware. Other Linux machines with an NVIDIA GPU mostly work, but those parts read `unknown` or need a matching topology.
 - One inference server per dashboard.
 - Charts are kept in memory for six hours and reset when the server restarts or the served model changes. The token ledger is kept on disk and adds up counter increases; how it handles restarts: [Token ledger](docs/dashboard.md#token-ledger).

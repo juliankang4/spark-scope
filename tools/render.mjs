@@ -16,6 +16,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fixtureState, usageMonth, MODES, LEDGER_MODELS, LEDGER_SCENARIO } from "./fixtures.mjs";
 import { SECURITY_HEADERS } from "../lib/http-guard.mjs";
+import { t } from "../public/i18n.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC = path.join(ROOT, "public");
@@ -46,7 +47,13 @@ const server = createServer((request, response) => {
   const url = new URL(request.url, "http://localhost");
   if (url.pathname === "/api/state") {
     if (current.mode === "lost") { response.writeHead(503).end("{}"); return; }
-    const state = fixtureState(current.count, current.mode, fixtureNow(), { longNames: current.longNames, servers: current.servers ?? 0, offGroup: current.offGroup ?? false });
+    const state = fixtureState(current.count, current.mode, fixtureNow(), { longNames: current.longNames, servers: current.servers ?? 0, offGroup: current.offGroup ?? false, discreteGpu: current.discreteGpu ?? false });
+    if (current.unknownGpu) {
+      const [, second, third] = state.topology.nodes.map((meta) => state.nodes[meta.id].gpu);
+      second.memory = { kind: null, totalBytes: null, usedBytes: null, availableBytes: null };
+      delete third.memory;
+      for (const point of state.history) for (const meta of state.topology.nodes.slice(1, 3)) point.nodes[meta.id].memoryAvailableBytes = null;
+    }
     const minutes = Number(url.searchParams.get("minutes") || 60);
     state.history = state.history.filter((point) => point.at >= fixtureNow() - minutes * 60_000);
     response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(state));
@@ -302,7 +309,7 @@ const CHECK_SETTINGS = `(() => {
 
 // Korean pages: English words on screen that are neither technical terms kept in English nor data from the fixture
 // (names, hosts, hardware, models, engines, containers, time zones) are text that missed the string table.
-const TERMS = "GPU CPU NVMe NIC ACPI TSOC TS0E TS0P TS1E TS1P TGPU TUNC Xid NO MEMORY TP rank TTFT TPOT KV cache Prefill Decode Spec acceptance tok API QSFP SPARK SCOPE Spark Scope MHz GiB GB TiB Gb SSH RAM nvidia smi ms English rack URL DECODE PREFILL CSV Wh Ctrl Cmd Alt";
+const TERMS = "GPU CPU NVMe NIC ACPI TSOC TS0E TS0P TS1E TS1P TGPU TUNC Xid NO MEMORY TP rank TTFT TPOT KV cache Prefill Decode Spec acceptance tok API QSFP SPARK SCOPE Spark Scope MHz GiB GB TiB TB Gb SSH RAM VRAM nvidia smi ms English rack URL DECODE PREFILL CSV Wh Ctrl Cmd Alt";
 function dataWords(state) {
   const values = [state.usage?.timeZone, state.usage?.modelName, state.inference?.modelName, state.inference?.engine, state.serving?.engine, ...LEDGER_MODELS];
   for (const node of state.topology?.nodes ?? []) values.push(node.id, node.name, node.host, node.hardware);
@@ -807,6 +814,84 @@ try {
     await checkHelp(web, label, "-ko", () => englishLeft(web, fixtureState(4, "serving")));
     await web.evaluate("localStorage.clear()");
     await web.close();
+  }
+
+  const gpuCase = { count: 4, mode: "serving", longNames: false, discreteGpu: true, unknownGpu: true };
+  const gpuState = () => fixtureState(4, "serving", Date.now(), { discreteGpu: true });
+  const gpuLabels = (lang, [unified, unknown, discrete]) => [unified, unknown, unknown, unified, discrete].map((key) => (/^V?RAM$/.test(key) ? key : t(key, {}, lang)));
+  for (const [design, label, width, height, scheme, query] of [["default", "desktop", 1440, 1000, "light", ""], ["default", "phone", 390, 844, "dark", "temp=f&mem=gb"], ["console", "desktop", 1440, 1000, "dark", ""], ["soft", "desktop", 1440, 1000, "dark", "mem=gb"], ["soft", "phone", 390, 844, "light", ""], ["default", "desktop", 1440, 1000, "light", "lang=ko"], ["default", "phone", 390, 844, "dark", "lang=ko&temp=f&mem=gb"]]) {
+    const web = await openPage({ width, height, colorScheme: scheme });
+    const lang = query.includes("lang=ko") ? "ko" : "en";
+    current = gpuCase;
+    await web.go(`${base}/?${[design === "default" ? "" : `design=${design}`, query].filter(Boolean).join("&")}`);
+    await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && /\\d/.test(document.querySelector('#updated-at').textContent)");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const info = await web.evaluate(`(() => ({
+      cards: [...document.querySelectorAll('#nodes .node')].map((n) => ({ label: n.querySelector('[data-node="memory-label"]').textContent, used: n.querySelector('[data-node="memory-used"]').textContent, reading: n.querySelector('.reading[data-slot="2"]').innerText.replace(/\\s+/g, ' '), unknown: n.querySelector('[data-node="memory-used"]').classList.contains('unknown-value') && n.querySelector('[data-reading="2"]').classList.contains('unknown-value') })),
+      heading: document.querySelector('#mem-heading').textContent,
+      legend: document.querySelector('#mem-legend').innerText.replace(/\\s+/g, ' '),
+    }))()`);
+    const problems = [...await web.evaluate(CHECK_WEB), ...(lang === "ko" ? await englishLeft(web, gpuState()) : []), ...web.errors.splice(0)];
+    const expected = gpuLabels(lang, ["node.unifiedMemoryUsage", "node.gpuMemoryUsage", "node.gpuMemoryUsage"]);
+    if (info.cards.length !== expected.length) problems.push(`${info.cards.length} cards, expected ${expected.length}`);
+    info.cards.forEach((card, index) => {
+      if (card.label !== expected[index]) problems.push(`card ${index + 1} label: ${card.label}`);
+      if (card.unknown !== (index === 1 || index === 2)) problems.push(`card ${index + 1} ${card.unknown ? "unknown" : "known"}: ${card.used} | ${card.reading}`);
+    });
+    if (info.heading !== t("trends.gpuMem.heading", {}, lang)) problems.push("trend heading: " + info.heading);
+    if (query.includes("mem=gb") && !/GB/.test(info.cards.at(-1).used)) problems.push("GB not applied: " + info.cards.at(-1).used);
+    const name = `web-${label}-gpu-memory-${design}-${scheme}${query ? `-${query.replace(/[=&]/g, "-")}` : ""}.png`;
+    await web.shoot(name, { fullPage: true });
+    report(name, [...info.cards.map((card) => `${card.label}: ${card.used} | ${card.reading}`), `trend: ${info.heading} | ${info.legend}`], problems);
+    await web.evaluate("localStorage.clear()");
+    await web.close();
+  }
+  for (const [design, scheme, lang] of [["default", "dark", "en"], ["console", "dark", "en"], ["soft", "light", "en"], ["default", "light", "ko"]]) {
+    const page = await openPage({ width: 340, height: 560, colorScheme: scheme });
+    current = gpuCase;
+    await page.go(`${base}/mini/`);
+    await page.evaluate(`localStorage.clear(); localStorage.setItem("spark-scope-settings", JSON.stringify({ design: "${design}", lang: "${lang}" }))`);
+    await page.go(`${base}/mini/`);
+    await page.waitFor("document.querySelector('.m-metric') !== null");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const info = await page.evaluate(`(() => ({
+      rows: [...document.querySelectorAll('.m-l2')].map((row) => row.children[2].textContent + ' ' + row.querySelector('.m-mem i').style.width),
+      most: document.querySelector('.m-spread span:nth-child(2)').textContent,
+    }))()`);
+    const problems = [...await page.evaluate(CHECK_MINI), ...(lang === "ko" ? await englishLeft(page, gpuState()) : []), ...page.errors.splice(0)];
+    const expected = gpuLabels(lang, ["mini.mem", "mini.mem", "mini.gpuMem"]);
+    if (info.rows.length !== expected.length) problems.push(`${info.rows.length} rows, expected ${expected.length}`);
+    info.rows.forEach((row, index) => {
+      if (!row.startsWith(expected[index] + " ")) problems.push(`row ${index + 1} label: ${row}`);
+      if ((index === 1 || index === 2) !== row.endsWith(" 0%")) problems.push(`row ${index + 1} bar: ${row}`);
+    });
+    if (!info.most.startsWith(t("mini.mostGpuMemory", {}, lang))) problems.push("most memory: " + info.most);
+    const name = `mini-gpu-memory-${design}-${scheme}${lang === "ko" ? "-ko" : ""}.png`;
+    await page.shoot(name);
+    report(name, [`rows: ${info.rows.join(" / ")}`, `most: ${info.most}`], problems);
+    await page.evaluate("localStorage.clear()");
+    await page.close();
+  }
+  for (const [width, height, query] of [[1920, 480, ""], [1920, 480, "?lang=ko&temp=f&mem=gb"], [1024, 600, "?width=819&lang=ko"]]) {
+    const page = await openPage({ width, height });
+    const lang = query.includes("lang=ko") ? "ko" : "en";
+    current = gpuCase;
+    await page.go(`${base}/rack/${query}`);
+    await page.waitFor("document.querySelectorAll('.bay').length > 0 && !document.querySelector('.bay:empty')");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const result = await page.evaluate(CHECK_RACK);
+    const meters = await page.evaluate("[...document.querySelectorAll('.bay')].map((bay) => { const meter = bay.querySelectorAll('.meter')[1]; return meter ? meter.querySelector('span').firstChild.textContent + ' ' + meter.querySelector('b').textContent : 'no meters'; })");
+    const problems = [...result.issues, ...(lang === "ko" ? await englishLeft(page, gpuState()) : []), ...page.errors.splice(0)];
+    const expected = gpuLabels(lang, ["RAM", "rack.meter.memory", "VRAM"]);
+    if (meters.length !== expected.length) problems.push(`${meters.length} bays, expected ${expected.length}`);
+    meters.forEach((meter, index) => {
+      if (!meter.startsWith(expected[index] + " ")) problems.push(`bay ${index + 1} meter: ${meter}`);
+      if ((index === 1 || index === 2) !== meter.endsWith(" —%")) problems.push(`bay ${index + 1} value: ${meter}`);
+    });
+    const name = `rack-5-node-gpu-memory-${width}x${height}${query ? `-${query.slice(1).replace(/[=&]/g, "-")}` : ""}.png`;
+    await page.shoot(name);
+    report(name, [`meters: ${meters.join(" / ")}`, ...result.bays, `truncated: ${result.truncated.join(" / ") || "none"}`], problems);
+    await page.close();
   }
 
   // Nodes in several model servers (topology.json "servers"): the rack band's chips and the bays' server names, the web

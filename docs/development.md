@@ -12,7 +12,7 @@ node tools/render.mjs        # needs Chrome or Chromium; CI runs it too
 
 ## Demo
 
-`npm run demo` serves the dashboard, the rack panel and the mini window with the synthetic data from `tools/fixtures.mjs`. The engine runs through a request every 20 seconds (a prefill burst, then decoding, then idle) so the charts move. `npm run demo -- --nodes 2 --mode fault` shows two nodes with a fault (modes: `serving`, `fault`, `idle`; 1 to 8 nodes); `--servers 2` splits the nodes into two model servers, 4 as 2 + 2 and 3 as 2 + 1 (`--off` switches the last one off); `--port` picks another port. Nothing is collected or written, and no other machine is contacted.
+`npm run demo` serves the dashboard, the rack panel and the mini window with the synthetic data from `tools/fixtures.mjs`. The engine runs through a request every 20 seconds (a prefill burst, then decoding, then idle) so the charts move. `npm run demo -- --nodes 2 --mode fault` shows two nodes with a fault (modes: `serving`, `fault`, `idle`; 1 to 8 nodes); `--servers 2` splits the nodes into two model servers, 4 as 2 + 2 and 3 as 2 + 1 (`--off` switches the last one off); `--discrete` adds a separate GPU workstation with its own VRAM and model server after the Sparks; `--port` picks another port. Nothing is collected or written, and no other machine is contacted.
 
 ## Tests
 
@@ -27,6 +27,7 @@ CI runs them on Node 22.13 and 24, on x64 and arm64, runs the render check below
 - the rack panel with one to six nodes, the longest ids and names, a 2560 x 480 bar and a 1024 x 600 screen;
 - the web dashboard on a desktop and a phone, the settings dialog, the explanations and the three designs in light and dark;
 - the mini window in each shape and tab, stacked in a tall window, and inside the dashboard page on a phone and in a browser without document picture-in-picture;
+- four Sparks and a separate GPU workstation, with unified, discrete (VRAM) and unknown GPU memory on the dashboard, the mini window and the rack panel;
 - the token ledger's three views, and the calendar's three figures, over three months of a synthetic ledger in every design;
 - English and Korean.
 

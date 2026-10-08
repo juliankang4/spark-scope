@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
-import { collectNode, uncollectedNode, InferenceCollector, applyNetworkRates } from "./lib/collectors.mjs";
+import { collectNode, uncollectedNode, InferenceCollector, applyNetworkRates, applyGpuMemoryFallback } from "./lib/collectors.mjs";
 import { buildRingLinks, clusterStatus, serverState, servingSummary, DEFAULT_LINK_MIN_GBPS, STARTING_MESSAGE } from "./lib/cluster.mjs";
 import { downsampleHistory, summarizeHistory } from "./lib/history.mjs";
 import { hostAllowed, hostRules, SECURITY_HEADERS } from "./lib/http-guard.mjs";
@@ -129,6 +129,7 @@ let lastHistoryAt = 0;
 let lastUsageError = { message: null, at: 0 };
 // Full node collection errors go to the log when they change; the browser only gets a short reason.
 const lastNodeErrors = new Map();
+const lastGpuMemoryKinds = new Map();
 // Refused Host names, logged once each so a missing SPARK_SCOPE_ALLOWED_HOSTS entry is easy to spot.
 const refusedHosts = new Set();
 
@@ -177,7 +178,7 @@ function addHistoryPoint() {
       const node = state.nodes[id];
       return [id, {
         temperature: node?.ok ? node.gpu?.temperature ?? null : null,
-        memoryAvailableBytes: node?.ok ? node.memory?.availableBytes ?? null : null,
+        memoryAvailableBytes: node?.ok ? node.gpu?.memory?.availableBytes ?? null : null,
       }];
     })),
   };
@@ -197,7 +198,11 @@ async function collectNodes() {
     for (let index = 0; index < nodeDefinitions.length; index += 1) {
       const definition = nodeDefinitions[index];
       const previous = state.nodes[definition.id];
-      state.nodes[definition.id] = applyNetworkRates(snapshots[index], previous);
+      const next = snapshots[index];
+      const kind = next.gpu?.memory?.kind;
+      if (kind) lastGpuMemoryKinds.set(definition.id, kind);
+      else applyGpuMemoryFallback(next, lastGpuMemoryKinds.get(definition.id));
+      state.nodes[definition.id] = applyNetworkRates(next, previous);
       const error = snapshots[index]?.error ?? null;
       if (error !== (lastNodeErrors.get(definition.id) ?? null)) {
         console.error(error ? `Node ${definition.name}: ${error}` : `Node ${definition.name}: collecting again`);

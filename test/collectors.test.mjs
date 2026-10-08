@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
   applyNetworkRates,
+  applyGpuMemoryFallback,
   buildRemoteScript,
   collectNode,
   collectorCommand,
   knownEngine,
   metricsEngine,
   parseNetworkLines,
+  parseGpuMemory,
   histogramQuantile,
   bucketsQuantile,
   bucketsSince,
@@ -329,6 +331,36 @@ test("local collection runs on this machine and leaves what it cannot read unkno
   }
   assert.equal(node.memory.usedBytes === null, node.memory.totalBytes === null || node.memory.availableBytes === null);
   assert.equal(node.network.spkmissing0.available, false);
+});
+
+test("GPU memory uses reported GB10 system memory or discrete framebuffer readings, never the hostname", async () => {
+  const system = { totalBytes: 128 * 1024 ** 3, availableBytes: 16 * 1024 ** 3, usedBytes: 112 * 1024 ** 3 };
+  assert.deepEqual(parseGpuMemory("NVIDIA GB10", "[N/A]", "[N/A]", system), { kind: "unified", ...system });
+  const unknown = { kind: null, totalBytes: null, availableBytes: null, usedBytes: null };
+  for (const name of ["", "Unknown GPU", "Jetson Thor"]) assert.deepEqual(parseGpuMemory(name, "[N/A]", "[N/A]", system), unknown);
+  // Captured RTX framebuffer capacity is MiB.
+  const discrete = parseGpuMemory("NVIDIA GeForce RTX 5090", "0", "32607", system);
+  assert.deepEqual(discrete, { kind: "discrete", totalBytes: 32607 * 1048576, usedBytes: 0, availableBytes: 32607 * 1048576 });
+  for (const used of ["[N/A]", "", "-1", "40000"]) {
+    assert.deepEqual(parseGpuMemory("NVIDIA GeForce RTX", used, "32607", system), { kind: "discrete", totalBytes: 32607 * 1048576, usedBytes: null, availableBytes: null });
+  }
+  assert.deepEqual(parseGpuMemory("NVIDIA GeForce RTX", "1", "0", system), unknown);
+  const gpu = "0, 39, 12.16, 300, P8, Not Active, Not Active, 0, 32607, NVIDIA GeForce RTX 5090, Example";
+  const node = await withFakeNvidiaSmi(`case "$*" in *compute-apps*) exit 0 ;; *memory.used,memory.total,name*) echo "${gpu}" ;; *) exit 1 ;; esac`, () =>
+    collectNode({ id: "1", name: "GB10-name-is-not-hardware", host: "local", local: true }));
+  assert.equal(node.ok, true, node.error ?? "");
+  assert.deepEqual(node.gpu.memory, discrete);
+  for (const status of ["timeout", "stuck", "error"]) {
+    const unified = { ok: true, gpu: { status, memory: { ...unknown } }, memory: system };
+    applyGpuMemoryFallback(unified, "unified");
+    assert.deepEqual(unified.gpu.memory, { kind: "unified", ...system });
+    const separate = { ok: true, gpu: { status, memory: { ...unknown } }, memory: system };
+    applyGpuMemoryFallback(separate, "discrete");
+    assert.deepEqual(separate.gpu.memory, { ...unknown, kind: "discrete" });
+  }
+  const unobserved = { ok: true, gpu: { status: "timeout", memory: { ...unknown } }, memory: system };
+  applyGpuMemoryFallback(unobserved, null);
+  assert.deepEqual(unobserved.gpu.memory, unknown);
 });
 
 // A fake command on PATH (nvidia-smi, ssh), so the collector's handling of hung or failing commands runs on any

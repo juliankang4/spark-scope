@@ -1,5 +1,5 @@
 // Pure view-model helpers for the Spark Scope rack panel (1920 x 480 by default). No DOM access, so node --test can import them.
-import { compact as compactCount, roleName, systemStateText, modelServers, combinedInference, serverName } from "../view-data.js";
+import { compact as compactCount, roleName, systemStateText, modelServers, combinedInference, serverName, gpuMemory, memoryWording } from "../view-data.js";
 import { t, serverText } from "../i18n.js";
 
 export const BRAND = "SPARK SCOPE";
@@ -150,8 +150,8 @@ export function nodeView(meta, node, { inferenceOk = false, lastOkAt = null, now
       lastOk: lastOkAt ? clockTime(lastOkAt, clock) : null,
     };
   }
-  const total = node.memory?.totalBytes;
-  const available = node.memory?.availableBytes;
+  const { kind: memKind, totalBytes: total, availableBytes: available } = gpuMemory(node);
+  const memWording = memoryWording([memKind]);
   const memFreeGiB = finite(available) ? available / GIB : null;
   const memUsedPct = finite(total) && finite(available) && total > 0 ? Math.round((total - available) / total * 100) : null;
   const diskPct = finite(node.disk?.usedPercent) ? node.disk.usedPercent : null;
@@ -175,7 +175,7 @@ export function nodeView(meta, node, { inferenceOk = false, lastOkAt = null, now
   if (inferenceOk && meta?.inference !== false && !node.inferenceProcessUp) warn.push(t("rack.reason.noInferenceProcess"));
   if (restarts > 0 && recent(node.container?.startedAt)) warn.push(t("rack.reason.restarted", { count: restarts }));
   if (diskPct !== null && diskPct >= DISK_WARN_PERCENT) warn.push(t("rack.reason.disk", { percent: diskPct }));
-  if (memFreeGiB !== null && memFreeGiB < MEMORY_WARN_GIB) warn.push(t("rack.reason.memoryFree", { free: freeLabel(memFreeGiB, mem) }));
+  if (memFreeGiB !== null && memFreeGiB < MEMORY_WARN_GIB) warn.push(t(memWording === "unified" ? "rack.reason.memoryFree" : "rack.reason.gpuMemoryFree", { free: freeLabel(memFreeGiB, mem) }));
   if (kernel?.total > 0 && recent(kernel.lastAt)) {
     const count = kernel.capped ? `≥${kernel.total}` : kernel.total;
     warn.push(kernel.lastAt ? t("rack.reason.kernel", { count, time: clockTime(kernel.lastAt, clock) }) : t("rack.reason.kernelNoTime", { count }));
@@ -190,7 +190,7 @@ export function nodeView(meta, node, { inferenceOk = false, lastOkAt = null, now
     load: finite(node.gpu?.utilization) ? node.gpu.utilization : null,
     power: finite(node.gpu?.powerWatts) ? node.gpu.powerWatts : null,
     tsoc: finite(node.thermals?.tsocCelsius) ? node.thermals.tsocCelsius : null,
-    memFreeGiB, memUsedPct, diskPct, diskFreeGiB, restarts,
+    memFreeGiB, memUsedPct, memKind, memWording, diskPct, diskFreeGiB, restarts,
     diskWarn: diskPct !== null && diskPct >= DISK_WARN_PERCENT,
   };
 }

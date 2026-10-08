@@ -145,6 +145,20 @@ export const gib = (bytes, digits = 1) => fixed(finite(bytes) ? bytes / 2 ** 30 
 // Display units chosen in the settings: memory and disk in GiB (2^30 bytes) or GB (10^9), temperatures in °C or °F.
 export const memoryUnit = unit => (unit === 'gb' ? 'GB' : 'GiB');
 export const memory = (bytes, unit, digits = 1) => fixed(finite(bytes) ? bytes / (unit === 'gb' ? 1e9 : 2 ** 30) : null, digits);
+// GPU memory from node.gpu.memory: the shared system memory on a unified GPU (GB10), the card's own memory on a
+// discrete one. Never system RAM (node.memory). Without a known kind, or for a node that did not answer, every figure
+// is null; kind still names the label of a node that reported it.
+export function gpuMemory(node) {
+  const reported = node?.gpu?.memory, kind = reported?.kind === 'unified' || reported?.kind === 'discrete' ? reported.kind : null;
+  const value = key => (node?.ok && kind && finite(reported[key]) ? reported[key] : null);
+  return { kind, totalBytes: value('totalBytes'), usedBytes: value('usedBytes'), availableBytes: value('availableBytes') };
+}
+// Which words a GPU memory reading uses: today's unified-memory wording when every node that reports a kind is
+// unified, the GPU-memory wording for a discrete GPU, a mix, or no known kind. i18n.js keeps both sets of labels.
+export function memoryWording(kinds) {
+  const known = kinds.filter(Boolean);
+  return known.length && known.every(kind => kind === 'unified') ? 'unified' : 'gpu';
+}
 export const temperatureUnit = unit => (unit === 'f' ? '°F' : '°C');
 export const temperature = (celsius, unit, digits = 0) => fixed(finite(celsius) ? (unit === 'f' ? celsius * 9 / 5 + 32 : celsius) : null, digits);
 export const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
@@ -243,16 +257,19 @@ export function validateMonth(payload, requestedMonth) {
   return payload;
 }
 // Geometry of the interconnect diagram, or null when there is nothing to draw (one node, or no links configured).
-// Nodes sit on an ellipse in topology order: two side by side, three as a triangle, four as a square.
+// Only nodes with a cable are drawn (a separate GPU machine has its card but no place here); they sit on an ellipse in
+// topology order: two side by side, three as a triangle, four as a square.
 // Parallel cables between the same pair are spread apart so each one stays visible.
 export function fabricLayout(topology, { width = 380, height = 190, rx = 120, ry = 62 } = {}) {
   const nodes = topology?.nodes ?? [];
   const ids = new Set(nodes.map(node => node.id));
   const links = (topology?.links ?? []).filter(link => link.nodes?.length === 2 && link.nodes.every(id => ids.has(id)));
-  if (nodes.length < 2 || !links.length) return null;
-  const cx = width / 2, cy = height / 2, count = nodes.length;
+  const cabled = new Set(links.flatMap(link => link.nodes));
+  const placed = nodes.filter(node => cabled.has(node.id));
+  if (placed.length < 2) return null;
+  const cx = width / 2, cy = height / 2, count = placed.length;
   const startAngle = count % 2 === 0 ? -90 - 180 / count : -90;
-  const at = Object.fromEntries(nodes.map((node, i) => {
+  const at = Object.fromEntries(placed.map((node, i) => {
     const angle = (startAngle + i * 360 / count) * Math.PI / 180;
     return [node.id, [cx + rx * Math.cos(angle), cy + ry * Math.sin(angle)]];
   }));
@@ -273,7 +290,7 @@ export function fabricLayout(topology, { width = 380, height = 190, rx = 120, ry
     return { id: link.id, x1: a[0] + nx, y1: a[1] + ny, x2: b[0] + nx, y2: b[1] + ny };
   });
   return {
-    nodes: nodes.map((node, i) => ({ id: node.id, label: nodeLabel(node.id), x: at[node.id][0], y: at[node.id][1], color: COLORS[i % COLORS.length] })),
+    nodes: placed.map(node => ({ id: node.id, label: nodeLabel(node.id), x: at[node.id][0], y: at[node.id][1] })),
     links: lines,
     // Two nodes leave the centre on the cable, so the caption moves below them.
     caption: { x: cx, y: count === 2 ? cy + 50 : cy + 4 },
@@ -337,7 +354,7 @@ export function livePoint(state) {
     ...(servers.length > 1 ? { servers: Object.fromEntries(servers.map((server, index) => [server.id, each[index]])) } : {}),
     nodes: Object.fromEntries(Object.entries(state?.nodes ?? {}).map(([id, node]) => [id, {
       temperature: node?.ok && finite(node.gpu?.temperature) ? node.gpu.temperature : null,
-      memoryAvailableBytes: node?.ok && finite(node.memory?.availableBytes) ? node.memory.availableBytes : null,
+      memoryAvailableBytes: gpuMemory(node).availableBytes,
     }])),
   };
 }
@@ -372,7 +389,9 @@ export function offMediaChange(query, listener) {
 
 // The readings a node card can show in its four slots (settings.readings). Each gives its value text and unit in the
 // chosen units, and whether it crosses the warning level set in the settings (warn levels are in °C, percent and GiB).
-// Labels live in i18n.js as node.reading.<id> (full) and node.readingShort.<id>.
+// Labels live in i18n.js as node.reading.<id> (full) and node.readingShort.<id>; free memory has a GPU-memory
+// wording as well (memoryWording), node.reading.gpuMem.
+export const readingLabel = (id, { short = false, wording = 'unified' } = {}) => `node.${short ? 'readingShort' : 'reading'}.${id === 'mem' && wording === 'gpu' ? 'gpuMem' : id}`;
 export function readingValue(id, node, settings) {
   const ok = Boolean(node?.ok), gpu = ok ? node.gpu ?? {} : {}, disk = ok ? node.disk ?? {} : {};
   const memUnit = memoryUnit(settings.mem), tempUnit = temperatureUnit(settings.temp);
@@ -381,7 +400,7 @@ export function readingValue(id, node, settings) {
   switch (id) {
     case 'temp': return { text: temperature(gpu.temperature, settings.temp), unit: tempUnit, warn: finite(gpu.temperature) && gpu.temperature >= settings.tempWarn };
     case 'power': return { text: fixed(gpu.powerWatts), unit: 'W', warn: false };
-    case 'mem': { const free = ok ? node.memory?.availableBytes : null; return { text: memory(free, settings.mem), unit: memUnit, warn: finite(free) && free < settings.memWarn * 2 ** 30 }; }
+    case 'mem': { const free = gpuMemory(node).availableBytes; return { text: memory(free, settings.mem), unit: finite(free) ? memUnit : '', warn: finite(free) && free < settings.memWarn * 2 ** 30 }; }
     case 'clock': return { text: fixed(gpu.clockMHz, 0), unit: 'MHz', warn: false };
     case 'disk': return { text: memory(diskUsed, settings.mem, 0), unit: memUnit, warn: diskWarn };
     case 'diskfree': return { text: memory(ok ? disk.availableBytes : null, settings.mem, 0), unit: memUnit, warn: diskWarn };

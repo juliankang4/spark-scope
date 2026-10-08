@@ -123,7 +123,7 @@ function renderBay(meta, toMs, index) {
       <div class="temp">${trace.svg}<b class="num halo${view.temp !== null && Math.round(degrees(view.temp, options.temp)) >= 100 ? " triple" : ""}">${view.temp === null ? "—" : Math.round(degrees(view.temp, options.temp))}<sup>${degreeUnit(options.temp)}</sup></b></div>
       <div class="meters">
         ${meter(t("rack.meter.gpuLoad"), `${view.load ?? "—"}%`, view.load)}
-        ${meter("RAM", `${view.memUsedPct ?? "—"}%`, view.memUsedPct, false, t("rack.meter.free", { free: freeLabel(view.memFreeGiB, options.mem) }))}
+        ${meter(view.memKind === "discrete" ? "VRAM" : view.memKind === "unified" ? "RAM" : t("rack.meter.memory"), `${view.memUsedPct ?? "—"}%`, view.memUsedPct, false, t("rack.meter.free", { free: freeLabel(view.memFreeGiB, options.mem) }))}
         ${meter(t("rack.meter.disk"), `${view.diskPct ?? "—"}%`, view.diskPct, view.diskWarn, t("rack.meter.free", { free: freeLabel(view.diskFreeGiB, options.mem) }))}
       </div>
       <div class="cap"><span class="cap-label">${t("rack.caption.gpuTemp")} </span>${t("rack.caption.range", { range: trace.range })}</div>

@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { usageMonth, fixtureState } from "../tools/fixtures.mjs";
 import { validateMonth } from "../public/view-data.js";
 
@@ -23,6 +25,28 @@ test("the demo serves the pages and moving made-up data without touching anythin
   assert.ok(Date.parse(decode.inference.prefillUpdatedAt) < base + 8000);
   assert.equal(idle.inference.runningRequests, 0);
   assert.equal(Object.keys(liveState(2, "fault", base).nodes).length, 2);
+  const mixed = liveState(4, "serving", base + 8000, { discreteGpu: true });
+  assert.equal(Object.keys(mixed.nodes).length, 5);
+  assert.equal(mixed.nodes["5"].gpu.memory.kind, "discrete");
+  assert.equal(mixed.servers[0].serving.parallel, 4);
+  assert.equal(mixed.servers.at(-1).serving.parallel, 1);
+  const unified = fixtureState(1, "serving").nodes["1"];
+  assert.equal(unified.gpu.memory.kind, "unified");
+  assert.equal(unified.gpu.memory.availableBytes, unified.memory.availableBytes);
+  const fixture = fixtureState(1, "serving", Date.now(), { discreteGpu: true });
+  assert.equal(fixture.nodes["1"].gpu.memory.kind, "unified");
+  assert.equal(fixture.nodes["2"].gpu.memory.totalBytes, 32 * 1024 ** 3);
+  assert.notEqual(fixture.nodes["2"].gpu.memory.totalBytes, fixture.nodes["2"].memory.totalBytes);
+  assert.equal(fixture.history.at(-1).nodes["2"].memoryAvailableBytes, fixture.nodes["2"].gpu.memory.availableBytes);
+  assert.equal(fixture.nodes["2"].name, "gpu-2");
+  assert.equal(fixture.nodes["2"].host, "gpu-2");
+  assert.equal(fixture.topology.nodes.at(-1).hardware, "GPU workstation");
+  assert.deepEqual(mixed.topology.links, fixtureState(4, "serving").topology.links);
+  assert.equal(mixed.topology.nodes.length, 5);
+  assert.deepEqual(mixed.servers.at(-1).nodes, ["5"]);
+  const tooMany = spawnSync(process.execPath, [fileURLToPath(new URL("../tools/demo.mjs", import.meta.url)), "--nodes", "8", "--discrete"], { encoding: "utf8", timeout: 2000 });
+  assert.equal(tooMany.status, 2);
+  assert.match(tooMany.stderr, /8 total nodes maximum/);
 
   const server = demoServer(3, "serving");
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));

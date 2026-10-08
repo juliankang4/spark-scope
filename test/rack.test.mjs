@@ -19,7 +19,7 @@ const clock = { timeZone: "UTC", locale: "en-GB" };
 const healthy = (overrides = {}) => ({
   ok: true, collected: true, host: "spark-3", role: "WORKER", systemState: "running", failedUnits: 0,
   inferenceProcessUp: true, inferenceProcessReady: true,
-  gpu: { utilization: 93, temperature: 56, powerWatts: 26.4, thermalSlowdown: false },
+  gpu: { utilization: 93, temperature: 56, powerWatts: 26.4, thermalSlowdown: false, memory: { kind: "unified", totalBytes: 121.6 * GIB, availableBytes: 7.7 * GIB, usedBytes: 113.9 * GIB } },
   thermals: { tsocCelsius: 57.9 },
   memory: { totalBytes: 121.6 * GIB, availableBytes: 7.7 * GIB },
   disk: { usedPercent: 86, availableBytes: 127 * GIB },
@@ -117,7 +117,7 @@ test("a node that is not collected shows 'not collected' instead of a fault or i
 });
 
 test("the low-memory reason uses the panel's memory unit, like the meter", () => {
-  const low = healthy({ memory: { totalBytes: 121.6 * GIB, availableBytes: 1.5 * GIB } });
+  const low = healthy({ gpu: { ...healthy().gpu, memory: { kind: "unified", totalBytes: 121.6 * GIB, availableBytes: 1.5 * GIB, usedBytes: 120.1 * GIB } }, memory: { totalBytes: 121.6 * GIB, availableBytes: 1.5 * GIB } });
   assert.equal(reasonText(nodeView(META["3"], low)), "1.5 GiB memory free");
   assert.equal(reasonText(nodeView(META["3"], low, { mem: "gb" })), "1.6 GB memory free");
 });
@@ -127,6 +127,18 @@ test("a healthy node reads OK with usage-based memory and disk figures", () => {
   assert.equal(view.level, "good");
   assert.deepEqual(view.reasons, ["OK"]);
   assert.equal(view.memUsedPct, 94);
+  assert.equal(view.memWording, "unified");
+  const discrete = healthy({ gpu: { ...healthy().gpu, memory: { kind: "discrete", totalBytes: 32 * GIB, availableBytes: 1.5 * GIB, usedBytes: 30.5 * GIB } }, memory: { totalBytes: 64 * GIB, availableBytes: 40 * GIB } });
+  const card = nodeView(META["3"], discrete);
+  assert.equal(card.memWording, "gpu");
+  assert.equal(card.memFreeGiB, 1.5);
+  assert.equal(card.memUsedPct, 95);
+  assert.equal(reasonText(card), "1.5 GiB GPU memory free");
+  const unknown = nodeView(META["3"], healthy({ gpu: { ...healthy().gpu, memory: { kind: null, totalBytes: null, availableBytes: null, usedBytes: null } } }));
+  assert.equal(unknown.memWording, "gpu");
+  assert.equal(unknown.memFreeGiB, null);
+  assert.equal(unknown.memUsedPct, null);
+  assert.deepEqual(unknown.reasons, ["OK"]);
   assert.equal(Math.round(view.diskFreeGiB), 127);
   assert.equal(view.diskWarn, false);
   assert.equal(freeLabel(3610), "3.5 TiB");

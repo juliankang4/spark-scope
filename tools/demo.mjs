@@ -4,6 +4,7 @@
 //   npm run demo                                  # four nodes at http://127.0.0.1:8787
 //   npm run demo -- --nodes 2 --mode fault        # two nodes with a fault; modes: serving, fault, idle
 //   npm run demo -- --port 8788
+//   npm run demo -- --discrete                    # four Sparks and one separate GPU workstation
 //   npm run demo -- --servers 2 --off             # four nodes as two model servers (2 + 2), the second one off
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
@@ -20,8 +21,8 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=
 // The engine moves through a 20-second cycle so the charts and the mini window have something to show: a prefill
 // burst (2 s), decoding (12 s), then idle (6 s). GPU load and temperature follow it.
 // servers and offGroup split the nodes into model servers (see fixtures.mjs); later servers run slower.
-export function liveState(count, fixtureMode, now, { servers = 0, offGroup = false } = {}) {
-  const state = fixtureState(count, fixtureMode, now, { servers, offGroup });
+export function liveState(count, fixtureMode, now, { servers = 0, offGroup = false, discreteGpu = false } = {}) {
+  const state = fixtureState(count, fixtureMode, now, { servers, offGroup, discreteGpu });
   const readings = state.servers.map((server) => server.inference);
   if (!readings.some((v) => v?.ok)) return state;
   const cycle = now % 20_000, prefill = cycle < 2000, decode = cycle >= 2000 && cycle < 14_000;
@@ -74,15 +75,17 @@ async function handle(request, response, nodes, mode, rack, options) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const { values } = parseArgs({ options: { nodes: { type: "string", default: "4" }, mode: { type: "string", default: "serving" }, port: { type: "string", default: "8787" }, servers: { type: "string", default: "1" }, off: { type: "boolean", default: false } } });
+  const { values } = parseArgs({ options: { nodes: { type: "string", default: "4" }, mode: { type: "string", default: "serving" }, port: { type: "string", default: "8787" }, servers: { type: "string", default: "1" }, off: { type: "boolean", default: false }, discrete: { type: "boolean", default: false } } });
   const nodes = Number(values.nodes), port = Number(values.port), mode = values.mode, servers = Number(values.servers);
   const fail = (message) => { console.error(`spark-scope demo: ${message}`); process.exit(2); };
   if (!Number.isInteger(nodes) || nodes < 1 || nodes > 8) fail("--nodes takes 1 to 8");
+  if (values.discrete && nodes > 7) fail("--discrete requires --nodes 1 to 7 (8 total nodes maximum)");
   if (!MODES.includes(mode)) fail(`--mode takes ${MODES.join(", ")}`);
   if (!Number.isInteger(port) || port < 0 || port > 65535) fail("--port takes 0 to 65535");
   if (!Number.isInteger(servers) || servers < 1 || servers > nodes) fail("--servers takes 1 to the number of nodes");
-  const server = demoServer(nodes, mode, { servers, offGroup: values.off });
+  const server = demoServer(nodes, mode, { servers, offGroup: values.off, discreteGpu: values.discrete });
+  const totalNodes = nodes + Number(values.discrete), totalServers = servers + Number(values.discrete);
   server.listen(port, "127.0.0.1", () => {
-    console.log(`Spark Scope demo: http://127.0.0.1:${server.address().port}/ (${nodes} node${nodes === 1 ? "" : "s"}${servers > 1 ? ` as ${servers} model servers${values.off ? ", the last one off" : ""}` : ""}, ${mode}; made-up data). Ctrl+C stops it.`);
+    console.log(`Spark Scope demo: http://127.0.0.1:${server.address().port}/ (${totalNodes} node${totalNodes === 1 ? "" : "s"}${totalServers > 1 ? ` as ${totalServers} model servers${values.off ? ", the last one off" : ""}` : ""}, ${mode}; made-up data). Ctrl+C stops it.`);
   });
 }
