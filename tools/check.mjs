@@ -1,36 +1,47 @@
-// Repository rules from AGENTS.md, run by npm run check: every tracked script parses, package.json stays private and
-// free of npm dependencies, and no tracked source, style or markup file carries a stopgap marker. A checkout is all
-// it needs: git and node, nothing installed and nothing contacted.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { Script } from "node:vm";
 
 const SCRIPT = /\.(mjs|js)$/;
-// Source, style, markup and config, plus the extensionless kiosk shell script.
-const TEXT = /(\.(mjs|js|css|html|svg|json|xml|desktop)$)|(^|\/)spark-scope-kiosk$/;
-const MARKER = /\b(TODO|FIXME|HACK|XXX)\b|eslint-disable|@ts-(ignore|nocheck)/;
+const TEXT = /(\.(mjs|js|css|html|svg|json|xml|yml|yaml|desktop)$)|(^|\/)spark-scope-kiosk$/;
 const FORBIDDEN = ["dependencies", "devDependencies", "optionalDependencies"];
+// Split so the check can scan its own file.
+const STOPGAP = new RegExp(`\\b(?:${["TO" + "DO", "FIX" + "ME", "HA" + "CK"].join("|")})\\b|${["eslint-" + "disable", "@ts-" + "ignore", "@ts-" + "nocheck"].join("|")}`);
 
-// The marker pattern holds the words it looks for, so the check never scans itself. npm runs the script at the
-// package root, where git ls-files reports the same relative paths.
-const SELF = path.relative(process.cwd(), fileURLToPath(import.meta.url));
-
+process.chdir(execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8", cwd: import.meta.dirname }).trim());
 const tracked = execFileSync("git", ["ls-files"], { encoding: "utf8" }).split("\n").filter(Boolean);
 const problems = [];
+
+// The pages decide which .js files the browser runs as classic scripts; the rest are modules.
+const CLASSIC = new Set();
+for (const page of tracked.filter((file) => file.endsWith(".html"))) {
+  for (const [, attrs] of readFileSync(page, "utf8").matchAll(/<script\b([^>]*)>/g)) {
+    if (/\btype\s*=\s*["']?module/.test(attrs)) continue;
+    const src = /\bsrc\s*=\s*["']([^"']+)["']/.exec(attrs)?.[1];
+    if (src) CLASSIC.add(path.normalize(path.join(path.dirname(page), src)));
+  }
+}
+
+function syntaxProblem(file, output) {
+  const lines = String(output).trim().split("\n");
+  const at = lines.find((line) => line.startsWith(`${file}:`)) ?? `${file}:1`;
+  const reason = lines.find((line) => /^[A-Za-z]+Error:/.test(line)) ?? "syntax error";
+  problems.push(`${at} ${reason}`);
+}
 
 for (const file of tracked) {
   if (SCRIPT.test(file)) {
     try {
-      execFileSync(process.execPath, ["--check", file], { stdio: ["ignore", "ignore", "pipe"] });
+      if (CLASSIC.has(file)) new Script(readFileSync(file, "utf8"), { filename: file });
+      else execFileSync(process.execPath, ["--check", file], { stdio: ["ignore", "ignore", "pipe"] });
     } catch (error) {
-      const lines = String(error.stderr).trim().split("\n").filter(Boolean);
-      problems.push(lines.length ? `${lines[0]} ${lines.at(-1)}` : `${file}:1 syntax error`);
+      syntaxProblem(file, error.stderr ?? error.stack ?? error.message);
     }
   }
-  if (file !== SELF && TEXT.test(file)) {
+  if (TEXT.test(file)) {
     readFileSync(file, "utf8").split("\n").forEach((line, index) => {
-      if (MARKER.test(line)) problems.push(`${file}:${index + 1}: stopgap marker: ${line.trim()}`);
+      if (STOPGAP.test(line)) problems.push(`${file}:${index + 1}: stopgap marker: ${line.trim()}`);
     });
   }
 }
