@@ -1,13 +1,13 @@
 <h1 align="center">Spark Scope</h1>
 
-<p align="center">A read-only dashboard and rack panel for NVIDIA DGX Spark-class machines<br>and the vLLM, SGLang or TensorFold server running on them.</p>
+<p align="center">A read-only dashboard and rack panel for NVIDIA DGX Spark-class machines<br>and the vLLM, SGLang, TensorFold or llama.cpp server running on them.</p>
 
 <p align="center">
   <a href="https://github.com/juliankang4/spark-scope/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/juliankang4/spark-scope"></a>
   <a href="https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/juliankang4/spark-scope"></a>
   <img alt="Node.js 22.13 or later" src="https://img.shields.io/badge/node-%E2%89%A5%2022.13-339933?logo=nodedotjs&amp;logoColor=white">
-  <img alt="Engines: vLLM, SGLang and TensorFold" src="https://img.shields.io/badge/engines-vLLM%20%7C%20SGLang%20%7C%20TensorFold-76b900">
+  <img alt="Engines: vLLM, SGLang, TensorFold and llama.cpp" src="https://img.shields.io/badge/engines-vLLM%20%7C%20SGLang%20%7C%20TensorFold%20%7C%20llama.cpp-76b900">
   <img alt="Runs on arm64 and x64" src="https://img.shields.io/badge/arch-arm64%20%7C%20x64-blue">
 </p>
 
@@ -17,7 +17,7 @@
 
 ## About
 
-Spark Scope watches NVIDIA DGX Spark-class machines (DGX Spark, ASUS Ascent GX10, MSI EdgeXpert and other GB10 boxes) and the vLLM, SGLang or TensorFold server running on them, from a single node to a small cluster.
+Spark Scope watches NVIDIA DGX Spark-class machines (DGX Spark, ASUS Ascent GX10, MSI EdgeXpert and other GB10 boxes) and the vLLM, SGLang, TensorFold or llama.cpp server running on them, from a single node to a small cluster.
 
 I wrote it for my own four-node ring (three ASUS GX10s and an MSI EdgeXpert) in a 10-inch rack. This repository is that dashboard with my hostnames taken out and the layout reworked for one and two nodes. The 2U rack modules for the GX10 are on [MakerWorld](https://makerworld.com/en/models/3380382).
 
@@ -54,7 +54,7 @@ More in [Web page](docs/dashboard.md) and [Rack panel](docs/rack.md). The screen
   A version manager such as nvm works too. Some Node versions print an "SQLite is an experimental feature" warning on start; it is harmless.
 - On each monitored node: Linux with `bash`, `nvidia-smi` and the usual coreutils. DGX OS already has everything. `systemd`, `journalctl` and `docker` are used when present.
 - For remote nodes: an SSH client on the dashboard machine and key-based SSH access to each node.
-- Optionally an inference server with Prometheus metrics: vLLM (on by default), SGLang (start it with `--enable-metrics`) or TensorFold (always on).
+- Optionally an inference server with Prometheus metrics: vLLM (on by default), SGLang (start it with `--enable-metrics`), TensorFold (always on) or llama.cpp (start `llama-server` with `--metrics`).
 
 ### Try it without a Spark
 
@@ -83,7 +83,7 @@ Open <http://127.0.0.1:8787/> on the Spark. To look at it from your laptop witho
 ssh -L 8787:127.0.0.1:8787 you@your-spark
 ```
 
-Use `SPARK_SCOPE_API_URL=http://127.0.0.1:30000` for SGLang's default port and `http://127.0.0.1:8080` for TensorFold's. If no inference server is running, the node card still works and the inference panels read `unknown` or `stopped`.
+Use `SPARK_SCOPE_API_URL=http://127.0.0.1:30000` for SGLang's default port and `http://127.0.0.1:8080` for TensorFold or llama.cpp. If no inference server is running, the node card still works and the inference panels read `unknown` or `stopped`.
 
 ## Applying it to your setup
 
@@ -143,9 +143,9 @@ The dashboard can run on one of the Sparks (that node uses `"host": "local"`, th
 
 Optional permissions on the nodes: kernel error summaries need read access to the kernel journal (`journalctl -k`), which non-root accounts get through the `systemd-journal` or `adm` group. Without it the panel says "Kernel diagnostics unavailable". Container details need access to the Docker socket. Membership of the `docker` group is equivalent to root, so do not grant it just for this dashboard. Without it, container details are not shown.
 
-### vLLM, SGLang or TensorFold
+### vLLM, SGLang, TensorFold or llama.cpp
 
-Point `SPARK_SCOPE_API_URL` at the inference server; in multi-node serving, at the node that hosts the API. vLLM's and TensorFold's metrics are on by default. Start SGLang with `--enable-metrics`. A few of SGLang's and TensorFold's figures are measured differently, listed under [Inference engines](docs/configuration.md#inference-engines). Other engines are recognised on the node cards, but their metrics are not read.
+Point `SPARK_SCOPE_API_URL` at the inference server; in multi-node serving, at the node that hosts the API. vLLM's and TensorFold's metrics are on by default. Start SGLang with `--enable-metrics` and llama.cpp with `--metrics`. llama.cpp also needs its default-enabled `/slots` endpoint for live output speed; with slots disabled or unavailable, that speed reads `unknown` while requests run. Some engine readings are measured differently or unavailable, listed under [Inference engines](docs/configuration.md#inference-engines). Other engines are recognised on the node cards, but their metrics are not read.
 
 When the nodes serve in separate groups (two cabled nodes each running its own model, four as 2 + 2, three as 2 + 1), list each group as a model server in `topology.json` with its API and nodes instead of setting `SPARK_SCOPE_API_URL`:
 
@@ -193,7 +193,7 @@ The server itself is set with environment variables. The ones most setups need:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | The inference server (vLLM listens on 8000, SGLang on 30000, TensorFold on 8080). |
+| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | The inference server (vLLM listens on 8000, SGLang on 30000, TensorFold and llama.cpp on 8080). |
 | `SPARK_SCOPE_HOST` | `127.0.0.1` | Listen address. `0.0.0.0` serves other machines; see [Security](#security). |
 | `SPARK_SCOPE_PORT` | `8787` | Listen port. |
 | `SPARK_SCOPE_TOPOLOGY` | `~/.config/spark-scope/topology.json` | Topology file (the shipped one-node `topology.json` when that does not exist). |

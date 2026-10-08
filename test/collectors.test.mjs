@@ -244,7 +244,7 @@ test("interface lines are read by name and missing interfaces stay unavailable",
   assert.equal(network.enP2p1s0f1np1.available, false);
 });
 
-test("engine names come only from metric prefixes and known process or image names", () => {
+test("engine names come only from metric prefixes and known process or image names", async () => {
   assert.equal(metricsEngine(parsePrometheus("vllm:num_requests_running 0\n")), "vLLM");
   assert.equal(metricsEngine(parsePrometheus("sglang:num_running_reqs 2\n")), "SGLang");
   assert.equal(metricsEngine(parsePrometheus("tensorfold:requests_running 1\n")), "TensorFold");
@@ -255,6 +255,15 @@ test("engine names come only from metric prefixes and known process or image nam
   assert.equal(knownEngine("ollama"), "Ollama");
   assert.equal(knownEngine("tensorfold"), "TensorFold");
   assert.equal(knownEngine("python3"), null);
+  const { readEngineMetrics } = await import("../lib/engines/index.mjs");
+  for (const [engine, prefix] of [["vLLM", "vllm"], ["SGLang", "sglang"], ["TensorFold", "tensorfold"]]) {
+    const metrics = parsePrometheus(`${prefix}:num_requests_running{model_name="example-model"} 1\n${prefix}:prompt_tokens_total 25\n`);
+    const before = structuredClone([...metrics]);
+    const first = readEngineMetrics(engine, metrics);
+    assert.deepEqual(readEngineMetrics(engine, metrics), first);
+    assert.deepEqual([...metrics], before, engine);
+    assert.equal(metricsEngine(metrics), engine);
+  }
 });
 
 test("SGLang metrics are summed into the vLLM names the collector reads", async () => {
@@ -441,6 +450,26 @@ test("a server that nvidia-smi names after the Python interpreter is named by it
   }
 });
 
+test("llama-server is found by pgrep when the compute-apps list is empty", { skip: process.platform !== "linux" && "reads /proc" }, async () => {
+  const { spawn } = await import("node:child_process");
+  await withFakeCommand("llama-server", uniqueSleep(), async () => {
+    const server = spawn("llama-server", [], { stdio: "ignore", detached: true });
+    await new Promise(resolve => server.once("spawn", resolve));
+    try {
+      const node = await withFakeNvidiaSmi('case "$*" in *compute-apps*) exit 0 ;; *) echo "0, 40, 10, 200, P8, Not Active, Not Active" ;; esac', () =>
+        collectNode({ id: "1", name: "Test node", host: "local", local: true }));
+      assert.equal(node.inference.pid, server.pid);
+      assert.equal(node.inference.engine, "llama.cpp");
+      assert.equal(node.inference.ready, true);
+      assert.equal(node.processMemoryBytes, null);
+    } finally {
+      const exited = new Promise(resolve => server.once("exit", resolve));
+      process.kill(-server.pid, "SIGKILL");
+      await exited;
+    }
+  });
+});
+
 // A sleep duration unique to this run, so a parallel test run cannot be mistaken for a leftover of this one.
 const uniqueSleep = () => `sleep 27.${process.pid}${Math.floor(Math.random() * 1e6)}`;
 
@@ -492,25 +521,148 @@ test("a poll cut short by the time limit keeps what arrived and stops the whole 
   assert.equal(await leftover(hung), "");
 });
 
-// A local stand-in for an inference server's /health, /metrics and /v1/models. setHealth gives /health a JSON body.
 async function withFakeEngine(metricsText, run) {
   const http = await import("node:http");
   let body = metricsText;
   let health = null;
+  let slots = null;
+  let slotsStatus = 200;
+  let slotsDelayMs = 0;
   let models = [{ id: "example-model" }];
+  let modelsDelayMs = 0;
+  const requested = [];
   const server = http.createServer((request, response) => {
+    requested.push(request.url);
     if (request.url === "/metrics") { response.writeHead(200, { "content-type": "text/plain" }); response.end(body); return; }
-    if (request.url === "/v1/models") { response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ data: models })); return; }
+    if (request.url === "/slots") {
+      const status = slotsStatus, payload = JSON.stringify(slots);
+      setTimeout(() => { response.writeHead(status, { "content-type": "application/json" }); response.end(payload); }, slotsDelayMs);
+      return;
+    }
+    if (request.url === "/v1/models") {
+      const payload = JSON.stringify({ data: models });
+      setTimeout(() => { response.writeHead(200, { "content-type": "application/json" }); response.end(payload); requested.push("/v1/models replied"); }, modelsDelayMs);
+      return;
+    }
     if (request.url === "/health" && health) { response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(health)); return; }
     response.writeHead(200).end("ok");
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   try {
-    return await run(`http://127.0.0.1:${server.address().port}`, (next) => { body = next; }, (next) => { health = next; }, (next) => { models = next; });
+    return await run(`http://127.0.0.1:${server.address().port}`, (next) => { body = next; }, (next) => { health = next; }, (next, delayMs = 0) => { models = next; modelsDelayMs = delayMs; }, (next, status = 200, delayMs = 0) => { slots = next; slotsStatus = status; slotsDelayMs = delayMs; }, requested);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
 }
+
+test("llama.cpp b11193 reads slots only while requests run and keeps completed counters out of the decode rate", async () => {
+  const { readFileSync } = await import("node:fs");
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/llamacpp-b11193.json", import.meta.url), "utf8"));
+  assert.deepEqual(Object.keys(fixture), ["metrics", "health", "models"]);
+  assert.deepEqual(Object.keys(fixture.models.data[0]), ["id"]);
+  const { InferenceCollector } = await import("../lib/collectors.mjs");
+  const { LlamacppSlots } = await import("../lib/engines/llamacpp.mjs");
+  const idleSlots = [{ id: 0, is_processing: false }, { id: 1, is_processing: false }];
+  const slot = (id, task, decoded) => ({ id, id_task: task, is_processing: true, next_token: [{ n_decoded: decoded }] });
+  const liveRate = new LlamacppSlots();
+  assert.equal(liveRate.idle(0, "example-model"), 0);
+  assert.equal(liveRate.rate([slot(0, 7, 8), slot(1, 9, 12)], 1000, "example-model"), 20, "the first active sample counts from zero");
+  assert.equal(liveRate.rate([slot(0, 7, 20), slot(1, 10, 3)], 2000, "example-model"), 15);
+  assert.equal(liveRate.rate(idleSlots, 3000, "example-model"), 0);
+  assert.equal(liveRate.rate([slot(0, 11, 6)], 4000, "example-model"), 6, "a sample with every slot idle is a zero baseline too");
+  assert.equal(liveRate.rate([slot(0, 11, 1)], 5000, "example-model"), null);
+  assert.equal(liveRate.rate([slot(0, 7, 5)], 6000, "replacement-model"), null);
+  assert.equal(liveRate.rate(null, 7000, "replacement-model"), null);
+  assert.equal(liveRate.rate([slot(0, 7, 30)], 8000, "replacement-model"), null);
+  assert.equal(metricsEngine(parsePrometheus(fixture.metrics)), "llama.cpp");
+  await withFakeEngine(fixture.metrics, async (url, setMetrics, setHealth, setModels, setSlots, requested) => {
+    const slotRequests = () => requested.filter((path) => path === "/slots").length;
+    setHealth(fixture.health);
+    setModels(fixture.models.data);
+    setSlots(idleSlots);
+    const collector = new InferenceCollector(url);
+    const first = await collector.collect();
+    assert.equal(first.ok, true);
+    assert.equal(first.engine, "llama.cpp");
+    assert.equal(first.modelName, "example-model");
+    assert.equal(first.generationTokensTotal, 120);
+    assert.equal(first.promptTokensTotal, 25);
+    assert.equal(first.promptComputeTokensTotal, 25);
+    assert.equal(first.promptCacheTokensTotal, 0);
+    assert.equal(first.promptTokensPerSecond, 25 / 2.88704);
+    assert.equal(first.outputTokensPerSecond, 0);
+    assert.equal(slotRequests(), 0, "an idle poll does not request /slots, which would wake a sleeping llama-server");
+    assert.equal(first.runningRequests, 0);
+    assert.equal(first.waitingRequests, 0);
+    for (const key of ["completedRequestsTotal", "ttftP95Seconds", "tpotP95Seconds", "kvCachePercent", "prefixCacheHitPercent"]) assert.equal(first[key], null, key);
+    const activeMetrics = fixture.metrics
+      .replace("llamacpp:tokens_predicted_total 120", "llamacpp:tokens_predicted_total 140")
+      .replace("llamacpp:prompt_tokens_total 25", "llamacpp:prompt_tokens_total 45")
+      .replace("llamacpp:prompt_tokens_cached_total 0", "llamacpp:prompt_tokens_cached_total 5")
+      .replace("llamacpp:prompt_seconds_total 2.88704", "llamacpp:prompt_seconds_total 4.88704")
+      .replace("llamacpp:requests_processing 0", "llamacpp:requests_processing 1")
+      .replace("llamacpp:requests_deferred 0", "llamacpp:requests_deferred 2")
+      .replace("llamacpp:spec_decode_num_draft_tokens_total 0", "llamacpp:spec_decode_num_draft_tokens_total 40")
+      .replace("llamacpp:spec_decode_num_accepted_tokens_total 0", "llamacpp:spec_decode_num_accepted_tokens_total 30");
+    setMetrics(activeMetrics);
+    setSlots([slot(0, 7, 15), idleSlots[1]], 200, 500);
+    setModels(fixture.models.data, 300);
+    collector.llamacppSlots.previous.at -= 1000;
+    const polled = requested.length;
+    const next = await collector.collect();
+    setModels(fixture.models.data);
+    assert.deepEqual(requested.slice(polled).filter((path) => path === "/slots" || path === "/v1/models replied"), ["/slots", "/v1/models replied"], "slots are asked for before the slow /v1/models reply");
+    assert.equal(slotRequests(), 1);
+    assert.equal(next.promptTokensTotal, 50);
+    assert.ok(Math.abs(next.promptTokensPerSecond - 12.5) < 1e-9);
+    assert.ok(Math.abs(next.promptComputeTokensPerSecond - 10) < 1e-9);
+    assert.ok(Math.abs(next.promptCacheTokensPerSecond - 2.5) < 1e-9);
+    assert.ok(next.outputTokensPerSecond > 0 && next.outputTokensPerSecond < 11, `timed from the /slots reply, not the poll start: ${next.outputTokensPerSecond}`);
+    assert.equal(next.runningRequests, 1);
+    assert.equal(next.waitingRequests, 2);
+    assert.equal(next.speculativeAcceptancePercent, 75);
+    assert.equal(next.prefixCacheHitPercent, null);
+    setSlots([slot(0, 7, 20), idleSlots[1]]);
+    collector.llamacppSlots.previous.at -= 1000;
+    const decoding = await collector.collect();
+    assert.equal(decoding.generationTokensTotal, next.generationTokensTotal);
+    assert.ok(decoding.outputTokensPerSecond > 0 && decoding.outputTokensPerSecond <= 5);
+    setMetrics(activeMetrics.replace("llamacpp:tokens_predicted_total 140", "llamacpp:tokens_predicted_total 640").replace("llamacpp:requests_processing 1", "llamacpp:requests_processing 0"));
+    setSlots(idleSlots);
+    const complete = await collector.collect();
+    assert.equal(slotRequests(), 2, "the idle poll after the request does not request /slots");
+    assert.equal(complete.generationTokensTotal, 640);
+    assert.equal(complete.outputTokensPerSecond, 0, "slot release is not a 500-token decode burst");
+    assert.equal(complete.promptTokensPerSecond, next.promptTokensPerSecond);
+    setMetrics(activeMetrics);
+    setSlots(null, 501);
+    assert.equal((await collector.collect()).outputTokensPerSecond, null);
+    setMetrics(activeMetrics.replace("llamacpp:tokens_predicted_total 140", "llamacpp:tokens_predicted_total 640"));
+    assert.equal((await collector.collect()).outputTokensPerSecond, null, "disabled slots never fall back to the completed counter");
+    setSlots([{ id: 0, id_task: 7, is_processing: true }]);
+    assert.equal((await collector.collect()).outputTokensPerSecond, null);
+    setMetrics("llamacpp:requests_processing 0\nllamacpp:requests_deferred 0\n");
+    const missing = await collector.collect();
+    assert.equal(missing.promptTokensTotal, null);
+    assert.equal(missing.promptTokensPerSecond, null);
+    assert.equal(missing.generationTokensTotal, null);
+    assert.equal(missing.outputTokensPerSecond, 0);
+    setMetrics("llamacpp:requests_deferred 0\n");
+    assert.equal((await collector.collect()).outputTokensPerSecond, null, "without the running-request gauge, slots are not read and the speed is unknown");
+    setSlots(idleSlots);
+    setMetrics(fixture.metrics.replace(/^llamacpp:prompt_tokens_cached_total .*\n/m, ""));
+    const older = await collector.collect();
+    assert.equal(older.promptTokensTotal, 25);
+    assert.equal(older.promptComputeTokensTotal, 25);
+    assert.equal(older.promptCacheTokensTotal, null);
+    setMetrics(fixture.metrics.replace("llamacpp:tokens_predicted_total 120", "llamacpp:tokens_predicted_total 0").replace("llamacpp:requests_processing 0", "llamacpp:requests_processing 1"));
+    setSlots([slot(0, 99, 1), idleSlots[1]]);
+    const reset = await collector.collect();
+    assert.equal(reset.outputTokensPerSecond, null);
+    assert.equal(reset.completedRequestsTotal, null);
+    assert.equal(slotRequests(), 6, "only the six polls with running requests requested /slots");
+  });
+});
 
 test("vLLM data-parallel engines are added up, and metrics an engine does not export stay unknown", async () => {
   const { InferenceCollector } = await import("../lib/collectors.mjs");

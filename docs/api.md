@@ -20,7 +20,7 @@ The full dashboard state, gzip-compressed when the client accepts it. `history=0
 | `nodes` | Node readings keyed by node id. A failed node carries a short `error` such as `timed out` or `SSH authentication failed`; the full message is in the server log. |
 | `ringLinks` | Links keyed by link id; `state` is `up`, `partial`, `down`, `pending` or `unknown`. |
 | `servers` | One entry per model server ([Model servers](topology.md#model-servers)): `id`, `name`, `nodes`, `implicit` (true for the single server at `SPARK_SCOPE_API_URL`), and its own `inference`, `serving` and `inferenceState`. |
-| `inference` | The first server's inference metrics, for vLLM, SGLang and TensorFold, including `prefillUpdatedAt` (when new prefills last completed, since the prefill rates are held between them). Also sent under its earlier name `vllm` for scripts written against earlier versions; that alias will be removed in a later release. |
+| `inference` | The first server's inference metrics, for vLLM, SGLang, TensorFold and llama.cpp, including `prefillUpdatedAt` (when new prefills last completed, since the prefill rates are held between them). Also sent under its earlier name `vllm` for scripts written against earlier versions; that alias will be removed in a later release. |
 | `serving`, `inferenceState` | Which of the first server's nodes serve, and the inference state of the whole cluster: `serving` while any server serves, `stopped` when every server is. |
 | `usage` | Today's token totals, over every server. |
 | `history`, `historyStats` | Chart samples for the requested range. The output, prompt, running and queue fields are totals over the servers; with several servers each sample also has every server's own under `servers`. |
@@ -32,6 +32,8 @@ The full dashboard state, gzip-compressed when the client accepts it. `history=0
 | `rackSeenAt` | When a rack panel last polled (time only, kept in memory); the rack adds `from=rack` to its requests. |
 
 It leaves out what the pages do not show: the engine URL and local model path, interface names and raw SSH error text.
+
+For llama.cpp, `outputTokensPerSecond` comes from live `/slots` counters and is null while requests run if slots are disabled or unavailable. TTFT/TPOT p95, KV usage and cache hit rate are null. The ledger counts computed plus reported cached input tokens and completed output tokens, but has no completed request counter. Older builds without the cached-token counter report computed input only. See [Inference engines](configuration.md#inference-engines).
 
 ## `GET /api/health`
 

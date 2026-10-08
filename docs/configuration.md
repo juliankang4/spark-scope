@@ -10,7 +10,7 @@ The server is set with environment variables, all optional. Display preferences 
 |---|---|---|
 | `SPARK_SCOPE_HOST` | `127.0.0.1` | Listen address. Set `0.0.0.0` (or a specific address) to serve other machines; see [Security](../README.md#security). |
 | `SPARK_SCOPE_PORT` | `8787` | Listen port. |
-| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | Base URL of the OpenAI-compatible inference server, `http://` or `https://` and without a user name or password. With [model servers](topology.md#model-servers) in `topology.json`, each server's `api` is used instead. The dashboard reads `/health`, `/metrics` and `/v1/models`. vLLM listens on 8000 by default, SGLang on 30000, TensorFold on 8080. |
+| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | Base URL of the OpenAI-compatible inference server, `http://` or `https://` and without a user name or password. With [model servers](topology.md#model-servers) in `topology.json`, each server's `api` is used instead. The dashboard reads `/health`, `/metrics` and `/v1/models`, plus `/slots` for llama.cpp live output speed while requests run. vLLM listens on 8000 by default, SGLang on 30000, TensorFold and llama.cpp on 8080. |
 | `SPARK_SCOPE_TOPOLOGY` | `~/.config/spark-scope/topology.json` if it exists, otherwise `topology.json` next to `server.mjs` | Topology file. When set explicitly, a missing file is an error. |
 | `SPARK_SCOPE_USAGE_DB` | `$XDG_DATA_HOME/spark-scope/usage.sqlite` (`~/.local/share/...`) | Token ledger database. The directory is created if needed. |
 | `SPARK_SCOPE_TIME_ZONE` | the server's time zone | IANA time zone (for example `America/Los_Angeles`) that decides where ledger days begin. The page shows it next to the ledger. |
@@ -40,6 +40,15 @@ As a service, the same variables go on `Environment=` lines in the unit ([Runnin
   - the cache hit rate and the prefill rates come from `/health`'s totals for finished requests, and read `unknown` on the Mac server;
   - KV cache is how full the running streams' context windows are on average, not the share of cache memory in use;
   - TPOT reads `unknown`: TensorFold has no per-token latency histogram.
-- Other engines (llama.cpp, Ollama, TensorRT-LLM, Triton) are recognised by process or image name on the node cards, but their throughput and token metrics are not read.
+- **llama.cpp** (`llama-server`): read from `llamacpp:*` metrics. Start it with `--metrics`; its default API port is 8080. Tested with b11193. Differences:
+  - live output speed comes from increases in each processing slot's `next_token[].n_decoded`, tracked by slot id and `id_task` through GET `/slots` (enabled by default). The completed output counter feeds the ledger, not live speed;
+  - `/slots` is read only while `/metrics` reports running requests: unlike `/metrics`, `/health` and `/v1/models`, a `/slots` request wakes a server started with `--sleep-idle-seconds` and restarts its idle timer. A poll with no running request reads zero and sets a zero-token baseline. The next active poll counts from zero over the time since that baseline, so the first reading of a request can be low;
+  - if `/slots` is disabled or unavailable (for example HTTP 501), live output speed reads `unknown` while requests run. A series that starts with requests already running (after either side restarts, or after `/slots` failed) needs two valid slot samples. Rates are timed from when the `/slots` reply arrives;
+  - when a task ends or a slot starts a new one, the tokens the earlier task produced after the last poll are missing from live speed, but the ledger still counts them;
+  - input totals add computed and reported cached prompt tokens. Older builds without `prompt_tokens_cached_total` count computed tokens only, and cached tokens stay `unknown`;
+  - completed request counts stay `unknown`: running and deferred request gauges are not counters of completed requests;
+  - TTFT and TPOT p95, KV cache usage and cache hit rate read `unknown`;
+  - speculative acceptance uses the reported draft and accepted token counters when available.
+- Other engines (Ollama, TensorRT-LLM, Triton) are recognised by process or image name on the node cards, but their throughput and token metrics are not read.
 
 The engine label comes from the metric names or the GPU process name, and the number of serving nodes from how many nodes run a GPU process; neither is assumed. In multi-node serving, point `SPARK_SCOPE_API_URL` at the node that hosts the API.
