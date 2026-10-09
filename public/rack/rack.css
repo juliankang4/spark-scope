@@ -34,6 +34,7 @@ html:lang(ko){word-break:keep-all}
 .reason span:last-child{overflow:hidden;text-overflow:ellipsis}
 .bay.warn .reason,.bay.crit .reason{color:var(--ink);font-weight:500}
 .main{display:grid;grid-template-columns:176px minmax(0,1fr);grid-template-rows:minmax(0,1fr) 24px;column-gap:18px;row-gap:6px;min-height:0}
+.bays .bay .main.no-temperature{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 24px}
 .temp{position:relative}
 .temp svg{position:absolute;left:-6px;top:20px}
 .temp b{position:relative;display:flex;align-items:flex-start;font-size:172px;line-height:.8;padding-top:2px}
@@ -47,7 +48,7 @@ html:lang(ko){word-break:keep-all}
 .bar{height:9px;border-radius:5px;background:var(--track);overflow:hidden}
 .bar i{display:block;height:100%;border-radius:5px;background:var(--data)}
 .bar i.warn{background:var(--warn)}
-.cap{grid-column:1/-1;font-size:19px;color:var(--ink2)}
+.cap{grid-column:1/-1;font-size:19px;color:var(--ink2)}.cap.warn{color:var(--crit)}
 .foot{display:flex;gap:22px;align-items:center;font-size:19px;color:var(--ink3);overflow:hidden}
 .foot>span:first-child{flex:none;white-space:nowrap}
 /* Steps rack.js takes, in order, while the footer does not fit (fitFoot). */
@@ -100,6 +101,9 @@ html:lang(ko){word-break:keep-all}
 .bays[data-layout="compact"] .reason{font-size:17px;gap:7px;max-width:100%}
 .bays[data-layout="compact"] .lamp{width:12px;height:12px}
 .bays[data-layout="compact"] .main{grid-template-columns:minmax(0,1fr);grid-template-rows:80px auto auto;row-gap:8px}
+.bays[data-layout="compact"] .bay .main.no-temperature{grid-template-rows:80px auto auto}
+.bays[data-layout="compact"] .no-temperature .cap{grid-row:1;align-self:center}
+.bays[data-layout="compact"] .no-temperature .meters{grid-row:2}
 .bays[data-layout="compact"] .temp svg{left:0;top:0;width:100%;height:100%}
 .bays[data-layout="compact"] .temp b{font-size:98px}
 .bays[data-layout="compact"] .temp b sup{font-size:22px;margin-top:6px}
@@ -117,7 +121,7 @@ html:lang(ko){word-break:keep-all}
 .bays[data-layout="compact"] .down b{font-size:100px}
 .bays[data-layout="compact"] .down span{white-space:normal}
 /* The narrowest bays (four nodes on a 1024 x 600 screen): the trace caption drops "GPU temp", the meters step down again. */
-@container (max-width:250px){.cap-label{display:none}.bays[data-layout="compact"] .meter span{font-size:15px}.bays[data-layout="compact"] .meter b{font-size:19px}.meter div{gap:6px}}
+@container (max-width:250px){.cap-label{display:none}.bays[data-layout="compact"] .meter span{font-size:15px}.bays[data-layout="compact"] .meter b{font-size:19px}.meter div{gap:6px}.bays[data-layout="compact"] .meter span em{font-size:12px}}
 
 /* Narrow panels (?width below 1440): the band's columns size to their content and the type steps down. */
 .screen.narrow .band .over{grid-template-columns:minmax(0,1fr) auto auto;padding:0 20px;gap:18px}

@@ -27,6 +27,16 @@ SPARK_SCOPE_HOST=0.0.0.0 SPARK_SCOPE_API_URL=http://127.0.0.1:30000 npm start
 
 As a service, the same variables go on `Environment=` lines in the unit ([Running as a service](../README.md#running-as-a-service)).
 
+## Mac nodes
+
+Apple Silicon Macs use the same topology as Linux nodes. `"host": "local"` collects the Mac running Spark Scope; an SSH alias collects a remote Mac through `bash -s`. The collector uses built-in macOS commands and needs no sudo or helper binary.
+
+- GPU load and GPU memory in use come from the IOAccelerator driver's `PerformanceStatistics`. Shared memory is identified by the Apple M-series chip name, never by a host name. The memory bar and free-memory slot use system memory; GPU memory in use is its separate GPU share.
+- Memory used is `(anonymous - purgeable + wired + compressor pages) * page size`, with available memory equal to total minus used. The OS pressure level controls memory warnings (2 is warning, 4 is critical); a missing pressure reading causes no warning. Swap and compressed memory are also collected.
+- Disk figures come from `/System/Volumes/Data`, rather than the sealed root volume. CPU load, core count and uptime use `sysctl`. oMLX's process is detected by `omlx-server` or its serving launcher; `llama-server` is also detected. A bounded `footprint` read reports process memory in bytes, including GPU allocations when accessible.
+- The temperature slot shows thermal pressure state. Pressure levels 2 and above set the thermal-slowdown flag. The power slot shows MacBook whole-system power. It stays unknown when a reading temporarily fails; without a battery service, it shows swap use. That reading refreshes about once a minute; it is not GPU power and is excluded from GPU power totals. The clock slot shows GPU memory in use. These replacements keep the corresponding slots selected in the settings. NVMe and NIC slots show swap use and compressed memory respectively.
+- GPU temperature, GPU power, clock, NVMe/NIC temperatures, ACPI zones and kernel diagnostics are hidden. Temperature trends and the rack temperature figure are hidden for Mac nodes. The mini window hides the GPU power chip when no node reports it and names the reporting-node count for a partial total. The server keeps the last platform and battery-service presence across failed polls, so unavailable Mac readings keep their labels without stale values.
+
 ## Inference engines
 
 - **vLLM**: read directly from its `vllm:*` metrics.
@@ -57,6 +67,6 @@ As a service, the same variables go on `Environment=` lines in the unit ([Runnin
   - TTFT and TPOT p95 and KV cache usage read `unknown`: the JSON has no latency histogram or KV usage reading;
   - speculative acceptance is accepted over offered draft tokens;
   - a server started with an API key answers `/metrics` with HTTP 401, so the dashboard cannot read it: it sends no key.
-- Other engines (Ollama, TensorRT-LLM, Triton) are recognised by process or image name on the node cards, but their throughput and token metrics are not read.
+- Other engines (oMLX, Ollama, TensorRT-LLM, Triton) are recognised by process or image name on the node cards, but their throughput and token metrics are not read.
 
 The engine label comes from the metric names (or Strata's JSON format) or the GPU process name, and the number of serving nodes from how many nodes run a GPU process; neither is assumed. In multi-node serving, point `SPARK_SCOPE_API_URL` at the node that hosts the API.

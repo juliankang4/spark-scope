@@ -142,6 +142,18 @@ test("a healthy node reads OK with usage-based memory and disk figures", () => {
   assert.deepEqual(unknown.reasons, ["OK"]);
   assert.equal(Math.round(view.diskFreeGiB), 127);
   assert.equal(view.diskWarn, false);
+  const mac = healthy({ platform: "darwin", thermalPressure: 0, power: { systemWatts: 4.198 }, memory: { pressureLevel: 1 }, gpu: { ...healthy().gpu, temperature: null, powerWatts: null } });
+  const macView = nodeView(META["3"], mac);
+  assert.equal(macView.hasTemperature, false);
+  assert.equal(macView.systemPower, 4.198);
+  assert.equal(macView.power, null);
+  assert.equal(macView.thermalState, "Normal");
+  assert.equal(macView.memWarn, false);
+  const missingMac = nodeView(META["3"], { ...mac, gpu: { ...mac.gpu, available: false, status: "missing" } });
+  assert.equal(missingMac.level, "warn");
+  assert.equal(missingMac.reasons[0], "no GPU data");
+  assert.equal(nodeView(META["3"], { ...mac, memory: { pressureLevel: 4 } }).reasons[0], "Memory pressure");
+  assert.equal(nodeView(META["3"], { ...mac, gpu: { ...mac.gpu, thermalSlowdown: true } }).level, "crit");
   assert.equal(freeLabel(3610), "3.5 TiB");
   assert.equal(freeLabel(319.3), "319 GiB");
   assert.equal(freeLabel(7.74), "7.7 GiB");

@@ -41,7 +41,7 @@ const server = createServer((request, response) => {
   const url = new URL(request.url, "http://localhost");
   if (url.pathname === "/api/state") {
     if (current.mode === "lost") { response.writeHead(503).end("{}"); return; }
-    const state = fixtureState(current.count, current.mode, fixtureNow(), { longNames: current.longNames, servers: current.servers ?? 0, offGroup: current.offGroup ?? false, gpuWorkstations: current.gpuWorkstations ?? 0 });
+    const state = fixtureState(current.count, current.mode, fixtureNow(), { longNames: current.longNames, servers: current.servers ?? 0, offGroup: current.offGroup ?? false, gpuWorkstations: current.gpuWorkstations ?? 0, macNodes: current.macNodes ?? 0, macThermal: current.macThermal, macUnavailable: current.macUnavailable, macPending: current.macPending, macPowerMissing: current.macPowerMissing });
     if (current.unknownGpu) {
       const [, second, third] = state.topology.nodes.map((meta) => state.nodes[meta.id].gpu);
       second.memory = { kind: null, totalBytes: null, usedBytes: null, availableBytes: null };
@@ -309,7 +309,7 @@ const CHECK_SETTINGS = `(() => {
 
 // Korean pages: English words on screen that are neither technical terms kept in English nor data from the fixture
 // (names, hosts, hardware, models, engines, containers, time zones) are text that missed the string table.
-const TERMS = "GPU CPU NVMe NIC ACPI TSOC TS0E TS0P TS1E TS1P TGPU TUNC Xid NO MEMORY TP rank TTFT TPOT KV cache Prefill Decode Spec acceptance tok API QSFP SPARK SCOPE Spark Scope MHz GiB GB TiB TB Gb SSH RAM VRAM nvidia smi ms English rack URL DECODE PREFILL CSV Wh Ctrl Cmd Alt";
+const TERMS = "Mac OS GPU CPU NVMe NIC ACPI TSOC TS0E TS0P TS1E TS1P TGPU TUNC Xid NO MEMORY TP rank TTFT TPOT KV cache Prefill Decode Spec acceptance tok API QSFP SPARK SCOPE Spark Scope MHz GiB GB TiB TB Gb SSH RAM VRAM nvidia smi ms English rack URL DECODE PREFILL CSV Wh Ctrl Cmd Alt";
 function dataWords(state) {
   const values = [state.usage?.timeZone, state.usage?.modelName, state.inference?.modelName, state.inference?.engine, state.serving?.engine, ...LEDGER_MODELS];
   for (const node of state.topology?.nodes ?? []) values.push(node.id, node.name, node.host, node.hardware);
@@ -319,7 +319,9 @@ function dataWords(state) {
 }
 const CHECK_ENGLISH = (allowed) => `(() => {
   const allowed = new Set(${JSON.stringify(`${TERMS} ${allowed}`)}.match(/[A-Za-z]{2,}/g));
-  const words = (document.body.innerText.match(/[A-Za-z]{2,}/g) ?? []).filter((word) => !allowed.has(word));
+  const style = document.createElement('style'); style.textContent = '* { text-transform: none !important; }'; document.head.append(style);
+  const visibleText = document.body.innerText; style.remove();
+  const words = (visibleText.match(/[A-Za-z]{2,}/g) ?? []).filter((word) => !allowed.has(word));
   return [...new Set(words)];
 })()`;
 // English left on a Korean page is listed at the end; it fails the check only with STRICT_I18N=1, since contributors
@@ -898,6 +900,124 @@ try {
     await page.shoot(name);
     report(name, [`meters: ${meters.join(" / ")}`, ...result.bays, `truncated: ${result.truncated.join(" / ") || "none"}`], problems);
     await page.close();
+  }
+
+  for (const [width, height] of [[1440, 1000], [768, 1024], [390, 844]]) for (const design of ["default", "console", "soft"]) for (const lang of ["en", "ko"]) for (const macNodes of width === 1440 && design === "default" ? [2, 1] : [2]) {
+    const web = await openPage({ width, height });
+    current = { count: 2, mode: "serving", macNodes };
+    await web.go(`${base}/?design=${design}&lang=${lang}`);
+    await web.evaluate("localStorage.removeItem('spark-scope-view'); document.querySelector('.m-back')?.click()");
+    await web.waitFor("document.querySelectorAll('#nodes .node').length === 2 && /\\d/.test(document.querySelector('#updated-at').textContent)");
+    const info = await web.evaluate(`(() => ({
+      readings: [...document.querySelectorAll('#nodes .node')].map(card => [...card.querySelectorAll('.reading')].filter(item => !item.hidden).map(item => item.innerText.replace(/\\s+/g, ' '))),
+      tempHidden: document.querySelector('#temp-chart').closest('.trend').hidden,
+      trendColumns: getComputedStyle(document.querySelector('.trends')).gridTemplateColumns.split(' ').length,
+      kernel: [...document.querySelectorAll('#nodes [data-node="kernel-summary"]')].map(item => item.textContent),
+    }))()`);
+    const problems = [...await web.evaluate(CHECK_WEB), ...(lang === "ko" ? await englishLeft(web, fixtureState(2, "serving", Date.now(), { macNodes })) : []), ...web.errors.splice(0)];
+    if (info.tempHidden !== (macNodes === 2)) problems.push("Mac temperature trend visibility");
+    if (macNodes === 2 && info.trendColumns !== 1) problems.push("empty temperature trend column");
+    if (info.readings[0].length !== 4 || info.readings[1].length !== 4) problems.push("Mac reading slots: " + JSON.stringify(info.readings));
+    for (const row of info.readings.slice(0, macNodes)) if (!row.join(" ").toLowerCase().includes(t("node.readingShort.thermal", {}, lang).toLowerCase()) || !row.join(" ").includes("2.2")) problems.push("Mac replacement readings missing");
+    if (info.kernel.slice(0, macNodes).some(value => value !== t("node.details", {}, lang))) problems.push("Mac kernel diagnostics shown");
+    const name = `web-mac-${design}-${width}-${lang}${macNodes === 1 ? "-mixed" : ""}.png`;
+    await web.shoot(name, { fullPage: true });
+    report(name, info.readings.map(row => row.join(" / ")), problems);
+    await web.evaluate("localStorage.clear()");
+    await web.close();
+  }
+  for (const [width, height] of [[1920, 480], [1024, 600]]) for (const lang of ["en", "ko"]) {
+    const page = await openPage({ width, height });
+    current = { count: 2, mode: "serving", macNodes: 2 };
+    await page.go(`${base}/rack/?lang=${lang}${width === 1024 ? "&width=819" : ""}`);
+    await page.waitFor("document.querySelectorAll('.bay .meters').length === 2");
+    const result = await page.evaluate(CHECK_RACK);
+    const info = await page.evaluate(`(() => ({ temps: document.querySelectorAll('.bay .temp').length, feet: [...document.querySelectorAll('.bay .foot')].map(item => item.innerText) }))()`);
+    const problems = [...result.issues, ...(lang === "ko" ? await englishLeft(page, fixtureState(2, "serving", Date.now(), { macNodes: 2 })) : []), ...page.errors.splice(0)];
+    if (info.temps || !info.feet[0].includes("17.7") || info.feet[1].trim()) problems.push("Mac rack temperature or system power: " + JSON.stringify(info));
+    const name = `rack-mac-${width}x${height}-${lang}.png`;
+    await page.shoot(name);
+    report(name, [...result.bays, ...info.feet], problems);
+    await page.close();
+  }
+  for (const lang of ["en", "ko"]) {
+    const page = await openPage({ width: 340, height: 560 });
+    current = { count: 1, mode: "serving", macNodes: 1 };
+    await page.go(`${base}/mini/`);
+    await page.evaluate(`localStorage.clear(); localStorage.setItem('spark-scope-settings', JSON.stringify({lang: '${lang}'}))`);
+    await page.go(`${base}/mini/`);
+    await page.waitFor("document.querySelector('.m-spread') !== null");
+    const power = await page.evaluate("document.querySelector('[data-gpu-power]')?.innerText ?? ''");
+    const problems = [...await page.evaluate(CHECK_MINI), ...(lang === "ko" ? await englishLeft(page, fixtureState(1, "serving", Date.now(), { macNodes: 1 })) : []), ...page.errors.splice(0)];
+    if (power) problems.push("unreported GPU power chip shown: " + power);
+    const name = `mini-mac-glance-${lang}.png`;
+    await page.shoot(name);
+    report(name, [power], problems);
+    await page.evaluate("document.querySelector('[data-tab=scope]').click()");
+    const scopeIssues = [...await page.evaluate(CHECK_MINI), ...page.errors.splice(0)];
+    if (await page.evaluate("document.querySelector('.m-temps') !== null")) scopeIssues.push("Mac temperature chart shown");
+    await page.shoot(`mini-mac-scope-${lang}.png`);
+    report(`mini-mac-scope-${lang}.png`, [], scopeIssues);
+    await page.evaluate("localStorage.clear()");
+    await page.close();
+  }
+
+  const MAC_REVIEWS = [
+    { label: "mixed-thermal", count: 4, macNodes: 2, macThermal: [1, 4] },
+    { label: "power-gap", count: 2, macNodes: 2, macPowerMissing: true },
+    { label: "offline", count: 2, macNodes: 2, macUnavailable: true },
+    { label: "pending", count: 2, macNodes: 2, macPending: true },
+    { label: "sensor-slots", count: 2, macNodes: 2, readings: "temp,power,nvme,nic" },
+  ];
+  for (const item of MAC_REVIEWS) for (const lang of ["en", "ko"]) for (const design of item.count === 4 ? ["default", "console", "soft"] : ["default"]) {
+    const web = await openPage({ width: 1440, height: 1000 });
+    current = { ...item, mode: "serving" };
+    await web.go(`${base}/?lang=${lang}&design=${design}${item.readings ? `&readings=${item.readings}` : ""}`);
+    await web.waitFor(`document.querySelectorAll('#nodes .node').length === ${item.count} && /\\d/.test(document.querySelector('#updated-at').textContent)`);
+    const info = await web.evaluate(`(() => {
+      const cards = [...document.querySelectorAll('#nodes .node')], issues = [];
+      for (const card of cards) for (const label of card.querySelectorAll('.reading small span')) {
+        if (!label.getClientRects().length) continue;
+        const range = document.createRange(); range.selectNodeContents(label);
+        if (range.getBoundingClientRect().width > label.closest('.reading').clientWidth + 1) issues.push('reading label too wide: ' + label.textContent);
+      }
+      return { issues, slots: cards.map(card => [...card.querySelectorAll('.reading')].map(slot => ({slot: slot.dataset.slot, hidden: slot.hidden, text: slot.innerText.replace(/\\s+/g, ' ')}))), bars: cards.map(card => card.querySelector('.mem').getBoundingClientRect().top) };
+    })()`);
+    const problems = [...await web.evaluate(CHECK_WEB), ...info.issues, ...(lang === "ko" ? await englishLeft(web, fixtureState(item.count, "serving", Date.now(), item)) : []), ...web.errors.splice(0)];
+    if (info.slots.some(slots => slots.some((slot, index) => slot.hidden || slot.slot !== String(index)))) problems.push("reading slots moved or hidden");
+    if (Math.max(...info.bars) - Math.min(...info.bars) > 1) problems.push("node memory bars misaligned");
+    if (item.macUnavailable || item.macPending) for (const slots of info.slots.slice(0, item.macNodes)) if (slots.some(slot => !slot.text.includes(t("common.unknown", {}, lang)))) problems.push("failed Mac reading is stale");
+    if (item.macPowerMissing && !info.slots[0][1].text.includes(t("common.unknown", {}, lang))) problems.push("power gap did not stay unknown");
+    const name = `web-mac-${item.label}-${design}-${lang}.png`;
+    await web.shoot(name, { fullPage: true }); report(name, info.slots.map(slots => slots.map(slot => slot.text).join(" / ")), problems);
+    if (item.label === "mixed-thermal" && design === "default") {
+      await web.evaluate("document.querySelector('#settings-open').click()");
+      const notes = await web.evaluate("[...document.querySelectorAll('[data-panel=card] .settings-note')].map(note => note.innerText)");
+      const settingsIssues = [...await web.evaluate(CHECK_SETTINGS), ...(lang === "ko" ? await englishLeft(web, fixtureState(item.count, "serving", Date.now(), item)) : []), ...web.errors.splice(0)];
+      if (notes.length !== 3 || notes.some(note => !note.trim())) settingsIssues.push("Mac settings notes missing");
+      await web.shoot(`settings-mac-${lang}.png`); report(`settings-mac-${lang}.png`, notes, settingsIssues);
+    }
+    await web.evaluate("localStorage.clear()"); await web.close();
+  }
+  for (const lang of ["en", "ko"]) {
+    const page = await openPage({ width: 1024, height: 600 });
+    current = { count: 4, mode: "serving", macNodes: 2, macThermal: [1, 3] };
+    await page.go(`${base}/rack/?width=819&lang=${lang}`);
+    await page.waitFor("document.querySelectorAll('.bay .meters').length === 4");
+    const result = await page.evaluate(CHECK_RACK);
+    const info = await page.evaluate(`(() => ({tops: [...document.querySelectorAll('.bay .meters')].map(meters => meters.getBoundingClientRect().top), clipped: [...document.querySelectorAll('.meter em')].filter(detail => detail.scrollWidth > detail.clientWidth + 1).map(detail => detail.innerText), warning: document.querySelectorAll('.cap.warn').length}))()`);
+    const problems = [...result.issues, ...(lang === "ko" ? await englishLeft(page, fixtureState(4, "serving", Date.now(), current)) : []), ...page.errors.splice(0)];
+    if (Math.max(...info.tops) - Math.min(...info.tops) > 1) problems.push("mixed rack meters misaligned");
+    if (info.clipped.length) problems.push("clipped rack detail: " + info.clipped.join(" / "));
+    if (info.warning !== 1) problems.push("thermal caption warning missing");
+    await page.shoot(`rack-mac-mixed-819-${lang}.png`); report(`rack-mac-mixed-819-${lang}.png`, [...result.bays], problems); await page.close();
+    const mini = await openPage({ width: 340, height: 560 });
+    await mini.go(`${base}/mini/`); await mini.evaluate(`localStorage.clear(); localStorage.setItem('spark-scope-settings',JSON.stringify({lang:'${lang}'}))`); await mini.go(`${base}/mini/`);
+    await mini.waitFor("document.querySelector('[data-gpu-power]') !== null");
+    const power = await mini.evaluate("document.querySelector('[data-gpu-power]').innerText");
+    const miniIssues = [...await mini.evaluate(CHECK_MINI), ...(lang === "ko" ? await englishLeft(mini, fixtureState(4, "serving", Date.now(), current)) : []), ...mini.errors.splice(0)];
+    if (!power.includes(t("statusbar.gpuPowerPartial", { reporting: 2, count: 4 }, lang))) miniIssues.push("partial GPU power coverage missing");
+    await mini.shoot(`mini-mac-mixed-${lang}.png`); report(`mini-mac-mixed-${lang}.png`, [power], miniIssues); await mini.evaluate("localStorage.clear()"); await mini.close();
   }
 
   const SERVER_CASES = [

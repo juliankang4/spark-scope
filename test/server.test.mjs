@@ -340,7 +340,10 @@ while IFS= read -r line; do :; done
 for arg in "$@"; do
   case "$arg" in fixture-*) snapshot="$NODE_FIXTURE_DIR/$arg.txt" ;; esac
 done
-while IFS= read -r line; do echo "$line"; done < "$snapshot"
+while IFS= read -r line; do
+  [ "$line" != "unreachable" ] || exit 255
+  echo "$line"
+done < "$snapshot"
 `);
   chmodSync(path.join(directory, "ssh"), 0o755);
   const sample = (id, gpu, status, available) => writeFileSync(path.join(directory, `fixture-${id}.txt`),
@@ -348,13 +351,30 @@ while IFS= read -r line; do echo "$line"; done < "$snapshot"
   sample("u", "0, 40, 10, 200, P8, Not Active, Not Active, [N/A], [N/A], NVIDIA GB10, Integrated GPU", "ok", 16000000);
   sample("d", "0, 40, 10, 200, P8, Not Active, Not Active, 16384, 32768, NVIDIA Discrete, Workstation", "ok", 32000000);
   sample("x", "", "error", 24000000);
-  const layout = { nodes: ["u", "d", "x"].map(id => ({ id, host: `fixture-${id}` })), links: [] };
+  for (const [id, battery] of [["m", "present"], ["n", "absent"]]) writeFileSync(path.join(directory, `fixture-${id}.txt`), `platform|darwin\nhostname|test-node\nbattery|${battery}\npower|4198,80,Yes\ngpu|0,,,,N/A,Not Active,Not Active,,,Apple M1\ngpu_status|ok\nmemory|33554432,16000000,0,0\n`);
+  const layout = { nodes: ["u", "d", "x", "m", "n"].map(id => ({ id, host: `fixture-${id}` })), links: [] };
   const { child, base } = await startServer(directory, {
     PATH: `${directory}:${process.env.PATH}`, NODE_FIXTURE_DIR: directory, SPARK_SCOPE_NODE_INTERVAL_MS: "1000",
   }, layout);
   try {
     const first = await waitFor(base, state => state.nodes.u?.gpu?.memory?.kind === "unified" && state.nodes.d?.gpu?.memory?.kind === "discrete", "reported kinds");
     assert.equal(first.nodes.x.gpu.memory.kind, null);
+    writeFileSync(path.join(directory, "fixture-m.txt"), "platform|darwin\nhostname|test-node\npower|,,\ngpu|0,,,,N/A,Not Active,Not Active,,,Apple M1\ngpu_status|ok\nmemory|33554432,16000000,0,0\n");
+    const gap = await waitFor(base, state => state.nodes.m?.power?.systemWatts === null && state.nodes.m?.ok, "missing battery line");
+    assert.equal(gap.nodes.m.power.hasBattery, true);
+    for (const id of ["m", "n"]) writeFileSync(path.join(directory, `fixture-${id}.txt`), "unreachable\n");
+    const failed = await waitFor(base, state => state.nodes.m?.ok === false && state.nodes.n?.ok === false, "unreachable Macs");
+    const { nodeReading, readingValue, hasNodeTemperature } = await import("../public/view-data.js");
+    const { DEFAULTS } = await import("../public/settings.js");
+    for (const id of ["m", "n"]) {
+      assert.equal(failed.nodes[id].platform, "darwin");
+      assert.equal(failed.nodes[id].power.hasBattery, id === "m");
+      assert.equal(hasNodeTemperature(failed.nodes[id]), false);
+      assert.equal(nodeReading("temp", failed.nodes[id]), "thermal");
+      assert.equal(nodeReading("power", failed.nodes[id]), id === "m" ? "systemPower" : "swap");
+      assert.equal(readingValue("power", failed.nodes[id], DEFAULTS).text, "unknown");
+      assert.equal(failed.nodes[id].power.systemWatts, null);
+    }
     for (const [index, status] of ["timeout", "stuck", "error"].entries()) {
       sample("u", "", status, 24000000 + index);
       sample("d", "", status, 48000000 + index);

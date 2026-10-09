@@ -154,7 +154,7 @@ html,body{overflow-anchor:none}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
 
 .plot-note{z-index:2}.plot-note[hidden]{display:none}.node details{overflow-wrap:anywhere}.extra{grid-template-columns:repeat(2,minmax(0,1fr))}.extra .wide{grid-column:1/-1}.node.is-unknown .mem .meter i{width:0!important}.shell.stale .plot svg{opacity:.25}.status.error strong{color:var(--red)}.status.stopped strong{color:var(--blue)}.theme-toggle:focus-visible{outline-offset:-4px}.month-load-error{color:var(--red)}.brand span{border-color:var(--line)}.unknown-value{font-size:13px!important;letter-spacing:0!important}.big:has(.unknown-value) em{display:none}.node .readings{grid-template-columns:repeat(2,minmax(0,1fr))}.node .reading{min-width:0}.plot svg{overflow:visible}
-.node{container-type:inline-size}.reading b{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:4px}.reading em{margin-left:0}
+.node{container-type:inline-size}.reading b{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:4px}.node .reading b:has(>.word-value){flex-wrap:nowrap}.node .reading b:has(>.word-value)::before{content:"\200b";margin-right:-4px}.node .reading .word-value{font-size:clamp(11px,4.5cqw,17px);line-height:1;white-space:nowrap}.reading em{margin-left:0}
 @container(max-width:280px){.instrument{grid-template-columns:90px minmax(0,1fr);gap:12px}.gauge,.gauge svg{width:90px}.reading b{font-size:17px}.reading em{font-size:9px}}
 /* Wide cards (one or two nodes): readings in one row, details in three columns. */
 @container(min-width:560px){.readings,.node .readings{grid-template-columns:repeat(4,minmax(0,1fr))}.extra{grid-template-columns:repeat(3,minmax(0,1fr))}}

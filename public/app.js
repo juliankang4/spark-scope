@@ -1,5 +1,5 @@
 import { mountMini } from './mini/mini-view.js';
-import { PHONE_QUERY, COLORS, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, gpuMemory, memoryWording, readingLabel, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, serverStateKey, pickedServer, viewInference } from './view-data.js';
+import { PHONE_QUERY, COLORS, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, gpuMemory, memoryWording, readingLabel, nodeReading, hasNodeTemperature, memoryWarning, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, serverStateKey, pickedServer, viewInference } from './view-data.js';
 import { READING_IDS, rackQuery, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 import { t, setLanguage, translatePage, serverText, LANGUAGE_NAMES } from './i18n.js';
 import { hide as hideHelp } from './help.js';
@@ -71,13 +71,13 @@ function renderNode(meta,node,root=$('#nodes')) {
   const mem=settings.mem,memUnit=memoryUnit(mem),tempUnit=temperatureUnit(settings.temp);
   const gpuMem=gpuMemory(node),wording=memoryWording([gpuMem.kind]);
   // The four readings chosen in the settings, orange past their warning level.
-  settings.readings.forEach((id,slot)=>{const field=el.querySelector(`[data-reading="${slot}"]`);if(!field)return;const r=readingValue(id,node,settings);field.firstElementChild.textContent=r.text;field.lastElementChild.textContent=r.unit;field.classList.toggle('unknown-value',r.text===u);field.classList.toggle('warn',r.warn);
-    if(id==='mem'){const label=field.previousElementSibling;label.querySelector('.full').textContent=t(readingLabel(id,{wording}));label.querySelector('.short').textContent=t(readingLabel(id,{short:true,wording}))}});
+  settings.readings.forEach((id,slot)=>{const field=el.querySelector(`[data-reading="${slot}"]`);if(!field)return;const shown=nodeReading(id,node);field.parentElement.hidden=shown===null;const r=readingValue(id,node,settings);field.firstElementChild.textContent=r.text;field.lastElementChild.textContent=r.text===u?'':r.unit;field.classList.toggle('unknown-value',r.text===u);field.classList.toggle('warn',r.warn);field.firstElementChild.classList.toggle('word-value',shown==='thermal');
+    const label=field.previousElementSibling;label.querySelector('.full').textContent=t(readingLabel(shown??id,{wording}));label.querySelector('.short').textContent=t(readingLabel(shown??id,{short:true,wording}))});
   el.querySelector('.needle').setAttribute('stroke-dasharray',`${finite(gpu?.utilization)?Math.max(0,Math.min(100,gpu.utilization)):0} 100`);
-  const {totalBytes:total,usedBytes:used,availableBytes:free}=gpuMem,unified=el.querySelector('[data-bar="unified"]');
-  if(unified){set('memory-label',t(wording==='unified'?'node.unifiedMemoryUsage':'node.gpuMemoryUsage'));set('memory-used',finite(total)&&finite(used)?`${memory(used,mem)} / ${memory(total,mem,0)} ${memUnit}`:u);const bar=unified.querySelector('.meter i');bar.style.width=finite(total)&&total>0&&finite(used)?`${Math.min(100,used/total*100)}%`:'0%';bar.classList.toggle('warn',finite(free)&&free<settings.memWarn*2**30)}
+  const {totalBytes:total,usedBytes:used}=gpuMem,unified=el.querySelector('[data-bar="unified"]');
+  if(unified){set('memory-label',t(wording==='unified'?'node.unifiedMemoryUsage':'node.gpuMemoryUsage'));set('memory-used',finite(total)&&finite(used)?`${memory(used,mem)} / ${memory(total,mem,0)} ${memUnit}`:u);const bar=unified.querySelector('.meter i');bar.style.width=finite(total)&&total>0&&finite(used)?`${Math.min(100,used/total*100)}%`:'0%';bar.classList.toggle('warn',memoryWarning(node,settings.memWarn))}
   const disk=ok?node.disk:null,rootfs=el.querySelector('[data-bar="disk"]');
-  if(rootfs){const pct=finite(disk?.usedPercent)?disk.usedPercent:null;set('disk-used',pct!==null&&finite(disk?.totalBytes)?t('node.diskOf',{percent:fixed(pct,0),total:memory(disk.totalBytes,mem,0),unit:memUnit}):u);const bar=rootfs.querySelector('.meter i');bar.style.width=pct!==null?`${Math.min(100,pct)}%`:'0%';bar.classList.toggle('warn',pct!==null&&pct>=settings.diskWarn)}
+  if(rootfs){rootfs.querySelector('.memline>span').textContent=t(node?.platform==='darwin'?'node.dataVolume':'node.rootFilesystem');const pct=finite(disk?.usedPercent)?disk.usedPercent:null;set('disk-used',pct!==null&&finite(disk?.totalBytes)?t('node.diskOf',{percent:fixed(pct,0),total:memory(disk.totalBytes,mem,0),unit:memUnit}):u);const bar=rootfs.querySelector('.meter i');bar.style.width=pct!==null?`${Math.min(100,pct)}%`:'0%';bar.classList.toggle('warn',pct!==null&&pct>=settings.diskWarn)}
   set('disk',ok&&finite(node.disk?.availableBytes)?`${memory(node.disk.availableBytes,mem,0)} ${memUnit}`:u);set('process-memory',ok&&finite(node.processMemoryBytes)?`${memory(node.processMemoryBytes,mem)} ${memUnit}`:u);
   const cpu=ok?node.cpu:null;set('cpu',finite(cpu?.load1)?(finite(cpu.cores)?t('node.cpuCores',{load:fixed(cpu.load1,2),cores:cpu.cores}):fixed(cpu.load1,2)):u);
   const degrees=value=>finite(value)?`${temperature(value,settings.temp,1)} ${tempUnit}`:u;
@@ -87,7 +87,8 @@ function renderNode(meta,node,root=$('#nodes')) {
   // The container line appears only when the node can see its inference container (Docker access).
   set('container',ok&&node.container?.detected?t(node.container.running?'node.containerRunning':'node.containerStopped',{name:node.container.name,count:node.container.restarts}):u);
   const kernel=ok?node.kernelEvents:null,atLeast=kernel?.capped?'≥':'';
-  set('kernel-summary',kernel?.available?t('node.kernelSummary',{xid:atLeast+kernel.xid,noMemory:atLeast+kernel.noMemory}):t('node.kernelUnavailable'));
+  const darwin=node?.platform==='darwin';el.querySelector('[data-node="system"]').parentElement.hidden=darwin;el.querySelector('[data-node="kernel-last"]').hidden=darwin;
+  set('kernel-summary',darwin?t('node.details'):kernel?.available?t('node.kernelSummary',{xid:atLeast+kernel.xid,noMemory:atLeast+kernel.noMemory}):t('node.kernelUnavailable'));
   set('kernel-last',kernel?.available?(kernel.total?`${eventTime(kernel.lastAt,Date.now(),{hour12:hour12()})} ${kernel.lastMessage||t('node.kernelErrorFallback')}`:t('node.kernelNone')):t('node.kernelJournalUnavailable'));
   set('last-update',pending?t('node.badge.notCollected'):t('node.lastPoll',{time:clock(node?.updatedAt)}));
 }
@@ -131,13 +132,15 @@ function renderCharts(state) {
   $('#plot-note').hidden=rates.length>0;$('#plot-note').textContent=t(shownStopped?'chart.note.stopped':'chart.note.noData');
   for(const kind of ['temp','mem']) {
     // Values are picked per node id from each sample, so an id never collides with the sample's own fields (such as "at").
-    const field=kind==='temp'?'temperature':'memoryAvailableBytes',scale=kind==='mem'?2**30:1,ids=metas.map(meta=>meta.id);
+    const field=kind==='temp'?'temperature':'memoryAvailableBytes',scale=kind==='mem'?2**30:1,ids=metas.filter(meta=>kind!=='temp'||hasNodeTemperature(state.nodes?.[meta.id])).map(meta=>meta.id);
+    if(kind==='temp'){$('#temp-chart').closest('.trend').hidden=!ids.length;$('.trends').style.gridTemplateColumns=ids.length?'':'1fr'}
     const pick=id=>point=>{const v=point.nodes?.[id]?.[field];return finite(v)?v/scale:null};
     const values=all.flatMap(point=>ids.map(id=>pick(id)(point))).filter(finite),low=kind==='temp'&&values.length?Math.min(...values)-2:0,high=values.length?Math.max(...values)+(kind==='temp'?2:5):1;
-    $('#'+kind+'-chart').innerHTML=ids.map((id,index)=>`<path d="${chartPath(all,pick(id),{start,end,width:320,height:80,min:low,max:high})}" fill="none" stroke="${nodeColor(settings.colors,index)}" stroke-width="2" vector-effect="non-scaling-stroke"/>`).join('');
+    $('#'+kind+'-chart').innerHTML=ids.map(id=>`<path d="${chartPath(all,pick(id),{start,end,width:320,height:80,min:low,max:high})}" fill="none" stroke="${nodeColor(settings.colors,metas.findIndex(meta=>meta.id===id))}" stroke-width="2" vector-effect="non-scaling-stroke"/>`).join('');
     renderLegend(kind,state.nodes);
   }
   showMemoryWording(state.nodes);
+  const mac=Object.values(state.nodes??{}).some(node=>node?.platform==='darwin');document.querySelectorAll('[data-mac-note]').forEach(note=>{note.hidden=!mac});
 }
 function showMemoryWording(nodes) {
   const key=memoryWording(metas.map(meta=>gpuMemory(nodes?.[meta.id]).kind))==='unified'?'trends.mem':'trends.gpuMem',heading=$('#mem-heading'),chart=$('#mem-chart');
@@ -145,7 +148,7 @@ function showMemoryWording(nodes) {
 }
 // The current value per node under a trend chart; unknown for a node that did not answer (or with no state at all).
 function renderLegend(kind,nodes) {
-  $('#'+kind+'-legend').innerHTML=metas.map((meta,index)=>{const node=nodes?.[meta.id];const value=!node?.ok?unknown():kind==='temp'?temperature(node.gpu?.temperature,settings.temp):memory(gpuMemory(node).availableBytes,settings.mem);return `<span style="color:${nodeColor(settings.colors,index)}">${esc(meta.name)} <b class="num">${value}</b></span>`}).join('');
+  $('#'+kind+'-legend').innerHTML=metas.flatMap((meta,index)=>{const node=nodes?.[meta.id];if(kind==='temp'&&!hasNodeTemperature(node))return [];const value=!node?.ok?unknown():kind==='temp'?temperature(node.gpu?.temperature,settings.temp):memory(gpuMemory(node).availableBytes,settings.mem);return `<span style="color:${nodeColor(settings.colors,index)}">${esc(meta.name)} <b class="num">${value}</b></span>`}).join('');
 }
 function renderToday(usage) {
   document.querySelectorAll('[data-usage]').forEach(el=>{const key=el.dataset.usage;const value=usage?.error||usage?.reported?.[key]===false?null:usage?.today?.[key];el.textContent=key==='requests'?fixed(value,0):compact(value);el.title=finite(value)?value.toLocaleString('en-US'):''});

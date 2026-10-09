@@ -6,6 +6,8 @@ Open `/rack/` (for example <http://127.0.0.1:8787/rack/>). The panel is laid out
 
 Each of the first four nodes in `topology.json` gets a bay with its GPU temperature (with the last hour drawn behind it), GPU load, GPU memory and disk use (RAM on a GB10, where it is unified memory; VRAM on a discrete GPU; Memory when the GPU does not report its kind), power, TSOC and a coloured dot per link. The bottom band shows the cluster state, the model and engine, node and link counts with the total GPU power, output tok/s over the last five minutes and today's tokens.
 
+For [Mac nodes](configuration.md#mac-nodes), the temperature figure and trace are hidden and the caption shows thermal state. The meters keep GPU load, shared system memory and disk use. MacBook system power appears in the footer when available and is excluded from the band's GPU power total; memory warnings follow the OS pressure level.
+
 ![Rack panel showing a node that stopped responding](screenshots/rack-4-nodes-fault.png)
 <p align="center"><sub>One node not responding and its two links down: the bays name the cause, the band keeps the counts.</sub></p>
 
@@ -29,12 +31,12 @@ The panel polls `/api/state` every 2 seconds without the history and fetches the
 Each bay header shows its most severe condition:
 
 - no response;
-- missing GPU readings (`nvidia-smi stuck`, `GPU query timed out`, `GPU query failed`, `no nvidia-smi`);
+- missing GPU readings (`nvidia-smi stuck`, `GPU query timed out`, `GPU query failed`, `no nvidia-smi` on Linux; `no GPU data` for a missing Mac load gauge);
 - thermal slowdown;
 - a link problem (`Link 2–3 down`, `Link 1–2 #2 down`, `Link 1–2 not cabled`);
 - system state or failed units;
 - a missing inference process while the API serves;
-- disk at 95% or more, or less than 2 GiB of free GPU memory;
+- disk at 95% or more, less than 2 GiB of free GPU memory on Linux, or OS memory pressure on a Mac;
 - for ten minutes, a container restart or a kernel error.
 
 The band shows the cluster title (Serving, Ready, Inference stopped, Inference down, Nodes unreachable), the model with its engine, node and link counts and up to two notes.

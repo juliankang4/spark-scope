@@ -146,7 +146,7 @@ export const gib = (bytes, digits = 1) => fixed(finite(bytes) ? bytes / 2 ** 30 
 // Display units chosen in the settings: memory and disk in GiB (2^30 bytes) or GB (10^9), temperatures in °C or °F.
 export const memoryUnit = unit => (unit === 'gb' ? 'GB' : 'GiB');
 export const memory = (bytes, unit, digits = 1) => fixed(finite(bytes) ? bytes / (unit === 'gb' ? 1e9 : 2 ** 30) : null, digits);
-// GPU memory from node.gpu.memory: the shared system memory on a unified GPU (GB10), the card's own memory on a
+// GPU memory from node.gpu.memory: shared system memory on GB10 and Apple Silicon, the card's own memory on a
 // discrete one. Never system RAM (node.memory). Without a known kind, or for a node that did not answer, every figure
 // is null; kind still names the label of a node that reported it.
 export function gpuMemory(node) {
@@ -388,6 +388,22 @@ export function offMediaChange(query, listener) {
   else if (typeof query.removeListener === 'function') query.removeListener(listener);
 }
 
+export const hasNodeTemperature = node => node?.platform !== 'darwin';
+export function nodeReading(id, node) {
+  if (node?.platform !== 'darwin') return id;
+  if (id === 'power') return node.power?.hasBattery === false ? 'swap' : 'systemPower';
+  return { temp: 'thermal', clock: 'gpuInUse', nvme: 'swap', nic: 'compressed' }[id] ?? id;
+}
+export function memoryWarning(node, thresholdGiB = 2) {
+  if (!node?.ok) return false;
+  if (node.platform === 'darwin') return [2, 4].includes(node.memory?.pressureLevel);
+  const free = gpuMemory(node).availableBytes;
+  return finite(free) && free < thresholdGiB * 2 ** 30;
+}
+export function gpuPowerWatts(nodes) {
+  const watts = nodes.filter(node => node?.ok && finite(node.gpu?.powerWatts)).map(node => node.gpu.powerWatts);
+  return watts.length ? watts.reduce((sum, value) => sum + value, 0) : null;
+}
 // The readings a node card can show in its four slots (settings.readings). Each gives its value text and unit in the
 // chosen units, and whether it crosses the warning level set in the settings (warn levels are in °C, percent and GiB).
 // Labels live in i18n.js as node.reading.<id> (full) and node.readingShort.<id>; free memory has a GPU-memory
@@ -398,10 +414,15 @@ export function readingValue(id, node, settings) {
   const memUnit = memoryUnit(settings.mem), tempUnit = temperatureUnit(settings.temp);
   const diskUsed = finite(disk.totalBytes) && finite(disk.availableBytes) ? disk.totalBytes - disk.availableBytes : null;
   const diskWarn = finite(disk.usedPercent) && disk.usedPercent >= settings.diskWarn;
-  switch (id) {
+  switch (nodeReading(id, node)) {
+    case 'thermal': return { text: ok && [0, 1, 2, 3, 4].includes(node.thermalPressure) ? t(`node.thermal.${node.thermalPressure}`) : unknown(), unit: '', warn: ok && node.thermalPressure >= 2 };
+    case 'systemPower': return { text: fixed(ok ? node.power?.systemWatts : null), unit: 'W', warn: false };
+    case 'gpuInUse': { const used = ok ? gpu.memory?.inUseBytes : null; return { text: memory(used, settings.mem), unit: finite(used) ? memUnit : '', warn: false }; }
+    case 'swap': return { text: memory(ok ? node.memory?.swapUsedBytes : null, settings.mem), unit: memUnit, warn: false };
+    case 'compressed': return { text: memory(ok ? node.memory?.compressedBytes : null, settings.mem), unit: memUnit, warn: false };
     case 'temp': return { text: temperature(gpu.temperature, settings.temp), unit: tempUnit, warn: finite(gpu.temperature) && gpu.temperature >= settings.tempWarn };
     case 'power': return { text: fixed(gpu.powerWatts), unit: 'W', warn: false };
-    case 'mem': { const free = gpuMemory(node).availableBytes; return { text: memory(free, settings.mem), unit: finite(free) ? memUnit : '', warn: finite(free) && free < settings.memWarn * 2 ** 30 }; }
+    case 'mem': { const free = gpuMemory(node).availableBytes; return { text: memory(free, settings.mem), unit: finite(free) ? memUnit : '', warn: memoryWarning(node, settings.memWarn) }; }
     case 'clock': return { text: fixed(gpu.clockMHz, 0), unit: 'MHz', warn: false };
     case 'disk': return { text: memory(diskUsed, settings.mem, 0), unit: memUnit, warn: diskWarn };
     case 'diskfree': return { text: memory(ok ? disk.availableBytes : null, settings.mem, 0), unit: memUnit, warn: diskWarn };

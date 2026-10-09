@@ -1,5 +1,5 @@
 // Pure view-model helpers for the Spark Scope rack panel (1920 x 480 by default). No DOM access, so node --test can import them.
-import { compact as compactCount, roleName, systemStateText, modelServers, combinedInference, serverName, gpuMemory, memoryWording } from "../view-data.js";
+import { compact as compactCount, roleName, systemStateText, modelServers, combinedInference, serverName, gpuMemory, memoryWording, hasNodeTemperature, memoryWarning, gpuPowerWatts } from "../view-data.js";
 import { t, serverText } from "../i18n.js";
 
 export const BRAND = "SPARK SCOPE";
@@ -136,6 +136,7 @@ export function nodeView(meta, node, { inferenceOk = false, lastOkAt = null, now
     name: meta?.name ?? node?.name ?? node?.host ?? id,
     host: meta?.host ?? node?.host ?? null,
     local: Boolean(meta?.local ?? node?.local),
+    hasTemperature: hasNodeTemperature(node),
     role: roleName(meta?.role ?? node?.role),
     links: links.map((link) => ({ peer: link.peer, tag: link.tag ?? link.peer, level: linkLevel(link) })),
   };
@@ -170,14 +171,15 @@ export function nodeView(meta, node, { inferenceOk = false, lastOkAt = null, now
   if (node.gpu?.thermalSlowdown) crit.push(t("rack.reason.thermalSlowdown"));
   // No GPU readings: a hung or failing nvidia-smi is a likely GPU fault; a missing one is a setup issue.
   const gpuProblem = node.gpu?.available === false ? GPU_PROBLEMS[node.gpu.status] ?? GPU_PROBLEMS.error : null;
-  if (gpuProblem) (gpuProblem.level === "crit" ? crit : warn).push(t(gpuProblem.key));
+  if (gpuProblem) (gpuProblem.level === "crit" ? crit : warn).push(t(node.platform === "darwin" && node.gpu.status === "missing" ? "node.badge.noGpuData" : gpuProblem.key));
   if (node.systemState && node.systemState !== "running") warn.push(t("rack.reason.system", { state: systemStateText(node.systemState) }));
   if (node.failedUnits > 0) warn.push(t("rack.reason.failedUnits", { count: node.failedUnits }));
   // Nodes marked "inference": false in topology.json may idle while the API serves.
   if (inferenceOk && meta?.inference !== false && !node.inferenceProcessUp) warn.push(t("rack.reason.noInferenceProcess"));
   if (restarts > 0 && recent(node.container?.startedAt)) warn.push(t("rack.reason.restarted", { count: restarts }));
   if (diskPct !== null && diskPct >= DISK_WARN_PERCENT) warn.push(t("rack.reason.disk", { percent: diskPct }));
-  if (memFreeGiB !== null && memFreeGiB < MEMORY_WARN_GIB) warn.push(t(memWording === "unified" ? "rack.reason.memoryFree" : "rack.reason.gpuMemoryFree", { free: freeLabel(memFreeGiB, mem) }));
+  const memWarn = memoryWarning(node, MEMORY_WARN_GIB);
+  if (memWarn) warn.push(node.platform === "darwin" ? t("node.memoryPressure") : t(memWording === "unified" ? "rack.reason.memoryFree" : "rack.reason.gpuMemoryFree", { free: freeLabel(memFreeGiB, mem) }));
   if (kernel?.total > 0 && recent(kernel.lastAt)) {
     const count = kernel.capped ? `≥${kernel.total}` : kernel.total;
     warn.push(kernel.lastAt ? t("rack.reason.kernel", { count, time: clockTime(kernel.lastAt, clock) }) : t("rack.reason.kernelNoTime", { count }));
@@ -191,8 +193,11 @@ export function nodeView(meta, node, { inferenceOk = false, lastOkAt = null, now
     temp: finite(node.gpu?.temperature) ? node.gpu.temperature : null,
     load: finite(node.gpu?.utilization) ? node.gpu.utilization : null,
     power: finite(node.gpu?.powerWatts) ? node.gpu.powerWatts : null,
+    systemPower: node.platform === "darwin" && finite(node.power?.systemWatts) ? node.power.systemWatts : null,
+    thermalWarn: node.platform === "darwin" && node.thermalPressure >= 2,
+    thermalState: node.platform === "darwin" && [0, 1, 2, 3, 4].includes(node.thermalPressure) ? t(`node.thermal.${node.thermalPressure}`) : t("common.unknown"),
     tsoc: finite(node.thermals?.tsocCelsius) ? node.thermals.tsocCelsius : null,
-    memFreeGiB, memUsedPct, memKind, memWording, diskPct, diskFreeGiB, restarts,
+    memFreeGiB, memUsedPct, memKind, memWording, memWarn: node.platform === "darwin" && memWarn, diskPct, diskFreeGiB, restarts,
     diskWarn: diskPct !== null && diskPct >= DISK_WARN_PERCENT,
   };
 }
@@ -226,8 +231,8 @@ function countLine(state, extras, { power = true } = {}) {
   const parts = [metas.length === 1 ? t(nodesUp ? "rack.count.nodeUp" : "rack.count.nodeDown") : t("rack.count.nodes", { up: nodesUp, count: metas.length })];
   if (links.length) parts.push(t("rack.count.links", { up: linksUp, count: links.length }));
   // GPU power summed over the nodes that report it (nvidia-smi power draw; the whole box draws more).
-  const watts = metas.map((meta) => state?.nodes?.[meta.id]).filter((node) => node?.ok && finite(node.gpu?.powerWatts)).map((node) => node.gpu.powerWatts);
-  if (power && watts.length) parts.push(`GPU ${Math.round(watts.reduce((sum, value) => sum + value, 0))} W`);
+  const watts = gpuPowerWatts(metas.map((meta) => state?.nodes?.[meta.id]));
+  if (power && watts !== null) parts.push(`GPU ${Math.round(watts)} W`);
   return [...parts, ...extras.filter(Boolean).slice(0, 2)].join(" | ");
 }
 

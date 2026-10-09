@@ -255,6 +255,8 @@ test("engine names come only from metric prefixes and known process or image nam
   assert.equal(knownEngine("ollama"), "Ollama");
   assert.equal(knownEngine("tensorfold"), "TensorFold");
   assert.equal(knownEngine("strata"), "Strata");
+  assert.equal(knownEngine("omlx-server"), "oMLX");
+  assert.equal(parseInferenceProcess("42, python3, 100, S, omlx").engine, "oMLX");
   assert.equal(knownEngine("python3"), null);
   const { readEngineMetrics } = await import("../lib/engines/index.mjs");
   for (const [engine, prefix] of [["vLLM", "vllm"], ["SGLang", "sglang"], ["TensorFold", "tensorfold"]]) {
@@ -346,8 +348,9 @@ test("local collection runs on this machine and leaves what it cannot read unkno
 test("GPU memory uses reported GB10 system memory or discrete framebuffer readings, never the hostname", async () => {
   const system = { totalBytes: 128 * 1024 ** 3, availableBytes: 16 * 1024 ** 3, usedBytes: 112 * 1024 ** 3 };
   assert.deepEqual(parseGpuMemory("NVIDIA GB10", "[N/A]", "[N/A]", system), { kind: "unified", ...system });
+  for (const name of ["Apple M1", "Apple M2 Max", "Apple M10 Ultra"]) assert.deepEqual(parseGpuMemory(name, "", "", system), { kind: "unified", ...system });
   const unknown = { kind: null, totalBytes: null, availableBytes: null, usedBytes: null };
-  for (const name of ["", "Unknown GPU", "Jetson Thor"]) assert.deepEqual(parseGpuMemory(name, "[N/A]", "[N/A]", system), unknown);
+  for (const name of ["", "Unknown GPU", "Jetson Thor", "Apple Intel GPU", "Apple Memory", "Apple M2-box"]) assert.deepEqual(parseGpuMemory(name, "[N/A]", "[N/A]", system), unknown);
   // Captured RTX framebuffer capacity is MiB.
   const discrete = parseGpuMemory("NVIDIA GeForce RTX 5090", "0", "32607", system);
   assert.deepEqual(discrete, { kind: "discrete", totalBytes: 32607 * 1048576, usedBytes: 0, availableBytes: 32607 * 1048576 });
@@ -379,9 +382,12 @@ async function withFakeCommand(name, body, run, { onlyFake = false } = {}) {
   const { mkdtempSync, writeFileSync, chmodSync, rmSync } = await import("node:fs");
   const os = await import("node:os");
   const path = await import("node:path");
-  const directory = mkdtempSync(path.join(os.tmpdir(), `spark-scope-fake-${name}-`));
-  writeFileSync(path.join(directory, name), `#!/bin/sh\n${body}\n`);
-  chmodSync(path.join(directory, name), 0o755);
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-fake-"));
+  const commands = typeof name === "object" ? name : { [name]: body };
+  for (const [command, script] of Object.entries(commands)) {
+    writeFileSync(path.join(directory, command), `#!/bin/sh\n${script}\n`);
+    chmodSync(path.join(directory, command), 0o755);
+  }
   const savedPath = process.env.PATH;
   process.env.PATH = onlyFake ? directory : `${directory}:${savedPath}`;
   try {
@@ -391,12 +397,84 @@ async function withFakeCommand(name, body, run, { onlyFake = false } = {}) {
     rmSync(directory, { recursive: true, force: true });
   }
 }
-const withFakeNvidiaSmi = (body, run) => withFakeCommand("nvidia-smi", body, run);
+const withFakeNvidiaSmi = (body, run) => withFakeCommand({ uname: "echo Linux", "nvidia-smi": body }, null, run);
 
 // A fake journalctl, with a pass-through timeout so this also runs where coreutils' timeout is missing (macOS).
 async function withFakeJournal(body, run) {
-  return withFakeCommand("journalctl", body, () => withFakeCommand("timeout", 'shift; exec "$@"', run));
+  return withFakeCommand({ uname: "echo Linux", journalctl: body, timeout: 'shift; exec "$@"' }, null, run);
 }
+
+test("Darwin collection uses macOS commands on any test host, with pressure and missing readings", async () => {
+  const commands = {
+    uname: "echo Darwin",
+    hostname: "echo test-node",
+    date: "echo 1790646056",
+    sysctl: `case "$2" in
+      kern.boottime) echo '{ sec = 1790642456, usec = 923980 }' ;;
+      hw.memsize) echo 34359738368 ;; hw.pagesize) echo 16384 ;;
+      machdep.cpu.brand_string) echo 'Apple M1 Pro' ;;
+      vm.swapusage) echo 'total = 1024.00M used = 307.12M free = 716.88M (encrypted)' ;;
+      vm.loadavg) echo '{ 1.40 1.75 1.95 }' ;; hw.ncpu) echo 10 ;;
+      kern.memorystatus_vm_pressure_level) echo 1 ;; kern.memorystatus_level) echo 85 ;;
+    esac`,
+    vm_stat: `printf '%s\\n' 'Mach Virtual Memory Statistics: (page size of 16384 bytes)' 'Anonymous pages: 554943.' 'Pages purgeable: 19673.' 'Pages wired down: 238561.' 'Pages occupied by compressor: 56530.'`,
+    ioreg: `case "$*" in
+      *IOAccelerator*) printf '%s\\n' '    "model" = "Apple M1 Pro"' '    "gpu-core-count" = 10' '    "PerformanceStatistics" = {"Device Utilization %"=99,"In use system memory"=1140359168,"Alloc system memory"=1872068608}' ;;
+      *AppleSmartBattery*) printf '%s\\n' '+-o AppleSmartBattery <class AppleSmartBattery>' '    | "PowerTelemetryData" = {"SystemLoad"=4198}' '    | "CurrentCapacity" = 80' '    | "ExternalConnected" = Yes' ;;
+    esac`,
+    notifyutil: "echo 'com.apple.system.thermalpressurelevel 0'",
+    df: `test "$*" = '-k /System/Volumes/Data' || exit 1; printf '%s\\n' 'Filesystem 1024-blocks Used Available Capacity Mounted' '/dev/disk1 971298980 249000000 720632152 24% /System/Volumes/Data'`,
+    pgrep: `case "$*" in '-x omlx-server') echo 42 ;; esac`,
+    ps: "echo S",
+    footprint: "echo ' phys_footprint: 1448083456 B'",
+    "nvidia-smi": "exit 9",
+  };
+  const poll = overrides => withFakeCommand({ ...commands, ...overrides }, null, () => collectNode({ id: "1", name: "GB10-is-not-hardware", host: "local", local: true }));
+  const node = await poll({});
+  assert.equal(node.ok, true, node.error ?? "");
+  assert.equal(node.incomplete, false);
+  assert.equal(node.platform, "darwin");
+  assert.equal(node.uptimeSeconds, 3600);
+  assert.equal(node.systemState, null);
+  assert.equal(node.failedUnits, 0);
+  assert.equal(node.gpu.status, "ok");
+  assert.equal(node.gpu.utilization, 99);
+  for (const field of ["temperature", "powerWatts", "clockMHz"]) assert.equal(node.gpu[field], null);
+  assert.deepEqual(node.memory, { totalBytes: 34359738368, availableBytes: 34359738368 - (554943 - 19673 + 238561 + 56530) * 16384, usedBytes: (554943 - 19673 + 238561 + 56530) * 16384, swapUsedBytes: 1073741824 - 734085 * 1024, pressureLevel: 1, freePercent: 85, compressedBytes: 56530 * 16384 });
+  assert.deepEqual(node.gpu.memory, { kind: "unified", totalBytes: node.memory.totalBytes, availableBytes: node.memory.availableBytes, usedBytes: node.memory.usedBytes, inUseBytes: 1140359168, allocatedBytes: 1872068608 });
+  assert.equal(node.gpu.cores, 10);
+  assert.deepEqual(node.power, { hasBattery: true, systemWatts: 4.198, batteryPercent: 80, onAC: true });
+  assert.equal(node.disk.totalBytes, 971298980 * 1024);
+  assert.equal(node.disk.availableBytes, 720632152 * 1024);
+  assert.equal(node.disk.usedPercent, 24);
+  assert.equal(node.inference.engine, "oMLX");
+  assert.equal(node.inferenceProcessReady, true);
+  assert.equal(node.processMemoryBytes, 1448083456);
+  assert.deepEqual(node.cpu, { load1: 1.4, load5: 1.75, load15: 1.95, cores: 10 });
+  assert.equal(node.kernelEvents.available, false);
+  assert.deepEqual(node.network, {});
+  for (let level = 0; level <= 4; level++) {
+    const thermal = await poll({ notifyutil: `echo 'com.apple.system.thermalpressurelevel ${level}'` });
+    assert.equal(thermal.thermalPressure, level);
+    assert.equal(thermal.gpu.thermalSlowdown, level >= 2);
+  }
+  const missing = await poll({ ioreg: "exit 1", vm_stat: "exit 1", notifyutil: "exit 1", pgrep: "exit 1" });
+  assert.equal(missing.ok, true);
+  assert.equal(missing.gpu.available, false);
+  assert.equal(missing.gpu.memory.kind, "unified");
+  assert.equal(missing.gpu.memory.inUseBytes, null);
+  assert.equal(missing.memory.availableBytes, null);
+  assert.equal(missing.memory.compressedBytes, null);
+  assert.equal(missing.thermalPressure, null);
+  assert.equal(missing.power.systemWatts, null);
+  assert.equal(missing.power.hasBattery, null);
+  const desktop = await poll({ ioreg: 'exit 0' });
+  assert.equal(desktop.power.hasBattery, false);
+  assert.equal(missing.inferenceProcessUp, false);
+  const inaccessible = await poll({ footprint: "exit 1", ps: "echo Z" });
+  assert.equal(inaccessible.processMemoryBytes, null);
+  assert.equal(inaccessible.inferenceProcessReady, false);
+});
 
 test("kernel errors from before a reboot are counted: the journal is read across boots, not with -k", async () => {
   const line = "1790990000.000000 spark-1 kernel: NVRM: Xid (PCI:0000:01:00): 79, GPU has fallen off the bus.";
@@ -420,10 +498,10 @@ test("a failed unit whose file is gone is not counted and does not leave the nod
   const systemctl = (failed) => `case "$1" in is-system-running) echo degraded ;; --failed) printf '%s\\n' ${failed} ;; esac`;
   const gone = "'snap-thunderbird-1261.mount not-found failed failed snap-thunderbird-1261.mount'";
   const real = "'nginx.service loaded failed failed A high performance web server'";
-  const stale = await withFakeCommand("systemctl", systemctl(gone), () => collectNode({ id: "1", name: "this", host: "local", local: true }));
+  const stale = await withFakeCommand({ uname: "echo Linux", systemctl: systemctl(gone) }, null, () => collectNode({ id: "1", name: "this", host: "local", local: true }));
   assert.equal(stale.systemState, "running");
   assert.equal(stale.failedUnits, 0);
-  const mixed = await withFakeCommand("systemctl", systemctl(`${gone} ${real}`), () => collectNode({ id: "1", name: "this", host: "local", local: true }));
+  const mixed = await withFakeCommand({ uname: "echo Linux", systemctl: systemctl(`${gone} ${real}`) }, null, () => collectNode({ id: "1", name: "this", host: "local", local: true }));
   assert.equal(mixed.systemState, "degraded");
   assert.equal(mixed.failedUnits, 1);
 });

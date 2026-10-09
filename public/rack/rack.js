@@ -119,16 +119,16 @@ function renderBay(meta, toMs, index) {
   }
   const trace = tempTrace(meta.id, toMs);
   el.innerHTML = `${head}
-    <div class="main">
-      <div class="temp">${trace.svg}<b class="num halo${view.temp !== null && Math.round(degrees(view.temp, options.temp)) >= 100 ? " triple" : ""}">${view.temp === null ? "—" : Math.round(degrees(view.temp, options.temp))}<sup>${degreeUnit(options.temp)}</sup></b></div>
+    <div class="main${view.hasTemperature ? "" : " no-temperature"}">
+      ${view.hasTemperature ? `<div class="temp">${trace.svg}<b class="num halo${view.temp !== null && Math.round(degrees(view.temp, options.temp)) >= 100 ? " triple" : ""}">${view.temp === null ? "—" : Math.round(degrees(view.temp, options.temp))}<sup>${degreeUnit(options.temp)}</sup></b></div>` : ""}
       <div class="meters">
         ${meter(t("rack.meter.gpuLoad"), `${view.load ?? "—"}%`, view.load)}
-        ${meter(view.memKind === "discrete" ? "VRAM" : view.memKind === "unified" ? "RAM" : t("rack.meter.memory"), `${view.memUsedPct ?? "—"}%`, view.memUsedPct, false, t("rack.meter.free", { free: freeLabel(view.memFreeGiB, options.mem) }))}
+        ${meter(view.memKind === "discrete" ? "VRAM" : view.memKind === "unified" ? "RAM" : t("rack.meter.memory"), `${view.memUsedPct ?? "—"}%`, view.memUsedPct, view.memWarn, t("rack.meter.free", { free: freeLabel(view.memFreeGiB, options.mem) }))}
         ${meter(t("rack.meter.disk"), `${view.diskPct ?? "—"}%`, view.diskPct, view.diskWarn, t("rack.meter.free", { free: freeLabel(view.diskFreeGiB, options.mem) }))}
       </div>
-      <div class="cap"><span class="cap-label">${t("rack.caption.gpuTemp")} </span>${t("rack.caption.range", { range: trace.range })}</div>
+      <div class="cap${view.thermalWarn ? " warn" : ""}">${view.hasTemperature ? `<span class="cap-label">${t("rack.caption.gpuTemp")} </span>${t("rack.caption.range", { range: trace.range })}` : `${t("node.reading.thermal")} ${escapeHtml(view.thermalState)}`}</div>
     </div>
-    <div class="foot"><span>${t("rack.power", { watts: f1(view.power) })}</span>${view.tsoc === null ? "" : `<span class="tsoc">TSOC ${f1(degrees(view.tsoc, options.temp))}${degreeUnit(options.temp)}</span>`}${dots}</div>`;
+    <div class="foot">${view.hasTemperature ? `<span>${t("rack.power", { watts: f1(view.power) })}</span>` : view.systemPower !== null ? `<span>${t("node.reading.systemPower")} ${f1(view.systemPower)} W</span>` : ""}${view.tsoc === null ? "" : `<span class="tsoc">TSOC ${f1(degrees(view.tsoc, options.temp))}${degreeUnit(options.temp)}</span>`}${dots}</div>`;
   fitFoot(el);
 }
 

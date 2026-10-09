@@ -1,6 +1,6 @@
 <h1 align="center">Spark Scope</h1>
 
-<p align="center">NVIDIA DGX Spark 계열 장비와 그 위에서 돌아가는 vLLM, SGLang, TensorFold, llama.cpp 또는 Strata 서버를 지켜보는<br>읽기 전용 대시보드와 랙 패널입니다.</p>
+<p align="center">NVIDIA DGX Spark 계열 장비, Apple Silicon Mac과 그 위에서 돌아가는 vLLM, SGLang, TensorFold, llama.cpp 또는 Strata 서버를 지켜보는<br>읽기 전용 대시보드와 랙 패널입니다.</p>
 
 <p align="center">
   <a href="https://github.com/juliankang4/spark-scope/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/juliankang4/spark-scope"></a>
@@ -19,7 +19,7 @@
 
 ## 소개
 
-Spark Scope는 NVIDIA DGX Spark 계열 장비(DGX Spark, ASUS Ascent GX10, MSI EdgeXpert 등 GB10 장비)와 그 위에서 실행 중인 vLLM, SGLang, TensorFold, llama.cpp 또는 Strata 서버를 모니터링합니다. 노드 한 대부터 작은 클러스터까지 쓸 수 있습니다.
+Spark Scope는 NVIDIA DGX Spark 계열 장비(DGX Spark, ASUS Ascent GX10, MSI EdgeXpert 등 GB10 장비)와 그 위에서 실행 중인 vLLM, SGLang, TensorFold, llama.cpp 또는 Strata 서버를 모니터링합니다. 노드 한 대부터 작은 클러스터까지 쓸 수 있습니다. Apple Silicon Mac도 로컬이나 SSH로 모니터링할 수 있습니다.
 
 원래는 10인치 랙에 넣은 제 4노드 링(ASUS GX10 3대와 MSI EdgeXpert 1대)을 보려고 만들었습니다. 이 저장소에는 그 대시보드를 올렸습니다. 제 호스트 이름은 지웠고 노드 1대와 2대 구성에 맞게 레이아웃을 다시 짰습니다. GX10용 2U 랙 모듈은 [MakerWorld](https://makerworld.com/en/models/3380382)에 있습니다.
 
@@ -54,7 +54,7 @@ npm 의존성 없이 Node.js 프로세스 하나로 동작합니다. 각 노드�
   ```
 
   nvm 같은 버전 관리자를 써도 됩니다. 일부 Node 버전은 시작할 때 "SQLite is an experimental feature" 경고를 띄우는데, 동작에는 문제가 없습니다.
-- 모니터링할 각 노드에는 `bash`, `nvidia-smi`, 기본 coreutils가 있는 Linux가 필요합니다. DGX OS에는 이미 다 들어 있습니다. `systemd`, `journalctl`, `docker`는 있으면 씁니다.
+- Linux 노드에는 `bash`, `nvidia-smi`, 기본 coreutils가 필요합니다. DGX OS에는 이미 다 들어 있습니다. `systemd`, `journalctl`, `docker`는 있으면 씁니다. Apple Silicon Mac은 macOS 기본 도구를 쓰며 sudo가 필요 없습니다. Mac에서 대시보드를 실행할 때는 macOS arm64용 Node.js를 설치합니다.
 - 원격 노드를 보려면 대시보드를 돌리는 머신에 SSH 클라이언트가 있어야 하고 각 노드에 key 기반 SSH로 접속할 수 있어야 합니다.
 - 추론 서버는 선택 사항입니다. 메트릭을 내보내는 vLLM(메트릭이 기본으로 켜져 있음), SGLang(`--enable-metrics`로 시작), TensorFold(메트릭이 항상 켜져 있음), llama.cpp(`llama-server`를 `--metrics`로 시작), Strata(메트릭이 항상 켜져 있음) 중 하나면 됩니다.
 
@@ -147,7 +147,7 @@ SGLang 기본 포트를 쓴다면 `SPARK_SCOPE_API_URL=http://127.0.0.1:30000`, 
 
 ### vLLM, SGLang, TensorFold, llama.cpp 또는 Strata
 
-`SPARK_SCOPE_API_URL`에 추론 서버 주소를 지정합니다. 여러 노드로 서빙한다면 API가 떠 있는 노드를 가리켜야 합니다. vLLM, TensorFold, Strata는 메트릭이 기본으로 켜져 있습니다. SGLang은 `--enable-metrics`, llama.cpp는 `--metrics`를 붙여 시작해야 합니다. llama.cpp의 진행 중 출력 속도를 보려면 기본으로 켜져 있는 `/slots`도 필요합니다. `/slots`를 끄거나 접근할 수 없으면 요청 처리 중 속도는 `unknown`으로 나옵니다. Strata를 API 키와 함께 시작했다면 대시보드가 키를 보내지 않으므로 읽을 수 없습니다. 엔진마다 일부 수치의 측정 방식이 다르거나 제공하지 않는 값이 있습니다. 그 차이는 [추론 엔진](docs/configuration.md#inference-engines) 항목에 정리했습니다. 다른 엔진도 노드 카드에서는 인식하지만 메트릭은 읽지 않습니다.
+`SPARK_SCOPE_API_URL`에 추론 서버 주소를 지정합니다. 여러 노드로 서빙한다면 API가 떠 있는 노드를 가리켜야 합니다. vLLM, TensorFold, Strata는 메트릭이 기본으로 켜져 있습니다. SGLang은 `--enable-metrics`, llama.cpp는 `--metrics`를 붙여 시작해야 합니다. llama.cpp의 진행 중 출력 속도를 보려면 기본으로 켜져 있는 `/slots`도 필요합니다. `/slots`를 끄거나 접근할 수 없으면 요청 처리 중 속도는 `unknown`으로 나옵니다. Strata를 API 키와 함께 시작했다면 대시보드가 키를 보내지 않으므로 읽을 수 없습니다. 엔진마다 일부 수치의 측정 방식이 다르거나 제공하지 않는 값이 있습니다. 그 차이는 [추론 엔진](docs/configuration.md#inference-engines) 항목에 정리했습니다. oMLX 같은 다른 엔진도 노드 카드에서는 인식하지만 메트릭은 읽지 않습니다.
 
 노드를 그룹으로 나눠 따로 서빙한다면(케이블로 연결한 노드 2대가 각자 자기 모델을 돌리거나, 4대를 2 + 2로, 3대를 2 + 1로 나눈 경우) `SPARK_SCOPE_API_URL` 대신 `topology.json`에 그룹마다 모델 서버를 적고 API와 노드를 지정합니다.
 
@@ -159,6 +159,12 @@ SGLang 기본 포트를 쓴다면 `SPARK_SCOPE_API_URL=http://127.0.0.1:30000`, 
 ```
 
 그러면 대시보드 하나에서 모든 서버를 봅니다. 상태 줄 바로 아래 띠를 서버 수만큼 나눠 서버마다 한 칸씩 보여 주고, 선과 엔진 패널도 서버마다 하나씩 붙습니다(설정에서 한 번에 하나씩만 볼 수도 있습니다). 랙 패널 하단 띠에는 칩이 표시되고 토큰 원장은 모든 서버가 하나를 함께 씁니다. 필드와 규칙은 [모델 서버](docs/topology.md#model-servers) 항목에 정리했습니다.
+
+### Apple Silicon Mac 노드
+
+저장소의 1노드 토폴로지는 Mac에서도 그대로 쓸 수 있습니다. Mac에서 `npm start`를 실행하면 로컬로 수집합니다. 원격 노드로 연결하려면 `host`에 Mac의 SSH 별칭을 넣습니다. 별도 도구나 관리자 권한은 필요 없습니다.
+
+Mac 카드에는 GPU 사용률과 시스템 공유 메모리가 나옵니다. 온도 칸에는 열 상태, 전력 칸에는 MacBook의 시스템 전력(배터리가 없으면 스왑 사용량), 클럭 칸에는 GPU 메모리 사용량이 표시됩니다. NVMe와 NIC 칸에는 각각 스왑 사용량과 압축 메모리가 나옵니다. 수집에 실패해도 칸 위치와 라벨은 유지하고 값만 알 수 없음으로 표시합니다. GPU 온도, GPU 전력, 클럭과 Linux 전용 진단은 숨깁니다. 메모리 경고는 OS의 메모리 압력 수준을 따릅니다. 시스템 전력은 약 1분마다 갱신되며 GPU 전력 합계에는 포함하지 않습니다. 자세한 내용은 [Mac 노드](docs/configuration.md#mac-nodes) 문서에 있습니다.
 
 ### 서비스로 실행
 

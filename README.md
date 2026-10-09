@@ -1,6 +1,6 @@
 <h1 align="center">Spark Scope</h1>
 
-<p align="center">A read-only dashboard and rack panel for NVIDIA DGX Spark-class machines<br>and the vLLM, SGLang, TensorFold, llama.cpp or Strata server running on them.</p>
+<p align="center">A read-only dashboard and rack panel for NVIDIA DGX Spark-class machines and Apple Silicon Macs<br>and the vLLM, SGLang, TensorFold, llama.cpp or Strata server running on them.</p>
 
 <p align="center">
   <a href="https://github.com/juliankang4/spark-scope/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/juliankang4/spark-scope"></a>
@@ -17,7 +17,7 @@
 
 ## About
 
-Spark Scope watches NVIDIA DGX Spark-class machines (DGX Spark, ASUS Ascent GX10, MSI EdgeXpert and other GB10 boxes) and the vLLM, SGLang, TensorFold, llama.cpp or Strata server running on them, from a single node to a small cluster.
+Spark Scope watches NVIDIA DGX Spark-class machines (DGX Spark, ASUS Ascent GX10, MSI EdgeXpert and other GB10 boxes) and the vLLM, SGLang, TensorFold, llama.cpp or Strata server running on them, from a single node to a small cluster. Apple Silicon Macs can also be monitored locally or over SSH.
 
 I wrote it for my own four-node ring (three ASUS GX10s and an MSI EdgeXpert) in a 10-inch rack. This repository is that dashboard with my hostnames taken out and the layout reworked for one and two nodes. The 2U rack modules for the GX10 are on [MakerWorld](https://makerworld.com/en/models/3380382).
 
@@ -52,7 +52,7 @@ More in [Web page](docs/dashboard.md) and [Rack panel](docs/rack.md). The screen
   ```
 
   A version manager such as nvm works too. Some Node versions print an "SQLite is an experimental feature" warning on start; it is harmless.
-- On each monitored node: Linux with `bash`, `nvidia-smi` and the usual coreutils. DGX OS already has everything. `systemd`, `journalctl` and `docker` are used when present.
+- On a Linux node: `bash`, `nvidia-smi` and the usual coreutils. DGX OS already has everything. `systemd`, `journalctl` and `docker` are used when present. Apple Silicon Macs use the built-in macOS tools without sudo; install the macOS arm64 build of Node.js when running the dashboard on the Mac.
 - For remote nodes: an SSH client on the dashboard machine and key-based SSH access to each node.
 - Optionally an inference server with metrics: vLLM (on by default), SGLang (start it with `--enable-metrics`), TensorFold (always on), llama.cpp (start `llama-server` with `--metrics`) or Strata (always on).
 
@@ -145,7 +145,7 @@ Optional permissions on the nodes: kernel error summaries need read access to th
 
 ### vLLM, SGLang, TensorFold, llama.cpp or Strata
 
-Point `SPARK_SCOPE_API_URL` at the inference server; in multi-node serving, at the node that hosts the API. vLLM's, TensorFold's and Strata's metrics are on by default. Start SGLang with `--enable-metrics` and llama.cpp with `--metrics`. llama.cpp also needs its default-enabled `/slots` endpoint for live output speed; with slots disabled or unavailable, that speed reads `unknown` while requests run. A Strata server started with an API key cannot be read, because the dashboard sends no key. Some engine readings are measured differently or unavailable, listed under [Inference engines](docs/configuration.md#inference-engines). Other engines are recognised on the node cards, but their metrics are not read.
+Point `SPARK_SCOPE_API_URL` at the inference server; in multi-node serving, at the node that hosts the API. vLLM's, TensorFold's and Strata's metrics are on by default. Start SGLang with `--enable-metrics` and llama.cpp with `--metrics`. llama.cpp also needs its default-enabled `/slots` endpoint for live output speed; with slots disabled or unavailable, that speed reads `unknown` while requests run. A Strata server started with an API key cannot be read, because the dashboard sends no key. Some engine readings are measured differently or unavailable, listed under [Inference engines](docs/configuration.md#inference-engines). Other engines, including oMLX, are recognised on the node cards, but their metrics are not read.
 
 When the nodes serve in separate groups (two cabled nodes each running its own model, four as 2 + 2, three as 2 + 1), list each group as a model server in `topology.json` with its API and nodes instead of setting `SPARK_SCOPE_API_URL`:
 
@@ -157,6 +157,12 @@ When the nodes serve in separate groups (two cabled nodes each running its own m
 ```
 
 One dashboard then shows every server: a strip under the status line with a segment per server, a line and an engine panel for each (or one at a time, in the settings), chips on the rack panel's band, and one token ledger for all of them. Fields and rules: [Model servers](docs/topology.md#model-servers).
+
+### Apple Silicon Mac nodes
+
+The shipped one-node topology works on a Mac too: run `npm start` on the Mac to collect it locally, or use its SSH alias as a remote node's `host`. No helper or elevated permissions are needed.
+
+Mac cards show GPU load and shared system memory. The temperature slot shows thermal state, the power slot shows whole-system power on MacBooks (swap without a battery), and the clock slot shows GPU memory in use. NVMe and NIC slots show swap use and compressed memory, without moving the selected slots. GPU temperature, GPU power, clock and Linux-only diagnostics are hidden. Memory warnings use the OS pressure level. System power refreshes about once a minute and is never counted as GPU power. Details: [Mac nodes](docs/configuration.md#mac-nodes).
 
 ### Running as a service
 

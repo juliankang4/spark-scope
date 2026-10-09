@@ -376,6 +376,30 @@ test('card readings give text, unit and warning in the chosen units', async () =
   assert.equal(readingValue('mem', { ...discrete, gpu: {} }, settings).text, 'unknown');
   assert.equal(readingValue('mem', unknown, settings).unit, '');
   assert.equal(memoryWording(['unified', 'discrete']), 'gpu');
+  const { nodeReading, hasNodeTemperature, memoryWarning, gpuPowerWatts } = await import('../public/view-data.js');
+  const mac = { ...node, platform: 'darwin', thermalPressure: 0, memory: { ...node.memory, pressureLevel: 1 }, power: { hasBattery: true, systemWatts: 4.198 }, gpu: { ...node.gpu, temperature: null, powerWatts: null, clockMHz: null, memory: { ...node.gpu.memory, inUseBytes: 1.062 * GIB } } };
+  assert.equal(nodeReading('temp', mac), 'thermal');
+  assert.equal(nodeReading('clock', mac), 'gpuInUse');
+  assert.equal(nodeReading('power', mac), 'systemPower');
+  assert.equal(nodeReading('nvme', mac), 'swap');
+  assert.equal(nodeReading('nic', mac), 'compressed');
+  assert.equal(nodeReading('power', { ...mac, power: { hasBattery: true, systemWatts: null } }), 'systemPower');
+  assert.equal(nodeReading('power', { ...mac, power: { hasBattery: false } }), 'swap');
+  assert.equal(nodeReading('power', { ...mac, power: {} }), 'systemPower');
+  assert.equal(readingValue('nvme', { ...mac, memory: { swapUsedBytes: GIB } }, settings).text, '1.0');
+  assert.equal(readingValue('nic', { ...mac, memory: { compressedBytes: GIB } }, settings).text, '1.0');
+  assert.equal(hasNodeTemperature(mac), false);
+  assert.equal(hasNodeTemperature(node), true);
+  assert.deepEqual(readingValue('temp', mac, settings), { text: 'Normal', unit: '', warn: false });
+  assert.deepEqual(readingValue('power', mac, settings), { text: '4.2', unit: 'W', warn: false });
+  assert.deepEqual(readingValue('clock', mac, settings), { text: '1.1', unit: 'GiB', warn: false });
+  assert.equal(readingValue('temp', { ...mac, thermalPressure: 2 }, settings).warn, true);
+  assert.equal(memoryWarning(mac), false);
+  for (const pressureLevel of [2, 4]) assert.equal(memoryWarning({ ...mac, memory: { availableBytes: 16 * GIB, pressureLevel } }), true);
+  assert.equal(memoryWarning({ ...mac, memory: {} }), false);
+  assert.equal(gpuPowerWatts([mac, { ok: false, gpu: { powerWatts: 30 } }]), null);
+  assert.equal(gpuPowerWatts([{ ok: true, gpu: { powerWatts: 0 } }]), 0);
+  assert.equal(gpuPowerWatts([mac, node]), node.gpu.powerWatts);
 });
 
 test('node colours: palette names or hex by position, written without # in a link', () => {

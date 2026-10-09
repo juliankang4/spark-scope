@@ -44,6 +44,15 @@ test("the demo serves the pages and moving made-up data without touching anythin
   assert.deepEqual(mixed.topology.links, fixtureState(4, "serving").topology.links);
   assert.equal(mixed.topology.nodes.length, 5);
   assert.deepEqual(mixed.servers.at(-1).nodes, ["5"]);
+  const mac = fixtureState(2, "serving", base + 8000, { macNodes: 2 });
+  assert.equal(mac.nodes["1"].platform, "darwin");
+  assert.equal(mac.nodes["1"].gpu.temperature, null);
+  assert.equal(mac.nodes["1"].gpu.memory.kind, "unified");
+  assert.ok(mac.nodes["1"].gpu.memory.inUseBytes > 0);
+  assert.equal(mac.nodes["2"].power.systemWatts, null);
+  assert.equal(mac.history.at(-1).nodes["1"].temperature, null);
+  assert.equal(mac.history.at(-1).nodes["1"].memoryAvailableBytes, mac.nodes["1"].memory.availableBytes);
+  assert.equal(mac.topology.links.length, 0);
   const tooMany = spawnSync(process.execPath, [fileURLToPath(new URL("../tools/demo.mjs", import.meta.url)), "--nodes", "8", "--discrete"], { encoding: "utf8", timeout: 2000 });
   assert.equal(tooMany.status, 2);
   assert.match(tooMany.stderr, /8 total nodes maximum/);

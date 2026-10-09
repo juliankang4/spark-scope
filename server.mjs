@@ -130,6 +130,8 @@ let lastUsageError = { message: null, at: 0 };
 // Full node collection errors go to the log when they change; the browser only gets a short reason.
 const lastNodeErrors = new Map();
 const lastGpuMemoryKinds = new Map();
+const lastNodePlatforms = new Map();
+const lastNodeBatteries = new Map();
 // Refused Host names, logged once each so a missing SPARK_SCOPE_ALLOWED_HOSTS entry is easy to spot.
 const refusedHosts = new Set();
 
@@ -199,6 +201,14 @@ async function collectNodes() {
       const definition = nodeDefinitions[index];
       const previous = state.nodes[definition.id];
       const next = snapshots[index];
+      if (next.platform) lastNodePlatforms.set(definition.id, next.platform);
+      else if (next.ok) { lastNodePlatforms.delete(definition.id); lastNodeBatteries.delete(definition.id); }
+      else if (lastNodePlatforms.has(definition.id)) next.platform = lastNodePlatforms.get(definition.id);
+      if (typeof next.power?.hasBattery === "boolean") lastNodeBatteries.set(definition.id, next.power.hasBattery);
+      if (next.platform === "darwin") {
+        next.power = { systemWatts: null, batteryPercent: null, onAC: null, ...next.power, hasBattery: next.power?.hasBattery ?? lastNodeBatteries.get(definition.id) ?? null };
+        if (!next.ok) next.gpu = { memory: { kind: lastGpuMemoryKinds.get(definition.id) ?? null, totalBytes: null, usedBytes: null, availableBytes: null } };
+      }
       const kind = next.gpu?.memory?.kind;
       if (kind) lastGpuMemoryKinds.set(definition.id, kind);
       else applyGpuMemoryFallback(next, lastGpuMemoryKinds.get(definition.id));
