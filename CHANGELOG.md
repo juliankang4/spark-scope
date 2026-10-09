@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.1.4 (2026-10-09)
+
+<p align="center"><img src="docs/changes/0.1.4/dashboard-mac-omlx.png" alt="Web dashboard with an Apple Silicon Mac node and its oMLX engine panel" width="820"></p>
+
+### Added
+
+- Apple Silicon Mac nodes, collected locally or over SSH with the built-in macOS tools and no sudo ([#45](https://github.com/juliankang4/spark-scope/pull/45)):
+  - GPU load, shared system memory, swap and compressed memory, disk and the inference process;
+  - thermal state, MacBook system power and GPU memory in use in the slots for GPU temperature, GPU power and clock;
+  - memory warnings that follow the OS memory pressure level.
+- oMLX, read from its status API ([#47](https://github.com/juliankang4/spark-scope/pull/47)):
+  - running and waiting requests, cache hit since start, and mean prefill and decode speeds of completed requests;
+  - polling never loads a model or resets oMLX's idle timer.
+- Optional engine API key, sent as a Bearer header on every engine read ([#47](https://github.com/juliankang4/spark-scope/pull/47)):
+  - `SPARK_SCOPE_API_KEY` for a single server, or `apiKeyEnv` per server in `topology.json`, naming an environment variable that holds the key;
+  - the key never reaches the pages or the logs. Nothing changes if your engine needs no key.
+- llama.cpp, from `llama-server --metrics` ([#42](https://github.com/juliankang4/spark-scope/pull/42), [#46](https://github.com/juliankang4/spark-scope/pull/46)):
+  - live output speed from `/slots` while requests run, cache hit rate, mean decode time and context used;
+  - an idle server is never woken by polling.
+- Strata, with TTFT and TPOT p95 from its histograms and context used ([#43](https://github.com/juliankang4/spark-scope/pull/43), [#46](https://github.com/juliankang4/spark-scope/pull/46)). A server that has unloaded its model reads as idle.
+- GPU memory for machines with their own VRAM, such as a workstation next to the Sparks ([#41](https://github.com/juliankang4/spark-scope/pull/41)):
+  - "GPU memory" on the node card and "VRAM" on the mini window and the rack panel;
+  - `gpu.memory` in `/api/state`; `memory` stays system RAM;
+  - `npm run demo -- --discrete` adds one to the made-up data.
+- Calendar: a switch between Output, New input + output and Total tokens, remembered in the browser ([#38](https://github.com/juliankang4/spark-scope/pull/38)).
+- Mini window in Safari and on phones: the page itself switches to the mini view, and a phone opens in it ([#35](https://github.com/juliankang4/spark-scope/pull/35)):
+  - a back arrow returns to the full dashboard;
+  - in a window at least 720 px tall, Glance, Scope and Runs stack instead of sitting behind tabs;
+  - the separate popup window for other browsers is gone; `/mini/` still works.
+- README: a prompt for installing with a coding agent, and the [dsh-spark-scope](https://github.com/juliankang4/dsh-spark-scope) plugin for the DeepSeek Harness sidebar.
+
+### Changed
+
+- The engine panel, the mini window and the rack panel hide the fields an engine never reports instead of showing `unknown` ([#46](https://github.com/juliankang4/spark-scope/pull/46)):
+  - `/api/state` adds `reported` and `metricKinds` to each inference reading;
+  - TensorFold 1.0 (native server) counts live and finished output for decode, and reads TPOT and prefill from its histograms;
+  - vLLM and SGLang hide speculative acceptance while speculative decoding is off.
+- Up to eight nodes and several model servers ([#44](https://github.com/juliankang4/spark-scope/pull/44)):
+  - the node grid fills its rows without an empty cell;
+  - the model servers share one strip under the status line;
+  - the mini window lists each server with the total;
+  - the rack panel shows bays for the first four nodes, and its band still counts every node.
+- Clearer wording on the pages and the rack panel, in English and Korean ([#36](https://github.com/juliankang4/spark-scope/pull/36)), for example "Turn orange when", "Cache hit rate" and "3 kernel errors".
+- `npm run check` holds the repository rules, and one "CI passed" check gates merges ([#39](https://github.com/juliankang4/spark-scope/pull/39)).
+
+### Fixed
+
+- A failed system service whose unit file was gone, such as the mount of a removed snap revision, kept the "failed system service" warning until a reboot ([#37](https://github.com/juliankang4/spark-scope/pull/37)).
+- On engines without latency histograms, TTFT and TPOT changed to "no requests" after the second poll ([#46](https://github.com/juliankang4/spark-scope/pull/46)).
+- The mini window's GPU power chip read 0 W when no node reported power ([#45](https://github.com/juliankang4/spark-scope/pull/45)).
+- `npm run demo -- --mode fault` failed with 7 or 8 nodes ([#44](https://github.com/juliankang4/spark-scope/pull/44)).
+
 ## 0.1.3 (2026-10-03)
 
 ### Added

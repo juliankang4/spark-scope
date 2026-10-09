@@ -57,7 +57,7 @@ When nodes serve in separate groups (two cabled nodes each running its own model
 | `id` | yes | Short unique id (letters, digits, `_`, `-`; up to 16). |
 | `name` | no | Display name. Without it the server is called by the model it serves, then by its id. |
 | `api` | yes | Base URL of that server's OpenAI-compatible API, `http://` or `https://` and without a user name or password. The dashboard reads its `/health`, `/metrics` and `/v1/models`, or `/api/status` after identifying oMLX. |
-| `apiKeyEnv` | no | Name of the environment variable that holds this server\'s optional Bearer key. Never a key value. With several servers, omitting it sends no key; a single server falls back to `SPARK_SCOPE_API_KEY`. |
+| `apiKeyEnv` | no | Name of the environment variable that holds this server's optional Bearer key. Never a key value. With several servers, omitting it sends no key; a single server falls back to `SPARK_SCOPE_API_KEY`. |
 | `nodes` | yes | The node ids it runs on. A node serves in at most one server. |
 
 Each server is judged on its own nodes: a node only needs an inference process while its own server's API serves, and a server that is switched off (no process, no API) while another serves reads as idle, not as a fault. A node in no server is watched for its hardware only. Links stay physical: a cable between two groups is still checked. Without `servers`, one server covers every node at `SPARK_SCOPE_API_URL`.

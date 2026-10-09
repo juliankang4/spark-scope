@@ -1,14 +1,11 @@
 <h1 align="center">Spark Scope</h1>
 
-<p align="center">A read-only dashboard and rack panel for NVIDIA DGX Spark-class machines and Apple Silicon Macs<br>and the vLLM, SGLang, TensorFold, llama.cpp, Strata or oMLX server running on them.</p>
+<p align="center">A read-only monitoring dashboard and rack panel for NVIDIA DGX Spark-class machines<br>and the vLLM, SGLang, TensorFold, llama.cpp, Strata or oMLX server running on them.<br>Linux machines with an NVIDIA GPU and Apple Silicon Macs running oMLX work too.</p>
 
 <p align="center">
   <a href="https://github.com/juliankang4/spark-scope/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/juliankang4/spark-scope"></a>
-  <a href="https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/juliankang4/spark-scope"></a>
-  <img alt="Node.js 22.13 or later" src="https://img.shields.io/badge/node-%E2%89%A5%2022.13-339933?logo=nodedotjs&amp;logoColor=white">
   <img alt="Engines: vLLM, SGLang, TensorFold, llama.cpp, Strata and oMLX" src="https://img.shields.io/badge/engines-vLLM%20%7C%20SGLang%20%7C%20TensorFold%20%7C%20llama.cpp%20%7C%20Strata%20%7C%20oMLX-76b900">
-  <img alt="Runs on arm64 and x64" src="https://img.shields.io/badge/arch-arm64%20%7C%20x64-blue">
 </p>
 
 <p align="center"><b>English</b> · <a href="README.ko.md">한국어</a></p>
@@ -17,30 +14,66 @@
 
 ## About
 
-Spark Scope watches NVIDIA DGX Spark-class machines (DGX Spark, ASUS Ascent GX10, MSI EdgeXpert and other GB10 boxes) and the vLLM, SGLang, TensorFold, llama.cpp, Strata or oMLX server running on them, from a single node to a small cluster. Apple Silicon Macs can be monitored locally or over SSH, with or without an inference server.
+Spark Scope watches NVIDIA DGX Spark-class machines (DGX Spark, ASUS Ascent GX10, MSI EdgeXpert and other GB10 boxes) and the inference server running on them, from a single node to a small cluster. Those machines come first. Other Linux machines with an NVIDIA GPU work as nodes too, and so do Apple Silicon Macs, locally or over SSH, with oMLX as their inference server or with none.
 
 I wrote it for my own four-node ring (three ASUS GX10s and an MSI EdgeXpert) in a 10-inch rack. This repository is that dashboard with my hostnames taken out and the layout reworked for one and two nodes. The 2U rack modules for the GX10 are on [MakerWorld](https://makerworld.com/en/models/3380382).
 
-It is one Node.js process with no npm dependencies. It polls each node (locally or over SSH), reads the inference server's metrics, keeps a token ledger in SQLite and serves two pages: the web dashboard at `/` (above) and a 1920 x 480 rack panel at `/rack/` for a bar display or a Raspberry Pi kiosk:
+It is one Node.js process with no npm dependencies. It polls each node (locally or over SSH), reads the inference server's metrics and keeps a token ledger in SQLite. It serves two pages: the web dashboard at `/` (above) and a 1920 x 480 rack panel at `/rack/` for a bar display or a Raspberry Pi kiosk:
 
 ![Rack panel with four nodes](docs/screenshots/rack-4-nodes.png)
 
-- **Read-only, no agent on the nodes.** Each poll sends a read-only shell script over SSH (or runs it locally) and parses the output. Nothing on a node or the inference server is started, stopped or changed.
-- **Unknown stays unknown.** A value that was not observed reads `unknown`, not zero. Fields an engine cannot report are hidden.
-- **Nothing from other hosts.** The pages work on a desktop, a phone and a rack display without loading anything from elsewhere.
+- It only reads, and installs nothing on the nodes. Each poll sends a read-only shell script over SSH (or runs it locally) and parses the output. Nothing on a node or the inference server is started, stopped or changed.
+- A value that was not observed reads `unknown`, never zero. Fields an engine cannot report are hidden.
+- The pages load nothing from other hosts, on a desktop, a phone or a rack display.
 
 ### What it shows
 
-- **Nodes**: GPU load, temperature, power, clock and free GPU memory (unified memory on a GB10, the card's own on a discrete GPU), with disk, CPU, NVMe and NIC temperatures, thermal zones, the inference container and kernel errors in the details.
-- **Interconnect**: each QSFP cable's two planes, traffic and state (two or more nodes).
-- **Inference**: output tok/s over 15 minutes to 6 hours, prefill and decode rates, TTFT and TPOT p95 over the last 5 minutes, cache hit, KV cache and queue.
-- **Token ledger**: one month as a statement, a calendar or charts, with a table by model and a CSV export.
-- **Mini window**: a small view for watching a model test, with runs recorded between Start and Stop. It stays on top of other windows in Chrome and Edge; in Safari and on phones the page switches to it.
-- **Rack panel**: a bay for each of the first four nodes and a band with the cluster state, model and throughput.
+- Nodes: GPU load, temperature, power, clock and free GPU memory (unified memory on a GB10, the card's own on a discrete GPU), with disk, CPU, NVMe and NIC temperatures, thermal zones, the inference container and kernel errors in the details.
+- Interconnect: each QSFP cable's two planes, traffic and state (two or more nodes).
+- Inference: output tok/s over 15 minutes to 6 hours, prefill and decode rates, TTFT and TPOT p95 over the last 5 minutes, cache hit, KV cache and queue.
+- Token ledger: one month as a statement, a calendar or charts, with a table by model and a CSV export.
+- Mini window: a small view for watching a model test, with runs recorded between Start and Stop. It stays on top of other windows in Chrome and Edge. In Safari and on phones the page itself switches to it.
+- Rack panel: a bay for each of the first four nodes and a band with the cluster state, model and throughput.
 
 More in [Web page](docs/dashboard.md) and [Rack panel](docs/rack.md). The screenshots use synthetic data from `tools/fixtures.mjs`.
 
 ## Installation
+
+### Install with a coding agent
+
+A coding agent such as Claude Code or Codex can do the setup below for you. Paste this prompt into it on the machine that will run the dashboard. It follows this README, asks you about your nodes and leaves the nodes and the inference server alone.
+
+```text
+Install Spark Scope (https://github.com/juliankang4/spark-scope) on this machine. Follow its
+README.md, sections "Installation" and "Applying it to your setup", and ask me before each choice.
+
+1. Clone the repository into ~/spark-scope, or a folder I name. Check that `node --version` is
+   22.13 or later. If it is older, stop and show me the README's "Requirements" section.
+2. Ask me how many nodes there are, and for each one whether it is this machine ("local") or
+   reached over SSH, and under which SSH alias. For two or more nodes, ask how they are cabled.
+   Write ~/.config/spark-scope/topology.json from the closest file in examples/ and show it to me.
+3. For each SSH node, check that `ssh -o BatchMode=yes <alias> true` runs without a prompt. If it
+   does not, tell me which step of "Several nodes over SSH" is missing. Do not create keys, edit
+   authorized_keys or accept host keys for me.
+4. Ask which inference server runs (vLLM, SGLang, TensorFold, llama.cpp, Strata, oMLX or none),
+   its URL, and whether it needs an API key. If it needs one, do not ask me for the key. Create
+   ~/.config/spark-scope/engine.env with mode 600 and let me add the line
+   SPARK_SCOPE_API_KEY=... myself (or the variables named by apiKeyEnv for several servers).
+5. If systemd is available, set up the user service as described in "Running as a service":
+   fill in WorkingDirectory, ExecStart (the path from `command -v node`) and the Environment=
+   lines, load engine.env with EnvironmentFile= if it exists, and keep SPARK_SCOPE_HOST=127.0.0.1
+   unless I ask otherwise. Ask me before running any command that needs sudo. Without systemd
+   (for example on macOS), give me the `npm start` command to run myself, with the key entered
+   as the README shows under "vLLM, SGLang, TensorFold, llama.cpp, Strata or oMLX".
+6. Once it runs, check `curl -s http://127.0.0.1:8787/api/health` and the last lines of the
+   log. Tell me the result and the address to open.
+
+Rules: Spark Scope only reads from the nodes and the inference server. Do not install, change,
+start or stop anything on them. Never put an API key or other secret in a command argument, a
+file you print, your messages or any output.
+```
+
+The manual steps follow.
 
 ### Requirements
 
@@ -52,7 +85,7 @@ More in [Web page](docs/dashboard.md) and [Rack panel](docs/rack.md). The screen
   ```
 
   A version manager such as nvm works too. Some Node versions print an "SQLite is an experimental feature" warning on start; it is harmless.
-- On a Linux node: `bash`, `nvidia-smi` and the usual coreutils. DGX OS already has everything. `systemd`, `journalctl` and `docker` are used when present. Apple Silicon Macs use the built-in macOS tools without sudo; install the macOS arm64 build of Node.js when running the dashboard on the Mac.
+- On a Linux node: `bash`, `nvidia-smi` and the usual coreutils. DGX OS already has everything. `systemd`, `journalctl` and `docker` are used when present. Apple Silicon Macs need only the built-in macOS tools and no sudo. To run the dashboard on a Mac, install the macOS arm64 build of Node.js.
 - For remote nodes: an SSH client on the dashboard machine and key-based SSH access to each node.
 - Optionally an inference server with metrics: vLLM (on by default), SGLang (start it with `--enable-metrics`), TensorFold (always on), llama.cpp (start `llama-server` with `--metrics`), Strata (always on) or oMLX (status API, no metrics flag).
 
@@ -64,7 +97,9 @@ cd spark-scope
 npm run demo
 ```
 
-This serves the dashboard at <http://127.0.0.1:8787/>, with the rack panel at `/rack/` and the mini window at `/mini/`, all on made-up data. `npm run demo -- --nodes 2 --mode fault` shows two nodes with a fault (modes: `serving`, `fault`, `idle`); `--servers 2` splits the nodes into two model servers (`--off` switches the last one off); `--discrete` adds a separate GPU workstation with its own VRAM after the Sparks; `--port` picks another port. Nothing is collected or written, and no other machine is contacted.
+This serves the dashboard at <http://127.0.0.1:8787/>, with the rack panel at `/rack/` and the mini window at `/mini/`, all on made-up data. Nothing is collected or written, and no other machine is contacted.
+
+Options: `npm run demo -- --nodes 2 --mode fault` shows two nodes with a fault (modes: `serving`, `fault`, `idle`). `--servers 2` splits the nodes into two model servers, and `--off` switches the last one off. `--discrete` adds a separate GPU workstation with its own VRAM after the Sparks. `--port` picks another port.
 
 ### One node: the dashboard on the Spark itself
 
@@ -91,13 +126,13 @@ Use `SPARK_SCOPE_API_URL=http://127.0.0.1:30000` for SGLang's default port and `
 
 The dashboard can run on one of the Sparks (that node uses `"host": "local"`, the others SSH) or on any other Linux or macOS machine that can reach them (every node uses SSH). Nothing is installed on the nodes: each poll sends a read-only shell script to `bash -s` over SSH and parses its output.
 
-1. **Create a dedicated key** on the dashboard machine:
+1. Create a dedicated key on the dashboard machine:
 
    ```bash
    ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_spark_scope -N "" -C spark-scope
    ```
 
-2. **Authorize it on each node** by appending one line to `~/.ssh/authorized_keys` of the account the dashboard will use, with forwarding and terminals disabled:
+2. Authorize it on each node by appending one line to `~/.ssh/authorized_keys` of the account the dashboard will use, with forwarding and terminals disabled:
 
    ```text
    no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAA...your-public-key... spark-scope
@@ -105,7 +140,7 @@ The dashboard can run on one of the Sparks (that node uses `"host": "local"`, th
 
    These options stop the key from being used for tunnels, agent forwarding or an interactive terminal. They do not limit which commands it can run: the collector needs a shell, so the key can run anything that account can. Use an account whose privileges you are comfortable with. (A forced `command="bash -s"` would not add protection, because the script arrives on stdin.)
 
-3. **Add an SSH alias** per node in `~/.ssh/config` on the dashboard machine. The alias is what `topology.json` calls `host`:
+3. Add an SSH alias per node in `~/.ssh/config` on the dashboard machine. The alias is what `topology.json` calls `host`:
 
    ```text
    Host spark-2
@@ -122,7 +157,7 @@ The dashboard can run on one of the Sparks (that node uses `"host": "local"`, th
        ControlPersist 10m
    ```
 
-4. **Accept each host key once, after checking it.** The collector runs SSH with `BatchMode=yes`, so an unknown or changed host key makes the poll fail instead of prompting. Connect once by hand and compare the fingerprint with the node's own (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the node):
+4. Accept each host key once, after checking it. The collector runs SSH with `BatchMode=yes`, so an unknown or changed host key makes the poll fail instead of prompting. Connect once by hand and compare the fingerprint with the node's own (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the node):
 
    ```bash
    ssh spark-2 true
@@ -131,7 +166,7 @@ The dashboard can run on one of the Sparks (that node uses `"host": "local"`, th
 
    Once every node is accepted, you can add `StrictHostKeyChecking yes` to the `Host` blocks, so a changed host key is refused instead of offered.
 
-5. **Describe the cluster** by copying an example to your config directory and editing it. Keeping it there means `git pull` never conflicts with your edits:
+5. Describe the cluster: copy an example to your config directory and edit it there, where `git pull` never conflicts with your edits:
 
    ```bash
    mkdir -p ~/.config/spark-scope
@@ -145,13 +180,22 @@ Optional permissions on the nodes: kernel error summaries need read access to th
 
 ### vLLM, SGLang, TensorFold, llama.cpp, Strata or oMLX
 
-Point `SPARK_SCOPE_API_URL` at the inference server; in multi-node serving, at the node that hosts the API. vLLM's, TensorFold's and Strata's metrics are on by default. Start SGLang with `--enable-metrics` and llama.cpp with `--metrics`. llama.cpp also needs its default-enabled `/slots` endpoint for live output speed; with slots disabled or unavailable, that speed reads `unknown` while requests run. An optional Bearer key comes from the dashboard process's environment, never from a URL or a key value in `topology.json`. Some engine readings are measured differently or unavailable, listed under [Inference engines](docs/configuration.md#inference-engines).
+Point `SPARK_SCOPE_API_URL` at the inference server. In multi-node serving, point it at the node that hosts the API. The engine is recognised from what the server answers, so there is nothing else to set.
 
-The engine panel and mini window show only supported fields. llama.cpp reports cache hit and mean decode time, with context use only while requests run. Strata reads TTFT and inter-token histograms from its Prometheus metrics, and its counters and start time from a second, JSON metrics request. Native TensorFold 1.0.2 counts live and finished output together for decode, with two-second health rates as a fallback and for prefill. Its parser tests replay trimmed native-server captures.
+| Engine | Setup | Not shown, or shown differently |
+|---|---|---|
+| vLLM | Metrics are on by default. | Speculative acceptance only while speculative decoding is on. |
+| SGLang | Start it with `--enable-metrics`. | Same as vLLM. |
+| TensorFold | Metrics are always on. | Native 1.0.2 exports no cache counters, so cache hit and cache read are hidden. Prefill is a two-second rate. |
+| llama.cpp | Start `llama-server` with `--metrics`. Keep `/slots` on (the default) for live output speed. | No TTFT or completed-request count. Mean decode time replaces TPOT p95, and context use replaces KV cache. |
+| Strata | Metrics are always on. | Context use replaces KV cache. |
+| oMLX | No flag needed; it reads the status API. | No live output speed, TTFT, TPOT, KV cache, cache-read speed or speculative acceptance. Prefill and decode are averages over completed requests. |
 
-oMLX 0.7.0 is identified by its open `/health` response after `/metrics` returns 404. The dashboard then reads `/api/status`: running and waiting requests, session cache hit, and mean prefill and decode speeds for completed requests. Live output speed, TTFT, TPOT, KV and speculative acceptance are hidden. These reads do not load a model or keep it from unloading. Counters are server-wide; the model label and ledger use `default_model` when at most one model is loaded.
+The engine panel and the mini window show only the fields an engine reports. How each figure is measured: [Inference engines](docs/configuration.md#inference-engines).
 
-For a single server, set `SPARK_SCOPE_API_KEY` in the environment if the engine requires a key. In a Bash terminal, this prompts without echoing the key or putting it in shell history:
+Polling never loads a model, and it does not keep an idle Strata, oMLX or llama.cpp server from unloading its model. oMLX counters cover the whole server, so the model label and the ledger use its `default_model` when at most one model is loaded.
+
+If the engine requires a key, set `SPARK_SCOPE_API_KEY` in the dashboard's environment. The key is never read from a URL or from `topology.json`. In a Bash terminal, this asks for the key without echoing it or putting it in shell history:
 
 ```bash
 read -r -s -p 'Engine API key: ' SPARK_SCOPE_API_KEY
@@ -160,7 +204,7 @@ export SPARK_SCOPE_API_KEY
 npm start
 ```
 
-The same Bearer header is sent on all engine GET polls. Use only a trusted loopback endpoint or HTTPS for keys. Without a valid key, oMLX reports `oMLX needs an API key`. A loopback-bound oMLX with no configured key needs no dashboard key; its `skip_api_key_verification` setting is another loopback-only option that also opens its admin routes. See [oMLX](docs/configuration.md#omlx).
+The key is sent as a Bearer header on every engine GET poll, so send it only to a trusted loopback address or over HTTPS. Without a valid key, oMLX reports `oMLX needs an API key`. An oMLX bound to loopback with no key configured needs no dashboard key. Its `skip_api_key_verification` setting is another loopback-only option, but it also opens the admin routes. See [oMLX](docs/configuration.md#omlx).
 
 When the nodes serve in separate groups (two cabled nodes each running its own model, four as 2 + 2, three as 2 + 1), list each group as a model server in `topology.json` with its API and nodes instead of setting `SPARK_SCOPE_API_URL`:
 
@@ -173,13 +217,13 @@ When the nodes serve in separate groups (two cabled nodes each running its own m
 
 `apiKeyEnv` is optional and names an environment variable, not a key. With several servers, a server without it sends no key; `SPARK_SCOPE_API_KEY` is not shared across them.
 
-One dashboard then shows every server: a strip under the status line with a segment per server, a line and an engine panel for each (or one at a time, in the settings), chips on the rack panel's band, and one token ledger for all of them. Fields and rules: [Model servers](docs/topology.md#model-servers).
+One dashboard then shows every server. A strip under the status line has a segment per server, and each server gets its own line on the chart and its own engine panel (the settings can show one at a time instead). The rack panel's band shows a chip per server, and one token ledger covers them all. Fields and rules: [Model servers](docs/topology.md#model-servers).
 
 ### Apple Silicon Mac nodes
 
-The shipped one-node topology works on a Mac too: run `SPARK_SCOPE_API_URL=http://127.0.0.1:8000 npm start` on the Mac to collect it locally and read oMLX on its default port. Use the environment key above if needed. For remote collection, use the Mac's SSH alias as the node's `host`. No helper or elevated permissions are needed.
+The shipped one-node topology works on a Mac too. Run `SPARK_SCOPE_API_URL=http://127.0.0.1:8000 npm start` on the Mac to collect it locally and read oMLX on its default port, with the key above if oMLX needs one. To collect a Mac from another machine, use its SSH alias as the node's `host`. No helper or elevated permissions are needed.
 
-Mac cards show GPU load and shared system memory. The temperature slot shows thermal state, the power slot shows whole-system power on MacBooks (swap without a battery), and the clock slot shows GPU memory in use. NVMe and NIC slots show swap use and compressed memory, without moving the selected slots. GPU temperature, GPU power, clock and Linux-only diagnostics are hidden. Memory warnings use the OS pressure level. System power refreshes about once a minute and is never counted as GPU power. Details: [Mac nodes](docs/configuration.md#mac-nodes).
+Mac cards show GPU load and shared system memory. macOS does not report GPU temperature, GPU power or clock without root, so those slots show other readings in the same place: thermal state, whole-system power on MacBooks (swap use on a Mac without a battery) and GPU memory in use. The NVMe and NIC slots show swap use and compressed memory. A failed poll keeps the slots and their labels in place and shows the values as unknown. Linux-only diagnostics are hidden, and memory warnings follow the OS pressure level. System power refreshes about once a minute and is never counted as GPU power. Details: [Mac nodes](docs/configuration.md#mac-nodes).
 
 ### Running as a service
 
@@ -192,11 +236,25 @@ journalctl --user -u spark-scope -f
 sudo loginctl enable-linger "$USER"   # keep it running without a login session
 ```
 
-To update later, `git pull --ff-only` and restart the service. Your topology in `~/.config/spark-scope/` and the ledger in `~/.local/share/spark-scope/` stay as they are; [CHANGELOG.md](CHANGELOG.md) notes anything a release asks you to change.
+Keep an engine API key out of the unit file. Put the line `SPARK_SCOPE_API_KEY=...` in a file only your account can read (`chmod 600`), for example `~/.config/spark-scope/engine.env`, and load it with `EnvironmentFile=%h/.config/spark-scope/engine.env` in the `[Service]` section.
+
+To update later, run `git pull --ff-only` and restart the service. Your topology in `~/.config/spark-scope/` and the ledger in `~/.local/share/spark-scope/` stay as they are. [CHANGELOG.md](CHANGELOG.md) notes anything a release asks you to change.
 
 ### Rack panel kiosk
 
-A Raspberry Pi with a bar display can show `/rack/` full screen from boot: `kiosk/` has the script, the autostart entry and a labwc rule that hides the pointer. The Pi can run the dashboard itself or show one that runs elsewhere. Steps, display sizes and address options: [Rack panel](docs/rack.md#raspberry-pi-kiosk).
+A Raspberry Pi with a bar display can show `/rack/` full screen from boot. `kiosk/` has the script, the autostart entry and a labwc rule that hides the pointer. The Pi can run the dashboard itself or show one that runs elsewhere. Steps, display sizes and address options: [Rack panel](docs/rack.md#raspberry-pi-kiosk).
+
+## DeepSeek Harness plugin (dsh-spark-scope)
+
+[dsh-spark-scope](https://github.com/juliankang4/dsh-spark-scope) puts the Glance view of the mini window in the left sidebar of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh), so you can watch the nodes and the model server while you work. It works in the browser (`dsh web`) and in the Desktop app.
+
+<p align="center"><img src="docs/screenshots/dsh-spark-scope.png" alt="DeepSeek Harness with the Spark Scope card at the bottom of the left sidebar, showing decode and prefill rates and four nodes" width="820"></p>
+
+```bash
+dsh plugin --profile web add dsh-spark-scope
+```
+
+Then open the Spark Scope tab in the dsh settings and enter the dashboard's address. dsh fetches the data itself, so the address must work from the computer that runs dsh. A name other than localhost, an IP address or the dashboard machine's own hostname has to be added to `SPARK_SCOPE_ALLOWED_HOSTS`. The plugin only reads `/api/state`. Setup and details are in its [README](https://github.com/juliankang4/dsh-spark-scope#readme).
 
 ## Settings
 
@@ -204,13 +262,13 @@ A Raspberry Pi with a bar display can show `/rack/` full screen from boot: `kios
 
 The gear button opens the settings:
 
-- **Node card**: the four readings and their order, the bars, full or short labels, the levels that turn a reading orange.
-- **Colors**: a colour per node, from the palette or custom.
-- **Units**: °C or °F, GiB or GB, a 24- or 12-hour clock.
-- **Dashboard**: English or Korean, which panels to show, the chart range, the refresh interval, the design (Default, Console or Soft) and the theme.
-- **Rack panel**: band motion and the kiosk URL with the current settings.
+- Node card: the four readings and their order, the bars, full or short labels, the levels that turn a reading orange.
+- Colors: a colour per node, from the palette or custom.
+- Units: °C or °F, GiB or GB, a 24- or 12-hour clock.
+- Dashboard: English or Korean, which panels to show, the chart range, the refresh interval, the design (Default, Console or Soft) and the theme.
+- Rack panel: band motion and the kiosk URL with the current settings.
 
-They are kept per browser; "Copy settings link" carries them to another one. Details: [Web page](docs/dashboard.md#settings).
+They are kept per browser, and "Copy settings link" carries them to another one. Details: [Web page](docs/dashboard.md#settings).
 
 The server itself is set with environment variables. The ones most setups need:
 
@@ -226,20 +284,21 @@ All of them, including the ledger's time zone and the poll intervals: [Configura
 
 ## Security
 
-- **No authentication and no TLS.** Anyone who can reach the port can see node names, SSH aliases, model names, kernel error messages and token counts.
-- **Localhost by default.** The server binds to `127.0.0.1`. Use SSH port forwarding, or expose it on a LAN or a private overlay network such as Tailscale only if you trust everyone on it. Do not expose it to the internet; if you need remote access with authentication, put it behind a reverse proxy that provides it.
-- **Only its own host names.** Requests whose `Host` header names another site are refused (HTTP 403), so a web page elsewhere cannot point its own domain at this machine (DNS rebinding) and read the API through a visitor's browser. localhost, IP addresses and this machine's hostname work out of the box; add other names, such as a reverse proxy's, with `SPARK_SCOPE_ALLOWED_HOSTS`.
-- **No outside resources.** Every response carries a Content-Security-Policy that allows only the server's own scripts, styles, fonts and requests, and forbids framing.
-- **The SSH key can run commands** as the account it logs in to. Use a dedicated key, the `authorized_keys` options above and an account you are comfortable with.
+- There is no authentication and no TLS. Anyone who can reach the port can see node names, SSH aliases, model names, kernel error messages and token counts.
+- The server binds to `127.0.0.1` by default. Use SSH port forwarding, or open it on a LAN or a private overlay network such as Tailscale only if you trust everyone on it. Do not expose it to the internet. For remote access with authentication, put it behind a reverse proxy that provides it.
+- Requests whose `Host` header names another site are refused (HTTP 403). A web page elsewhere therefore cannot point its own domain at this machine (DNS rebinding) and read the API through a visitor's browser. localhost, IP addresses and this machine's hostname work out of the box. Add other names, such as a reverse proxy's, with `SPARK_SCOPE_ALLOWED_HOSTS`.
+- Every response carries a Content-Security-Policy that allows only the server's own scripts, styles, fonts and requests, and forbids framing.
+- The SSH key can run any command the account it logs in to can run. Use a dedicated key, the `authorized_keys` options above and an account you are comfortable with.
+- An engine API key stays in the server. It is not sent to the pages or written to the logs.
 
 To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Limitations
 
-- Only the first GPU reported by `nvidia-smi` is shown per node, its VRAM included; a machine with several GPUs shows GPU 0. GB10 systems have one.
-- TSOC/TS1P temperatures and the A/B plane layout are specific to DGX Spark-class hardware. Other Linux machines with an NVIDIA GPU mostly work, but those parts read `unknown` or need a matching topology.
+- Only the first GPU reported by `nvidia-smi` is shown per node, its VRAM included, so a machine with several GPUs shows GPU 0. GB10 systems have one.
+- TSOC and TS1P temperatures and the A/B plane layout are specific to DGX Spark-class hardware. On other Linux machines with an NVIDIA GPU those parts read `unknown` or need a matching topology.
 - Native TensorFold parser tests replay captured metrics; they do not cover a live dashboard connection to that server.
-- Charts are kept in memory for six hours and reset when the server restarts or the served model changes. The token ledger is kept on disk and adds up counter increases; how it handles restarts: [Token ledger](docs/dashboard.md#token-ledger).
+- Charts are kept in memory for six hours and reset when the server restarts or the served model changes. The token ledger is kept on disk and adds up counter increases. How it handles restarts: [Token ledger](docs/dashboard.md#token-ledger).
 
 ## Contributing
 

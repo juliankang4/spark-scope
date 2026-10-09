@@ -24,6 +24,8 @@ Environment=SPARK_SCOPE_API_URL=http://127.0.0.1:8000
 #Environment=SPARK_SCOPE_TOPOLOGY=%h/.config/spark-scope/topology.json
 #Environment=SPARK_SCOPE_USAGE_DB=%h/.local/share/spark-scope/usage.sqlite
 #Environment=SPARK_SCOPE_TIME_ZONE=Etc/UTC
+# An engine API key goes in a file only you can read (chmod 600) with the line SPARK_SCOPE_API_KEY=...
+#EnvironmentFile=%h/.config/spark-scope/engine.env
 
 # ssh forwards LC_ALL; if a node lacks that locale, every poll prints a locale warning.
 UnsetEnvironment=LC_ALL
