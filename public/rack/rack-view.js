@@ -283,7 +283,7 @@ export function clusterView(state, { fetchFailed = false, lastReceivedAt = null,
     waiting,
     out: inference?.ok && finite(inference.outputTokensPerSecond) ? inference.outputTokensPerSecond : null,
     todayTotal: state?.usage?.today?.total ?? null,
-    todayRequests: state?.usage?.today?.requests ?? null,
+    todayRequests: state?.usage?.reported?.requests === false ? null : state?.usage?.today?.requests ?? null,
   };
   if (fetchFailed) {
     const time = lastReceivedAt ? clockTime(lastReceivedAt, { ...clock, seconds: true }) : t("rack.cluster.never");

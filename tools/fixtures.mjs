@@ -223,7 +223,7 @@ export function usageMonth(month, nowMs, { start } = {}) {
 }
 
 // servers: split the nodes into that many model servers; offGroup: the last one is switched off (no process, no API).
-export function fixtureState(count, mode, nowMs = Date.now(), { longNames = false, servers = 0, offGroup = false, gpuWorkstations = 0, macNodes = 0, macThermal = null, macUnavailable = false, macPending = false, macPowerMissing = false } = {}) {
+export function fixtureState(count, mode, nowMs = Date.now(), { longNames = false, servers = 0, offGroup = false, gpuWorkstations = 0, engine = "vLLM", engineIdle = false, engineDown = false, noSpec = false, macNodes = 0, macThermal = null, macUnavailable = false, macPending = false, macPowerMissing = false } = {}) {
   const topology = topologyFor(count, { longNames, servers, gpuWorkstations, macNodes });
   const fault = mode === "fault" ? FAULTS[count] : {};
   const nodeId = (id) => (longNames ? longId(id) : id);
@@ -247,12 +247,52 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
     ? {
       ok: true, engine: macNodes === count && !gpuWorkstations ? "llama.cpp" : "vLLM", modelName: longNames ? "example-org/Example-Reasoning-Model-70B-Instruct-FP8-Dynamic" : "example-model", latencyMs: 3,
       outputTokensPerSecond: 61.3, promptTokensPerSecond: 2950, promptComputeTokensPerSecond: 2104, promptCacheTokensPerSecond: 846,
+      reported: { outputTokensPerSecond: true, promptTokensPerSecond: true, promptComputeTokensPerSecond: true, promptCacheTokensPerSecond: true, prefixCacheHitPercent: true, speculativeAcceptancePercent: true, requests: true, kvCachePercent: true, ttftP95RecentSeconds: true, tpotP95RecentSeconds: true, meanDecodeSeconds: false },
+      metricKinds: {}, meanDecodeSeconds: null,
       prefixCacheHitPercent: 41.2, speculativeAcceptancePercent: 0, kvCachePercent: 12.5, tpotP95Seconds: 0.028, ttftP95Seconds: 0.42, tpotP95RecentSeconds: 0.031, ttftP95RecentSeconds: 0.51, latencyWindowSeconds: 300,
       runningRequests: 2, waitingRequests: 0, updatedAt: new Date(nowMs).toISOString(), error: null,
       // New prefills complete in one poll out of six, so the mini window shows prefill bursts between decoding.
       prefillUpdatedAt: new Date(Math.floor(nowMs / 12_000) * 12_000).toISOString(),
     }
     : { ok: false, updatedAt: new Date(nowMs).toISOString(), error: "fetch failed" };
+  if (apiUp && engine !== "vLLM") {
+    inference.engine = engine;
+    inference.speculativeAcceptancePercent = null;
+    inference.reported.speculativeAcceptancePercent = false;
+    if (["llama.cpp", "Strata", "TensorFold"].includes(engine)) {
+      inference.metricKinds.kvCachePercent = "context";
+      inference.kvCachePercent = engineIdle ? (engine === "TensorFold" ? 0 : null) : 32;
+      inference.reported.kvCachePercent = true;
+    }
+    if (engine === "llama.cpp") {
+      inference.ttftP95Seconds = inference.tpotP95Seconds = inference.ttftP95RecentSeconds = inference.tpotP95RecentSeconds = null;
+      inference.reported.ttftP95RecentSeconds = inference.reported.tpotP95RecentSeconds = false;
+      inference.reported.meanDecodeSeconds = true;
+      inference.meanDecodeSeconds = 0.018;
+      inference.metricKinds.prefixCacheHitPercent = "sinceStart";
+    }
+    if (engine === "Strata") {
+      inference.metricKinds.ttftP95RecentSeconds = "queueExcluded";
+      inference.metricKinds.tpotP95RecentSeconds = "tokenWeightedMean";
+      if (!engineIdle) {
+        inference.metricKinds.promptTokensPerSecond = inference.metricKinds.promptComputeTokensPerSecond = "request";
+        inference.promptTokensPerSecond = inference.promptComputeTokensPerSecond;
+      }
+    }
+    if (engine === "TensorFold") {
+      inference.prefixCacheHitPercent = inference.promptCacheTokensPerSecond = null;
+      inference.reported.prefixCacheHitPercent = inference.reported.promptCacheTokensPerSecond = false;
+      inference.metricKinds.promptTokensPerSecond = inference.metricKinds.promptComputeTokensPerSecond = "twoSecond";
+      inference.metricKinds.tpotP95RecentSeconds = "requestMean";
+    }
+  }
+  if (apiUp && noSpec) { inference.speculativeAcceptancePercent = null; inference.reported.speculativeAcceptancePercent = false; }
+  if (apiUp && engineIdle) {
+    inference.outputTokensPerSecond = 0;
+    inference.runningRequests = 0;
+    if (engine === "TensorFold") { inference.promptTokensPerSecond = inference.promptComputeTokensPerSecond = 0; inference.prefillUpdatedAt = null; }
+  }
+  if (apiUp && engineDown) inference.ok = false;
   // Later servers run a smaller model at lower rates; in "fault" the second server's API does not answer either.
   const down = { ok: false, updatedAt: new Date(nowMs).toISOString(), error: "fetch failed" };
   const readings = groups.map((group, k) => {
@@ -281,7 +321,7 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
     serving: serverList[0].serving,
     history: history(topology, nowMs, { serving: readings.map((reading) => reading.ok), unreachable, sparkCount: count }),
     historyStats: { activeOutputTokensPerSecond: apiUp ? 54.8 : null, activeSamples: apiUp ? 280 : 0, windowMinutes: 60 },
-    usage: { persistent: true, timeZone: "UTC", day: month.day, modelName: "example-model", today, error: null },
+    usage: { persistent: true, timeZone: "UTC", day: month.day, modelName: "example-model", today, reported: { input: true, compute: true, cache: engine !== "TensorFold", output: true, requests: !["llama.cpp", "TensorFold"].includes(engine) }, error: null },
     startedAt: new Date(nowMs - 3 * 3600_000).toISOString(),
     updatedAt: new Date(nowMs).toISOString(),
   }, { pollIntervals: { nodeMs: 5000, apiMs: 2000 }, version: VERSION, rackSeenAt: null });

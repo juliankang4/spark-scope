@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import {
   applyNetworkRates,
   applyGpuMemoryFallback,
@@ -612,7 +613,13 @@ async function withFakeEngine(metricsText, run) {
   const requested = [];
   const server = http.createServer((request, response) => {
     requested.push(request.url);
-    if (request.url === "/metrics") { response.writeHead(200, { "content-type": "text/plain" }); response.end(body); return; }
+    assert.equal(request.method, "GET");
+    if (request.url === "/metrics") {
+      assert.ok(["text/plain", "application/json"].includes(request.headers.accept));
+      const json = request.headers.accept === "application/json";
+      const content = typeof body === "string" ? body : json ? JSON.stringify(body.json) : body.text;
+      response.writeHead(200, { "content-type": json ? "application/json" : "text/plain" }); response.end(content); return;
+    }
     if (request.url === "/slots") {
       const status = slotsStatus, payload = JSON.stringify(slots);
       setTimeout(() => { response.writeHead(status, { "content-type": "application/json" }); response.end(payload); }, slotsDelayMs);
@@ -640,7 +647,13 @@ test("llama.cpp b11193 reads slots only while requests run and keeps completed c
   assert.deepEqual(Object.keys(fixture), ["metrics", "health", "models"]);
   assert.deepEqual(Object.keys(fixture.models.data[0]), ["id"]);
   const { InferenceCollector } = await import("../lib/collectors.mjs");
-  const { LlamacppSlots } = await import("../lib/engines/llamacpp.mjs");
+  const { LlamacppSlots, slotContextPercent, holdLlamacppAverages } = await import("../lib/engines/llamacpp.mjs");
+  assert.ok(Math.abs(slotContextPercent([{ is_processing: true, n_ctx: 100, n_prompt_tokens: 20, next_token: [{ n_decoded: 10 }] }, { is_processing: true, n_ctx: 200, n_prompt_tokens: 80, next_token: [{ n_decoded: 20 }] }, { is_processing: false, n_ctx: 100, n_prompt_tokens: 90 }]) - 30) < 1e-9);
+  assert.equal(slotContextPercent([{ is_processing: true, n_ctx: 4096, n_prompt_tokens: 124, next_token: [{ n_decoded: 100 }] }]), 124 / 4096 * 100);
+  assert.equal(slotContextPercent([{ is_processing: true, n_ctx: 100, n_prompt_tokens: 40 }]), 40);
+  const cachePolls = [[1000, 0], [1000, 8000], [3000, 8000], [3000, 8000], [0, 0], [null, 8000]];
+  assert.deepEqual(cachePolls.map(([promptComputeTotal, promptCacheTotal]) => holdLlamacppAverages({ promptComputeTotal, promptCacheTotal }, null).prefixCacheHitPercent), [0, 8000 / 9000 * 100, 8000 / 11000 * 100, 8000 / 11000 * 100, null, null]);
+  assert.equal(slotContextPercent([{ is_processing: true, n_ctx: 0 }]), null);
   const idleSlots = [{ id: 0, is_processing: false }, { id: 1, is_processing: false }];
   const slot = (id, task, decoded) => ({ id, id_task: task, is_processing: true, next_token: [{ n_decoded: decoded }] });
   const liveRate = new LlamacppSlots();
@@ -673,9 +686,16 @@ test("llama.cpp b11193 reads slots only while requests run and keeps completed c
     assert.equal(slotRequests(), 0, "an idle poll does not request /slots, which would wake a sleeping llama-server");
     assert.equal(first.runningRequests, 0);
     assert.equal(first.waitingRequests, 0);
-    for (const key of ["completedRequestsTotal", "ttftP95Seconds", "tpotP95Seconds", "kvCachePercent", "prefixCacheHitPercent"]) assert.equal(first[key], null, key);
+    assert.equal(first.reported.ttftP95RecentSeconds, false);
+    assert.equal(first.reported.tpotP95RecentSeconds, false);
+    assert.equal(first.reported.meanDecodeSeconds, true);
+    assert.equal(first.reported.kvCachePercent, true);
+    assert.equal(first.prefixCacheHitPercent, 0);
+    assert.equal(first.metricKinds.prefixCacheHitPercent, "sinceStart");
+    for (const key of ["completedRequestsTotal", "ttftP95Seconds", "tpotP95Seconds", "kvCachePercent"]) assert.equal(first[key], null, key);
     const activeMetrics = fixture.metrics
       .replace("llamacpp:tokens_predicted_total 120", "llamacpp:tokens_predicted_total 140")
+      .replace(/llamacpp:tokens_predicted_seconds_total ([\d.]+)/, (_, seconds) => `llamacpp:tokens_predicted_seconds_total ${Number(seconds) + 0.4}`)
       .replace("llamacpp:prompt_tokens_total 25", "llamacpp:prompt_tokens_total 45")
       .replace("llamacpp:prompt_tokens_cached_total 0", "llamacpp:prompt_tokens_cached_total 5")
       .replace("llamacpp:prompt_seconds_total 2.88704", "llamacpp:prompt_seconds_total 4.88704")
@@ -684,7 +704,7 @@ test("llama.cpp b11193 reads slots only while requests run and keeps completed c
       .replace("llamacpp:spec_decode_num_draft_tokens_total 0", "llamacpp:spec_decode_num_draft_tokens_total 40")
       .replace("llamacpp:spec_decode_num_accepted_tokens_total 0", "llamacpp:spec_decode_num_accepted_tokens_total 30");
     setMetrics(activeMetrics);
-    setSlots([slot(0, 7, 15), idleSlots[1]], 200, 500);
+    setSlots([{ ...slot(0, 7, 15), n_ctx: 100, n_prompt_tokens: 35 }, idleSlots[1]], 200, 500);
     setModels(fixture.models.data, 300);
     collector.llamacppSlots.previous.at -= 1000;
     const polled = requested.length;
@@ -700,11 +720,19 @@ test("llama.cpp b11193 reads slots only while requests run and keeps completed c
     assert.equal(next.runningRequests, 1);
     assert.equal(next.waitingRequests, 2);
     assert.equal(next.speculativeAcceptancePercent, 75);
-    assert.equal(next.prefixCacheHitPercent, null);
+    assert.equal(next.prefixCacheHitPercent, 10);
+    assert.ok(Math.abs(next.meanDecodeSeconds - 0.02) < 1e-9);
+    assert.equal(next.kvCachePercent, 35);
+    assert.equal(next.reported.kvCachePercent, true);
+    assert.equal(next.latencyWindowSeconds, 0);
     setSlots([slot(0, 7, 20), idleSlots[1]]);
     collector.llamacppSlots.previous.at -= 1000;
     const decoding = await collector.collect();
     assert.equal(decoding.generationTokensTotal, next.generationTokensTotal);
+    assert.equal(decoding.meanDecodeSeconds, next.meanDecodeSeconds);
+    assert.equal(decoding.prefixCacheHitPercent, next.prefixCacheHitPercent);
+    assert.equal(decoding.reported.kvCachePercent, true);
+    assert.equal(decoding.kvCachePercent, null);
     assert.ok(decoding.outputTokensPerSecond > 0 && decoding.outputTokensPerSecond <= 5);
     setMetrics(activeMetrics.replace("llamacpp:tokens_predicted_total 140", "llamacpp:tokens_predicted_total 640").replace("llamacpp:requests_processing 1", "llamacpp:requests_processing 0"));
     setSlots(idleSlots);
@@ -734,16 +762,19 @@ test("llama.cpp b11193 reads slots only while requests run and keeps completed c
     assert.equal(older.promptTokensTotal, 25);
     assert.equal(older.promptComputeTokensTotal, 25);
     assert.equal(older.promptCacheTokensTotal, null);
+    assert.equal(older.reported.prefixCacheHitPercent, false);
+    assert.equal(older.prefixCacheHitPercent, null);
     setMetrics(fixture.metrics.replace("llamacpp:tokens_predicted_total 120", "llamacpp:tokens_predicted_total 0").replace("llamacpp:requests_processing 0", "llamacpp:requests_processing 1"));
     setSlots([slot(0, 99, 1), idleSlots[1]]);
     const reset = await collector.collect();
     assert.equal(reset.outputTokensPerSecond, null);
     assert.equal(reset.completedRequestsTotal, null);
+    assert.equal(reset.meanDecodeSeconds, null);
     assert.equal(slotRequests(), 6, "only the six polls with running requests requested /slots");
   });
 });
 
-test("Strata 0.1.41 captured JSON maps counters and live state from /metrics alone, with latency and KV usage unknown", async () => {
+test("Strata 0.1.41 captured JSON remains a fallback without latency histograms", async () => {
   const { readFileSync } = await import("node:fs");
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/strata-v0.1.41.json", import.meta.url), "utf8"));
   assert.deepEqual(Object.keys(fixture), ["idle", "running", "completed"]);
@@ -779,6 +810,8 @@ test("Strata 0.1.41 captured JSON maps counters and live state from /metrics alo
     assert.equal(completed.outputTokensPerSecond, 0, "the finished request's decode rate is not kept");
     assert.equal(completed.prefixCacheHitPercent, 0, "requests[].hit_rate belongs to the expert cache");
     assert.equal(completed.speculativeAcceptancePercent, 100);
+    assert.equal(completed.latencyWindowSeconds, 0);
+    assert.equal(completed.reported.ttftP95RecentSeconds, false);
     for (const key of ["ttftP95Seconds", "tpotP95Seconds", "kvCachePercent"]) assert.equal(completed[key], null, key);
     const next = (live, totals) => ({ ...fixture.completed, live: { ...fixture.completed.live, ...live }, totals: { ...fixture.completed.totals, ...totals } });
     const reused = await poll(next({}, { requests: 2, prompt_tokens: 64, reused: 16, prompt_ms: 627.3 }));
@@ -806,6 +839,72 @@ test("Strata 0.1.41 captured JSON maps counters and live state from /metrics alo
     assert.equal((await poll("{}")).error, "unsupported metrics JSON format");
     assert.equal((await poll({ ...fixture.idle, live: {} })).error, "unsupported metrics JSON format");
     assert.equal(requested.includes("/slots"), false, "a Strata poll reads /health, /metrics and /v1/models only");
+  });
+});
+
+test("Strata Prometheus reads histograms and keeps its JSON ledger epoch across format changes", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { InferenceCollector } = await import("../lib/collectors.mjs");
+  const text = readFileSync(new URL("./fixtures/strata-v0.1.41-prometheus.txt", import.meta.url), "utf8");
+  assert.equal(metricsEngine(parsePrometheus(text)), "Strata", "strata: families take precedence over its vllm: aliases");
+  const json = JSON.parse(readFileSync(new URL("./fixtures/strata-v0.1.41.json", import.meta.url), "utf8"));
+  const { UsageStore } = await import("../lib/usage-store.mjs");
+  const store = new UsageStore(":memory:", { timeZone: "UTC" });
+  await withFakeEngine(JSON.stringify(json.idle), async (base, setMetrics, _health, _models, _slots, requested) => {
+    let collector = new InferenceCollector(base);
+    const at = Date.parse("2026-10-09T00:00:00Z");
+    store.record(await collector.collect(), at);
+    setMetrics(JSON.stringify(json.completed));
+    const booked = store.record(await collector.collect(), at + 1000).today;
+    assert.equal(booked.output, 64);
+    collector = new InferenceCollector(base);
+    const setPrometheus = (body, metadata = json.completed) => setMetrics({ text: body, json: metadata });
+    setPrometheus(text);
+    const first = await collector.collect();
+    assert.equal(first.engine, "Strata");
+    assert.equal(first.outputTokensPerSecond, 148);
+    assert.equal(first.promptComputeTokensPerSecond, 201.5);
+    assert.equal(first.metricKinds.promptComputeTokensPerSecond, "request");
+    assert.equal(first.promptComputeTokensTotal, 24);
+    assert.equal(first.promptCacheTokensTotal, 0);
+    assert.equal(first.completedRequestsTotal, 1);
+    assert.equal(first.kvCachePercent, 8.59);
+    assert.ok(first.ttftP95Seconds > 0.1 && first.ttftP95Seconds <= 0.25);
+    assert.ok(first.tpotP95Seconds > 0.001 && first.tpotP95Seconds <= 0.005);
+    assert.equal(first.reported.ttftP95RecentSeconds, true);
+    assert.equal(first.reported.tpotP95RecentSeconds, true);
+    assert.equal(first.processStartedAt, "2026-10-08T15:26:37.121Z");
+    assert.deepEqual(store.record(first, at + 2000).today, booked, "a dashboard restart and JSON-to-Prometheus switch do not rebook completed tokens");
+    const { sampleOf, phaseOf } = await import("../public/mini/mini-view.js");
+    await new Promise(resolve => setTimeout(resolve, 10));
+    const streaming = await collector.collect();
+    assert.equal(phaseOf(sampleOf({ inference: streaming }, Date.parse(streaming.updatedAt), Date.parse(first.updatedAt))), "decode", "a held live prompt rate does not mark every generating poll as prefill");
+    const reading = text.replace(/(strata:live_state\{[^}]*state="generating"\}) 1/, "$1 0").replace(/(strata:live_state\{[^}]*state="reading"\}) 0/, "$1 1");
+    setPrometheus(reading);
+    const prefill = await collector.collect();
+    assert.equal(prefill.outputTokensPerSecond, null, "a reading state must not turn a coerced gauge into measured decode");
+    assert.equal(prefill.prefillUpdatedAt, prefill.updatedAt, "the reading state still records live prefill activity");
+    const unloaded = reading.replace(/(strata:live_state\{[^}]*state="reading"\}) 1/, "$1 0").replace(/(strata:live_state\{[^}]*state="unloaded"\}) 0/, "$1 1");
+    setPrometheus(unloaded);
+    const idle = await collector.collect();
+    assert.equal(idle.outputTokensPerSecond, 0);
+    assert.equal(idle.kvCachePercent, null);
+    assert.equal(idle.reported.kvCachePercent, true);
+    assert.equal(requested.filter(path => path === "/metrics").length, 10);
+    setPrometheus(text, null);
+    const unavailable = await collector.collect();
+    assert.equal(unavailable.ok, false);
+    assert.match(unavailable.error, /counter start time unavailable/);
+    assert.deepEqual(store.record(unavailable, at + 3000).allTime, booked);
+    setPrometheus(text);
+    assert.deepEqual(store.record(await collector.collect(), at + 4000).today, booked);
+    const restarted = { ...json.completed, totals: { ...json.completed.totals, since: json.completed.totals.since + 60, output_tokens: 10 } };
+    setPrometheus(text, restarted);
+    assert.equal(store.record(await collector.collect(), at + 5000).today.output, 74, "an engine restart between the two scrapes uses counters from the same response as the epoch");
+    setMetrics(JSON.stringify(restarted));
+    assert.equal(store.record(await collector.collect(), at + 6000).today.output, 74, "the reverse format switch keeps that run");
+    store.close();
+    assert.ok(requested.every(path => ["/metrics", "/health", "/v1/models", "/v1/models replied"].includes(path)), "no load, unload, slots or generation endpoint");
   });
 });
 
@@ -844,6 +943,7 @@ test("vLLM data-parallel engines are added up, and metrics an engine does not ex
     assert.equal(first.baseUrl, undefined);
     // One sample cannot give a rate, and these metrics are simply not exported here.
     assert.equal(first.outputTokensPerSecond, null);
+    assert.equal(first.reported.speculativeAcceptancePercent, false);
     for (const key of ["promptComputeTokensTotal", "promptCacheTokensTotal", "kvCachePercent", "prefixCacheHitPercent", "speculativeAcceptancePercent"]) {
       assert.equal(first[key], null, key);
     }
@@ -862,6 +962,10 @@ test("process memory nvidia-smi does not report stays unknown", () => {
 test("SGLang's live decode rate comes from its throughput gauge while requests run, not from the finish-time counter", async () => {
   const { sglangDecodeRate, InferenceCollector } = await import("../lib/collectors.mjs");
   const gauges = (throughput, running) => parsePrometheus(`sglang:gen_throughput{tp_rank="0"} ${throughput}\nsglang:num_running_reqs{tp_rank="0"} ${running}\n`);
+  const { readEngineMetrics } = await import("../lib/engines/index.mjs");
+  const beforeRequests = readEngineMetrics("SGLang", gauges(0, 0));
+  assert.equal(beforeRequests.reported.ttftP95RecentSeconds, true);
+  assert.equal(beforeRequests.reported.tpotP95RecentSeconds, true);
   assert.equal(sglangDecodeRate(gauges(84.3, 2), 0), 84.3);
   // The gauge keeps its last value when idle; with nothing running there is no decode.
   assert.equal(sglangDecodeRate(gauges(84.3, 0), 0), 0);
@@ -888,7 +992,17 @@ test("SGLang's live decode rate comes from its throughput gauge while requests r
 });
 
 // TensorFold's scrape as its server renders it: its own families, then the same readings under vLLM's names.
-function tensorfoldScrape({ finished = 50, prompt = 1000, streams = [0.5, 0.25] } = {}) {
+const tensorfoldNative = JSON.parse(readFileSync(new URL("./fixtures/tensorfold-v1.0.2.json", import.meta.url), "utf8"));
+
+function tensorfoldScrape({ finished, prompt, streams = [0.5, 0.25], modern = false, runningTokens = 80 } = {}) {
+  finished ??= modern ? 10848 : 50;
+  prompt ??= modern ? 2032 : 1000;
+  if (modern) return tensorfoldNative.metrics
+    .replace(/(tensorfold:generation_tokens_total) \d+/, `$1 ${finished}`)
+    .replace(/(tensorfold:prompt_tokens_total) \d+/, `$1 ${prompt}`)
+    .replace(/(tensorfold:generation_tokens_running) \d+/, `$1 ${streams.length ? runningTokens : 0}`)
+    .replace(/(tensorfold:num_requests_running) \d+/, `$1 ${streams.length}`)
+    .replace(/^tensorfold:kv_cache_usage_perc\{.*$/m, (streams.length ? streams : [0]).map((ratio, index) => `tensorfold:kv_cache_usage_perc{stream="${index}"} ${ratio}`).join("\n"));
   const histogram = (name, buckets, sum, count) => [
     `# TYPE tensorfold:${name} histogram`,
     ...buckets.map(([le, value]) => `tensorfold:${name}_bucket{le="${le}"} ${value}`),
@@ -913,6 +1027,7 @@ function tensorfoldScrape({ finished = 50, prompt = 1000, streams = [0.5, 0.25] 
     "tensorfold:spec_decode_num_draft_tokens_total 200",
     "tensorfold:spec_decode_num_accepted_tokens_total 150",
     ...histogram("request_decode_time_seconds", [["1", 2], ["5", 4], ["+Inf", 4]], 9, 4),
+
   ].join("\n") + "\n";
 }
 
@@ -974,6 +1089,61 @@ test("TensorFold's output rate counts reply tokens while they stream; the ledger
     const mac = await collector.collect();
     assert.equal(mac.prefixCacheHitPercent, null);
     assert.ok(Math.abs(mac.outputTokensPerSecond - 100) < 5, String(mac.outputTokensPerSecond));
+  });
+});
+
+test("TensorFold 1.0.2 native captures hold the token high-water mark through non-atomic completion updates", async () => {
+  const { InferenceCollector } = await import("../lib/collectors.mjs");
+  assert.equal(tensorfoldNative.version, "1.0.2");
+  for (const key of ["completion_tokens_total", "prompt_tokens_total", "cached_tokens_total", "prefill_seconds_total", "requests_total"]) assert.equal(key in tensorfoldNative.healthEnd, false, key);
+  await withFakeEngine(tensorfoldScrape({ modern: true }), async (base, setMetrics, setHealth, _models, _slots, requested) => {
+    const health = { ...tensorfoldNative.healthEnd, live: { ...tensorfoldNative.healthEnd.live, decode_tokens_per_second: 85.3, prefill_tokens_per_second: 800 } };
+    setHealth(health);
+    const collector = new InferenceCollector(base);
+    const first = await collector.collect();
+    assert.equal(first.outputTokensPerSecond, null, "the token sum needs two polls");
+    assert.equal(first.promptComputeTokensPerSecond, 800);
+    assert.equal(first.metricKinds.outputTokensPerSecond, undefined);
+    assert.equal(first.metricKinds.promptComputeTokensPerSecond, "twoSecond");
+    assert.ok(first.tpotP95Seconds > 0.01 && first.tpotP95Seconds <= 0.015);
+    assert.equal(first.reported.tpotP95RecentSeconds, true);
+    assert.equal(first.reported.prefixCacheHitPercent, false);
+    assert.equal(first.reported.promptCacheTokensPerSecond, false);
+    setMetrics(tensorfoldScrape({ modern: true, runningTokens: 100 }));
+    collector.previous.at -= 2000;
+    assert.ok(Math.abs((await collector.collect()).outputTokensPerSecond - 10) < 0.5, "the token total takes precedence over health's rate");
+    setMetrics(tensorfoldScrape({ modern: true, streams: [] }));
+    collector.previous.at -= 2000;
+    assert.equal((await collector.collect()).outputTokensPerSecond, 0, "stream release can precede the finished-counter update");
+    setMetrics(tensorfoldScrape({ modern: true, finished: 10948, streams: [] }));
+    collector.previous.at -= 2000;
+    setHealth(tensorfoldNative.healthStart);
+    const released = await collector.collect();
+    assert.equal(released.outputTokensPerSecond, 0, "running tokens transfer to finished totals without a burst or a negative delta");
+    assert.equal(released.promptComputeTokensPerSecond, 0);
+    setMetrics(tensorfoldScrape({ modern: true, finished: 10, streams: [] }));
+    assert.equal((await collector.collect()).outputTokensPerSecond, null, "a counter reset has no live baseline");
+    const noRunning = tensorfoldScrape({ modern: true }).replace(/^tensorfold:generation_tokens_running .*\n/m, "");
+    setMetrics(noRunning);
+    setHealth(health);
+    const fallback = await collector.collect();
+    assert.equal(fallback.outputTokensPerSecond, 85.3);
+    assert.equal(fallback.metricKinds.outputTokensPerSecond, "twoSecond");
+    setHealth({ status: "ok" });
+    const restricted = await collector.collect();
+    assert.equal(restricted.outputTokensPerSecond, null);
+    assert.equal(restricted.promptTokensPerSecond, 2032 / 2.142097);
+    assert.equal(restricted.reported.promptComputeTokensPerSecond, false);
+    setMetrics(noRunning + "tensorfold:prefix_cache_queries_total 0\ntensorfold:prefix_cache_hits_total 0\ntensorfold:prompt_tokens_cached_total 0\n");
+    const emptyCache = await collector.collect();
+    assert.equal(emptyCache.reported.prefixCacheHitPercent, true, "counter presence decides support, even before the first query");
+    assert.equal(emptyCache.prefixCacheHitPercent, null);
+    setMetrics(noRunning + "tensorfold:prefix_cache_queries_total 100\ntensorfold:prefix_cache_hits_total 25\ntensorfold:prompt_tokens_cached_total 25\n");
+    const cached = await collector.collect();
+    assert.equal(cached.prefixCacheHitPercent, 25);
+    assert.equal(cached.reported.prefixCacheHitPercent, true);
+    assert.equal(cached.promptCacheTokensTotal, 25);
+    assert.ok(requested.every(path => ["/metrics", "/health", "/v1/models", "/v1/models replied"].includes(path)), "no reset_peak or control request");
   });
 });
 
@@ -1051,6 +1221,11 @@ test("recent latency comes from histogram differences over the last 5 minutes an
   assert.deepEqual(bucketsSince(buckets([3, 8, 10, 10]), buckets([1, 2, 2, 2])).map((b) => b.count), [2, 6, 8, 8]);
   assert.equal(bucketsSince(buckets([0, 1, 1, 1]), buckets([1, 2, 2, 2])), null, "a count went down: the engine restarted");
   assert.equal(bucketsSince(buckets([1, 1, 1, 1]), buckets([1, 1, 1, 1]).slice(0, 3)), null, "different bounds");
+
+  const empty = new RecentHistograms();
+  empty.add(0, { ttft: [], tpot: [] });
+  empty.add(2000, { ttft: [], tpot: [] });
+  assert.equal(empty.windowSeconds, 0, "an absent histogram is not a measured window with no requests");
 
   const MIN = 60_000;
   const recent = new RecentHistograms(5 * MIN);

@@ -275,6 +275,8 @@ test("token totals use compact units, the same as the web page", () => {
   assert.equal(compact(155347), "155K");
   assert.equal(compact(1061000000), "1.06B");
   assert.equal(compact(null), "—");
+  assert.equal(clusterView({ status: "starting", usage: { reported: { requests: false }, today: { total: 100, requests: 0 } } }).todayRequests, null);
+  assert.equal(clusterView({ status: "starting", usage: { reported: { requests: true }, today: { total: 100, requests: 0 } } }).todayRequests, 0);
   for (const value of [1500, 999_950, 9_552_810, 42, 3.2e9]) assert.equal(compact(value), webCompact(value));
 });
 

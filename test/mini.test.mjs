@@ -49,6 +49,15 @@ test('a run folds averages, peaks, the hottest GPU and GPU energy, and takes tok
   const overnight = finishRun({ ...run }, state(t0 + 20_000, { output: 10, input: 10, day: '2026-10-04' }), 4);
   assert.equal(overnight.outputTokens, 1500);
   assert.equal(overnight.promptTokens, 30_000);
+  const unsupported = { ...first, inference: { ...first.inference, reported: { ttftP95RecentSeconds: false } } };
+  const noTtft = startRun(unsupported, t0);
+  addToRun(noTtft, state(t0 + 2000, { ttft: 0.9 }), sampleOf(first, t0 + 2000, t0));
+  const hidden = finishRun(noTtft, first, 4);
+  assert.equal(hidden.reported.ttftP95RecentSeconds, false);
+  assert.equal(hidden.slowestTtft, null);
+  const changedKind = { ...first, inference: { ...first.inference, reported: { ttftP95RecentSeconds: true }, metricKinds: { ttftP95RecentSeconds: 'queueExcluded' } } };
+  addToRun(run, changedKind, sampleOf(first, t0 + 30_000, t0 + 20_000));
+  assert.equal(run.reported.ttftP95RecentSeconds, false, 'one recording cannot combine different TTFT definitions');
 });
 
 test('runs export as CSV with one row each and quoted cells where needed', () => {

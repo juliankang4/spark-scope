@@ -1,5 +1,5 @@
 import { mountMini } from './mini/mini-view.js';
-import { PHONE_QUERY, COLORS, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, gpuMemory, memoryWording, readingLabel, nodeReading, hasNodeTemperature, memoryWarning, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, serverStateKey, pickedServer, viewInference } from './view-data.js';
+import { PHONE_QUERY, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, gpuMemory, memoryWording, readingLabel, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, serverStateKey, pickedServer, viewInference, engineMetric, nodeReading, hasNodeTemperature, memoryWarning } from './view-data.js';
 import { READING_IDS, rackQuery, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 import { t, setLanguage, translatePage, serverText, LANGUAGE_NAMES } from './i18n.js';
 import { hide as hideHelp } from './help.js';
@@ -151,6 +151,7 @@ function renderLegend(kind,nodes) {
   $('#'+kind+'-legend').innerHTML=metas.flatMap((meta,index)=>{const node=nodes?.[meta.id];if(kind==='temp'&&!hasNodeTemperature(node))return [];const value=!node?.ok?unknown():kind==='temp'?temperature(node.gpu?.temperature,settings.temp):memory(gpuMemory(node).availableBytes,settings.mem);return `<span style="color:${nodeColor(settings.colors,index)}">${esc(meta.name)} <b class="num">${value}</b></span>`}).join('');
 }
 function renderToday(usage) {
+  $('#today-requests').hidden=usage?.reported?.requests===false;
   document.querySelectorAll('[data-usage]').forEach(el=>{const key=el.dataset.usage;const value=usage?.error||usage?.reported?.[key]===false?null:usage?.today?.[key];el.textContent=key==='requests'?fixed(value,0):compact(value);el.title=finite(value)?value.toLocaleString('en-US'):''});
   document.querySelectorAll('[data-ledger-zone]').forEach(el=>{el.textContent=ledgerTimeZone?t('ledger.zone',{timeZone:ledgerTimeZone}):''});
 }
@@ -184,7 +185,7 @@ function drawState(state) {
 function recentLatency(el,v,key) {
   const overall=v[key.replace('Recent','')];
   const help=el.previousElementSibling?.querySelector('.help');if(help)help.dataset.helpNote=finite(overall)?t('engine.sinceStart',{value:duration(overall)}):'';
-  return finite(v[key])?duration(v[key]):v.latencyWindowSeconds>0?t('engine.noRequests'):unknown();
+  return finite(v[key])?duration(v[key]):v.reported?.[key]===true&&v.latencyWindowSeconds>0?t('engine.noRequests'):unknown();
 }
 // ---- model servers ----
 const serverColor=server=>nodeColor(settings.colors,serverColorIndex(server,metas));
@@ -205,7 +206,14 @@ function fillEngine(block,v,stopped) {
   const empty=stopped?t('common.stopped'):unknown();
   // The "since the engine started" notes belong to this panel's server; a reused or copied panel starts without them.
   block.querySelectorAll('.help[data-help-note]').forEach(button=>{button.dataset.helpNote=''});
-  block.querySelectorAll('[data-field]').forEach(el=>{const key=el.dataset.field;let result=empty;if(v?.ok){if(key==='requests')result=`${fixed(v.runningRequests,0)} / ${fixed(v.waitingRequests,0)}`;else if(key.endsWith('RecentSeconds'))result=recentLatency(el,v,key);else if(key.endsWith('Seconds'))result=duration(v[key]);else if(key.endsWith('Percent'))result=fixed(v[key],1,'%');else result=tokenRate(v[key])}el.textContent=result});
+  block.querySelectorAll('[data-field]').forEach(el=>{
+    const {key,label,help,shown,idle}=engineMetric(v,el.dataset.field),dt=el.previousElementSibling;
+    el.hidden=dt.hidden=!shown;
+    const caption=dt.querySelector('[data-metric-label]');if(caption)caption.textContent=t(label);
+    const button=dt.querySelector('.help');if(button){button.hidden=!help;if(help)button.dataset.help=help}
+    let result=empty;if(v?.ok){if(idle)result=t('engine.noRequests');else if(key==='requests')result=`${fixed(v.runningRequests,0)} / ${fixed(v.waitingRequests,0)}`;else if(key.endsWith('RecentSeconds'))result=recentLatency(el,v,key);else if(key.endsWith('Seconds'))result=duration(v[key]);else if(key.endsWith('Percent'))result=fixed(v[key],1,'%');else result=tokenRate(v[key])}el.textContent=result;
+  });
+  block.querySelectorAll('.engine-section').forEach(section=>{section.hidden=[...section.querySelectorAll('[data-field]')].every(el=>el.hidden)});
 }
 const serverCell=(row,name,value)=>{const el=row.querySelector(`[data-cell="${name}"]`);if(el.textContent!==value)el.textContent=value};
 function serverState(row,key){serverCell(row,'state',key==='unknown'?unknown():t(`servers.state.${key}`));row.querySelector('[data-cell="state"]').dataset.state=key}
@@ -233,7 +241,7 @@ $('#servers').addEventListener('click',event=>{const row=event.target.closest('b
 function failedState() {
   latest=null;
   $('#shell').classList.add('stale');$('.status').className='status error';text('#status-title',t('statusbar.serverDown'));text('#status-desc',t('statusbar.serverDownDetail'));
-  metas.forEach(meta=>renderNode(meta,null));renderLinks(null);renderToday(null);renderLegend('temp',null);renderLegend('mem',null);for(const id of ['speed','legend-speed','avg','queue'])text('#'+id,unknown());document.querySelectorAll('[data-field]').forEach(el=>el.textContent=unknown());$('#servers').querySelectorAll('.server-row').forEach(row=>{serverState(row,'unknown');serverCell(row,'output',unknown());serverCell(row,'queue',t('servers.queue',{queue:unknown()}))});$('#plot-note').hidden=false;$('#plot-note').textContent=t('chart.note.reconnecting');
+  metas.forEach(meta=>renderNode(meta,null));renderLinks(null);renderToday(null);renderLegend('temp',null);renderLegend('mem',null);for(const id of ['speed','legend-speed','avg','queue'])text('#'+id,unknown());document.querySelectorAll('#engines .engine-block').forEach(block=>fillEngine(block,{...modelServers(shown).find(server=>server.id===block.dataset.server)?.inference,ok:false},false));$('#servers').querySelectorAll('.server-row').forEach(row=>{serverState(row,'unknown');serverCell(row,'output',unknown());serverCell(row,'queue',t('servers.queue',{queue:unknown()}))});$('#plot-note').hidden=false;$('#plot-note').textContent=t('chart.note.reconnecting');
 }
 async function refresh() {
   if(collecting)return;collecting=true;const requestedRange=range,full=historyRange!==requestedRange||Date.now()-historyAt>=HISTORY_REFRESH_MS;

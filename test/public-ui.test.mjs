@@ -462,6 +462,44 @@ test('with several model servers the pages add up their output, or follow the pi
   assert.equal(livePoint({ inference: a.inference, nodes: {} }).servers, undefined);
 });
 
+test('engine presentation follows reported fields and keeps averages out of p95', async () => {
+  const { engineMetric, combinedInference } = await import('../public/view-data.js');
+  const { default: vm } = await import('node:vm');
+  const reading = { ok: true, reported: { ttftP95RecentSeconds: false, tpotP95RecentSeconds: false, meanDecodeSeconds: true, kvCachePercent: true }, metricKinds: { kvCachePercent: 'context' }, latencyWindowSeconds: 300 };
+  assert.equal(engineMetric(reading, 'ttftP95RecentSeconds').shown, false);
+  assert.equal(engineMetric(reading, 'tpotP95RecentSeconds').key, 'meanDecodeSeconds');
+  assert.equal(engineMetric(reading, 'kvCachePercent').label, 'engine.contextUsed');
+  assert.equal(engineMetric(reading, 'kvCachePercent').help, 'help.contextUsed');
+  assert.equal(engineMetric({ ...reading, runningRequests: 0 }, 'kvCachePercent').idle, true);
+  assert.equal(engineMetric({ ...reading, ok: false, runningRequests: 0 }, 'kvCachePercent').idle, false);
+  assert.equal(engineMetric({ engine: 'Strata', metricKinds: { promptComputeTokensPerSecond: 'request' } }, 'promptComputeTokensPerSecond').label, 'engine.prefill');
+  assert.equal(engineMetric({ ...reading, ok: false }, 'ttftP95RecentSeconds').shown, false);
+  assert.equal(engineMetric(null, 'ttftP95RecentSeconds').shown, true, 'a temporary failure without a known engine stays unknown');
+  assert.equal(engineMetric({ reported: { promptComputeTokensPerSecond: false, promptTokensPerSecond: true } }, 'promptComputeTokensPerSecond').key, 'promptTokensPerSecond');
+  assert.equal(engineMetric({ reported: { promptComputeTokensPerSecond: false, promptTokensPerSecond: false } }, 'promptComputeTokensPerSecond').shown, false);
+  const source = readFileSync(path.join(ROOT, 'public/app.js'), 'utf8');
+  const context = { finite: Number.isFinite, duration: String, t: key => key, unknown: () => 'unknown' };
+  vm.createContext(context);
+  vm.runInContext(source.slice(source.indexOf('function recentLatency('), source.indexOf('const serverColor=')), context);
+  assert.equal(context.recentLatency({}, reading, 'ttftP95RecentSeconds'), 'unknown');
+  assert.equal(context.recentLatency({}, { ...reading, reported: { ttftP95RecentSeconds: true } }, 'ttftP95RecentSeconds'), 'engine.noRequests');
+  const server = inference => ({ id: 'a', inference });
+  const mixed = combinedInference([server(reading), server({ ok: true, reported: { kvCachePercent: true, tpotP95RecentSeconds: true, meanDecodeSeconds: false }, kvCachePercent: 10 })]);
+  assert.equal(mixed.reported.kvCachePercent, false, 'memory usage and context occupancy do not combine');
+  assert.equal(mixed.reported.meanDecodeSeconds, false, 'a mixed summary must not replace available p95 with a mean');
+  assert.equal(mixed.reported.ttftP95RecentSeconds, false);
+  assert.equal(mixed.reported.tpotP95RecentSeconds, false);
+  for (const [key, kind] of [['ttftP95RecentSeconds', 'queueExcluded'], ['tpotP95RecentSeconds', 'requestMean']]) {
+    const reported = { [key]: true }, metricKinds = { [key]: kind };
+    const one = server({ ok: true, reported, metricKinds });
+    assert.equal(combinedInference([one, server({ ok: true, reported })]).reported[key], false, key);
+    assert.equal(combinedInference([one, server({ ok: false, reported, metricKinds })]).reported[key], true, 'a failed poll keeps the known definition');
+    assert.equal(combinedInference([one, server({ ok: true, reported: { [key]: false }, metricKinds })]).reported[key], false, key);
+    assert.equal(combinedInference([one, { id: 'unknown' }]).reported[key], false, key);
+  }
+  assert.equal(combinedInference([server({ ...reading, ok: false })]).reported.ttftP95RecentSeconds, false);
+});
+
 test('the model servers view is a setting that a settings link carries', () => {
   assert.equal(DEFAULTS.servers, 'all');
   assert.deepEqual(parseSettings({ servers: 'one', server: 'b' }), { ...DEFAULTS, servers: 'one', server: 'b' });

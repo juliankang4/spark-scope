@@ -41,7 +41,11 @@ const server = createServer((request, response) => {
   const url = new URL(request.url, "http://localhost");
   if (url.pathname === "/api/state") {
     if (current.mode === "lost") { response.writeHead(503).end("{}"); return; }
-    const state = fixtureState(current.count, current.mode, fixtureNow(), { longNames: current.longNames, servers: current.servers ?? 0, offGroup: current.offGroup ?? false, gpuWorkstations: current.gpuWorkstations ?? 0, macNodes: current.macNodes ?? 0, macThermal: current.macThermal, macUnavailable: current.macUnavailable, macPending: current.macPending, macPowerMissing: current.macPowerMissing });
+    const state = fixtureState(current.count, current.mode, fixtureNow(), { longNames: current.longNames, servers: current.servers ?? 0, offGroup: current.offGroup ?? false, gpuWorkstations: current.gpuWorkstations ?? 0, engine: current.engine ?? "vLLM", engineIdle: current.engineIdle ?? false, engineDown: current.engineDown ?? false, noSpec: current.noSpec ?? false, macNodes: current.macNodes ?? 0, macThermal: current.macThermal, macUnavailable: current.macUnavailable, macPending: current.macPending, macPowerMissing: current.macPowerMissing });
+    if (current.noPrefill) {
+      for (const server of state.servers) for (const key of ["promptTokensPerSecond", "promptComputeTokensPerSecond", "promptCacheTokensPerSecond", "prefixCacheHitPercent"]) server.inference.reported[key] = false;
+    }
+    if (current.mixedLatency) state.servers[1].inference.metricKinds = { ttftP95RecentSeconds: "queueExcluded", tpotP95RecentSeconds: "requestMean" };
     if (current.unknownGpu) {
       const [, second, third] = state.topology.nodes.map((meta) => state.nodes[meta.id].gpu);
       second.memory = { kind: null, totalBytes: null, usedBytes: null, availableBytes: null };
@@ -66,8 +70,7 @@ const base = `http://127.0.0.1:${server.address().port}`;
 
 // ---- minimal DevTools protocol client ----
 // Chrome runs with its background services off (updates, sync, safe browsing, metrics), so the check contacts
-// nothing but the local fixture server. If anything below fails, the finally block at the end (or the exit hook
-// here, for a failure before it) stops Chrome and removes its profile.
+// nothing but the local fixture server.
 const profile = mkdtempSync(path.join(os.tmpdir(), "spark-scope-chrome-"));
 const chrome = spawn(findChrome(), [
   "--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check",
@@ -154,7 +157,7 @@ async function openPage({ width, height, colorScheme = "dark", shift = 0, touch 
     while (Date.now() < end) { if (await evaluate(expression)) return true; await new Promise((resolve) => setTimeout(resolve, 150)); }
     throw new Error(`timed out waiting for ${expression}`);
   };
-  const shoot = async (file, { fullPage = false } = {}) => {
+  const shoot = async (file, { fullPage = false, selector = null } = {}) => {
     // The visible part of the page, wherever it is scrolled to.
     const [scrollX, scrollY] = await evaluate("[scrollX, scrollY]");
     let clip = { x: scrollX, y: scrollY, width, height, scale: 1 };
@@ -163,6 +166,7 @@ async function openPage({ width, height, colorScheme = "dark", shift = 0, touch 
       await call("Emulation.setDeviceMetricsOverride", { width, height: fullHeight, deviceScaleFactor: 1, mobile: width < 600 });
       clip = { x: 0, y: 0, width, height: fullHeight, scale: 1 };
     }
+    if (selector) clip = await evaluate(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: scrollX + r.left, y: scrollY + r.top, width: r.width, height: r.height, scale: 1 }; })()`);
     const { data } = await call("Page.captureScreenshot", { format: "png", clip });
     writeFileSync(path.join(OUT, file), Buffer.from(data, "base64"));
     if (fullPage) await call("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 600 });
@@ -1137,6 +1141,85 @@ try {
       await page.close();
     }
   }
+
+  for (const [engine, activity] of [["vLLM", "serving"], ["SGLang", "serving"], ["llama.cpp", "serving"], ["Strata", "serving"], ["TensorFold", "serving"], ["llama.cpp", "idle"], ["Strata", "idle"], ["TensorFold", "idle"], ["llama.cpp", "down"], ["Strata", "down"], ["TensorFold", "down"]]) {
+    current = { count: 4, mode: "serving", engine, engineIdle: activity === "idle", engineDown: activity === "down", noSpec: true };
+    const looks = [["en", "default"], ["ko", "default"], ...(activity === "serving" ? [["en", "console"], ["en", "soft"], ["ko", "soft"]] : [])];
+    for (const [lang, design] of looks) {
+      const engineState = fixtureState(4, "serving", Date.now(), current);
+      const engineName = engine === "llama.cpp" ? "llamacpp" : engine.toLowerCase();
+      const web = await openPage({ width: 1440, height: 1000 });
+      await web.go(`${base}/?lang=${lang}&design=${design}`);
+      await web.waitFor("/\\d/.test(document.querySelector('#updated-at').textContent)");
+      const fields = await web.evaluate(`(() => Object.fromEntries([...document.querySelectorAll('#engines [data-field]')].map(el => [el.dataset.field, { hidden: el.hidden, labelHidden: el.previousElementSibling.hidden, label: el.previousElementSibling.querySelector('[data-metric-label]').textContent.trim(), value: el.textContent, help: el.previousElementSibling.querySelector('.help')?.dataset.help }])))()`);
+      const problems = [...await web.evaluate(CHECK_WEB), ...(lang === "ko" ? await englishLeft(web, engineState) : []), ...web.errors.splice(0)];
+      for (const [field, info] of Object.entries(fields)) {
+        const key = field === "tpotP95RecentSeconds" && engine === "llama.cpp" ? "meanDecodeSeconds" : field;
+        if (info.hidden !== (engineState.inference.reported[key] === false) || info.hidden !== info.labelHidden) problems.push(`wrong visibility: ${field}`);
+        if (activity === "down" && !info.hidden && info.value !== t("common.unknown", {}, lang)) problems.push(`failed poll is not unknown: ${field}`);
+      }
+      if (engine === "llama.cpp" && fields.tpotP95RecentSeconds.label !== t("engine.meanDecode", {}, lang)) problems.push("mean decode still labelled p95");
+      if (engine === "TensorFold" && fields.promptComputeTokensPerSecond.label !== t("engine.prefill2s", {}, lang)) problems.push("prefill rate lacks its two-second window");
+      if (engine === "Strata" && fields.promptComputeTokensPerSecond.label !== t("engine.prefill", {}, lang)) problems.push("Strata prefill label changes with activity");
+      if (activity === "idle" && fields.kvCachePercent.value !== t("engine.noRequests", {}, lang)) problems.push("idle context row not marked idle");
+      if (await web.evaluate("document.querySelector('#today-requests').hidden") !== (engineState.usage.reported.requests === false)) problems.push("unreported ledger requests are visible");
+      if (activity === "serving" && design === "default") {
+        for (const info of Object.values(fields).filter(info => !info.hidden && info.help)) {
+          const result = await web.evaluate(CHECK_HELP(`[data-help="${info.help}"]`));
+          problems.push(...result.issues);
+          if (lang === "ko" && /\bpoll\b/i.test(result.text)) problems.push("untranslated poll in help");
+          await web.evaluate("document.body.click()");
+        }
+      }
+      await web.evaluate("document.querySelector('#engines').scrollIntoView()");
+      const file = `engine-${engineName}-${activity}-${lang}${design === "default" ? "" : `-${design}`}.png`;
+      await web.shoot(file, { selector: "#engines" });
+      report(file, [Object.entries(fields).filter(([, info]) => !info.hidden).map(([, info]) => `${info.label}: ${info.value}`).join(" / ")], problems);
+      if (engine === "llama.cpp" && activity === "serving" && design === "default") await web.shoot(`today-llamacpp-${lang}.png`, { selector: "#today-ledger" });
+      await web.close();
+      const mini = await openPage({ width: 340, height: 640 });
+      await mini.go(`${base}/mini/`);
+      await mini.evaluate(`localStorage.setItem("spark-scope-settings", JSON.stringify({ lang: "${lang}", design: "${design}" }))`);
+      await mini.go(`${base}/mini/`);
+      await mini.waitFor("document.querySelector('.m-metric') !== null");
+      const chips = await mini.evaluate("document.querySelector('.m-chips').textContent");
+      const miniProblems = [...await mini.evaluate(CHECK_MINI), ...(lang === "ko" ? await englishLeft(mini, engineState) : []), ...mini.errors.splice(0)];
+      if (engine === "llama.cpp" && /TTFT|TPOT/.test(chips)) miniProblems.push("unsupported latency chip shown");
+      if (engine === "TensorFold" && chips.includes(t("engine.cacheHit", {}, lang))) miniProblems.push("unsupported cache chip shown");
+      if (["llama.cpp", "Strata", "TensorFold"].includes(engine) && activity === "idle" && !chips.includes(`${t("engine.contextUsed", {}, lang)} ${t("engine.noRequests", {}, lang)}`)) miniProblems.push("idle context chip missing or not marked idle");
+      const miniFile = `mini-engine-${engineName}-${activity}-${lang}${design === "default" ? "" : `-${design}`}.png`;
+      await mini.shoot(miniFile);
+      report(miniFile, [chips], miniProblems);
+      if (engine === "llama.cpp" && activity === "serving" && design === "default") {
+        await mini.evaluate("document.querySelector('[data-tab=runs]').click(); document.querySelector('[data-run=start]').click(); document.querySelector('[data-run=stop]').click()");
+        const runText = await mini.evaluate("document.querySelector('.m-tab-runs').textContent");
+        const runFile = `mini-runs-llamacpp-${lang}.png`;
+        await mini.shoot(runFile);
+        report(runFile, [runText], [...await mini.evaluate(CHECK_MINI), ...(/TTFT/.test(runText) ? ["unsupported run TTFT shown"] : []), ...mini.errors.splice(0)]);
+      }
+      await mini.evaluate("localStorage.clear()");
+      await mini.close();
+    }
+  }
+
+  current = { count: 4, mode: "serving", servers: 2, mixedLatency: true, noPrefill: true };
+  const mixed = await openPage({ width: 1440, height: 1000 });
+  await mixed.go(`${base}/`);
+  await mixed.waitFor("/\\d/.test(document.querySelector('#updated-at').textContent)");
+  const gridIssues = await mixed.evaluate(`(() => [...document.querySelectorAll('.engine')].flatMap(grid => {
+    const sections = [...grid.querySelectorAll('.engine-section')], shown = sections.filter(el => !el.hidden);
+    return shown.length !== 2 || !sections[0].hidden || shown.some(el => Math.abs(el.getBoundingClientRect().width - (grid.clientWidth / 2)) > 2) ? ["hidden prefill leaves unused grid width"] : [];
+  }))()`);
+  await mixed.shoot("engine-no-prefill.png", { selector: "#engines" });
+  report("engine-no-prefill.png", ["two visible sections share the grid"], [...gridIssues, ...await mixed.evaluate(CHECK_WEB), ...mixed.errors.splice(0)]);
+  await mixed.close();
+  const mixedMini = await openPage({ width: 340, height: 640 });
+  await mixedMini.go(`${base}/mini/`);
+  await mixedMini.waitFor("document.querySelector('.m-chips') !== null");
+  const mixedChips = await mixedMini.evaluate("document.querySelector('.m-chips').textContent");
+  await mixedMini.shoot("mini-mixed-latency.png");
+  report("mini-mixed-latency.png", [mixedChips], [...await mixedMini.evaluate(CHECK_MINI), ...(/TTFT|TPOT/.test(mixedChips) ? ["mixed latency definitions shown"] : []), ...mixedMini.errors.splice(0)]);
+  await mixedMini.close();
 
   // The token ledger over the scenario's three months (fixtures.mjs): records starting on the 23rd, a complete month
   // with five models, and the current month three days in. Every month and view (Statement, Calendar, Charts) in the

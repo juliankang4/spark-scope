@@ -26,7 +26,7 @@ It is one Node.js process with no npm dependencies. It polls each node (locally 
 ![Rack panel with four nodes](docs/screenshots/rack-4-nodes.png)
 
 - **Read-only, no agent on the nodes.** Each poll sends a read-only shell script over SSH (or runs it locally) and parses the output. Nothing on a node or the inference server is started, stopped or changed.
-- **Unknown stays unknown.** A value that was not observed reads `unknown`, not zero.
+- **Unknown stays unknown.** A value that was not observed reads `unknown`, not zero. Fields an engine cannot report are hidden.
 - **Nothing from other hosts.** The pages work on a desktop, a phone and a rack display without loading anything from elsewhere.
 
 ### What it shows
@@ -147,6 +147,8 @@ Optional permissions on the nodes: kernel error summaries need read access to th
 
 Point `SPARK_SCOPE_API_URL` at the inference server; in multi-node serving, at the node that hosts the API. vLLM's, TensorFold's and Strata's metrics are on by default. Start SGLang with `--enable-metrics` and llama.cpp with `--metrics`. llama.cpp also needs its default-enabled `/slots` endpoint for live output speed; with slots disabled or unavailable, that speed reads `unknown` while requests run. A Strata server started with an API key cannot be read, because the dashboard sends no key. Some engine readings are measured differently or unavailable, listed under [Inference engines](docs/configuration.md#inference-engines). Other engines, including oMLX, are recognised on the node cards, but their metrics are not read.
 
+The engine panel and mini window show only supported fields. llama.cpp reports cache hit and mean decode time, with context use only while requests run. Strata reads TTFT and inter-token histograms from its Prometheus metrics, and its counters and start time from a second, JSON metrics request. Native TensorFold 1.0.2 counts live and finished output together for decode, with two-second health rates as a fallback and for prefill. Its parser tests replay trimmed native-server captures.
+
 When the nodes serve in separate groups (two cabled nodes each running its own model, four as 2 + 2, three as 2 + 1), list each group as a model server in `topology.json` with its API and nodes instead of setting `SPARK_SCOPE_API_URL`:
 
 ```json
@@ -220,7 +222,7 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 - Only the first GPU reported by `nvidia-smi` is shown per node, its VRAM included; a machine with several GPUs shows GPU 0. GB10 systems have one.
 - TSOC/TS1P temperatures and the A/B plane layout are specific to DGX Spark-class hardware. Other Linux machines with an NVIDIA GPU mostly work, but those parts read `unknown` or need a matching topology.
-- One inference server per dashboard.
+- Native TensorFold parser tests replay captured metrics; they do not cover a live dashboard connection to that server.
 - Charts are kept in memory for six hours and reset when the server restarts or the served model changes. The token ledger is kept on disk and adds up counter increases; how it handles restarts: [Token ledger](docs/dashboard.md#token-ledger).
 
 ## Contributing

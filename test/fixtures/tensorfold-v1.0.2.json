@@ -1,0 +1,44 @@
+{
+  "version": "1.0.2",
+  "metrics": "# HELP tensorfold:generation_tokens_running Generated tokens held by live streams.\n# TYPE tensorfold:generation_tokens_running gauge\ntensorfold:generation_tokens_running 0\n# HELP tensorfold:prompt_tokens_total Prompt tokens of finished requests.\n# TYPE tensorfold:prompt_tokens_total counter\ntensorfold:prompt_tokens_total 2032\n# HELP tensorfold:generation_tokens_total Generated tokens of finished requests.\n# TYPE tensorfold:generation_tokens_total counter\ntensorfold:generation_tokens_total 10848\n# HELP tensorfold:time_to_first_token_seconds Seconds from arrival to the first generated token.\n# TYPE tensorfold:time_to_first_token_seconds histogram\ntensorfold:time_to_first_token_seconds_bucket{le=\"0.01\"} 0\ntensorfold:time_to_first_token_seconds_bucket{le=\"0.05\"} 13\ntensorfold:time_to_first_token_seconds_bucket{le=\"0.1\"} 29\ntensorfold:time_to_first_token_seconds_bucket{le=\"0.25\"} 46\ntensorfold:time_to_first_token_seconds_bucket{le=\"0.5\"} 46\ntensorfold:time_to_first_token_seconds_bucket{le=\"1\"} 46\ntensorfold:time_to_first_token_seconds_bucket{le=\"2.5\"} 46\ntensorfold:time_to_first_token_seconds_bucket{le=\"5\"} 46\ntensorfold:time_to_first_token_seconds_bucket{le=\"10\"} 46\ntensorfold:time_to_first_token_seconds_bucket{le=\"30\"} 46\ntensorfold:time_to_first_token_seconds_bucket{le=\"60\"} 46\ntensorfold:time_to_first_token_seconds_bucket{le=\"120\"} 46\ntensorfold:time_to_first_token_seconds_bucket{le=\"300\"} 46\ntensorfold:time_to_first_token_seconds_bucket{le=\"+Inf\"} 46\ntensorfold:time_to_first_token_seconds_sum 4.009494\ntensorfold:time_to_first_token_seconds_count 46\n# HELP tensorfold:request_time_per_output_token_seconds Seconds from the first generated token to the last, divided by the tokens less one.\n# TYPE tensorfold:request_time_per_output_token_seconds histogram\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"0.0025\"} 0\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"0.005\"} 8\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"0.0075\"} 20\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"0.01\"} 22\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"0.015\"} 46\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"0.02\"} 46\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"0.025\"} 46\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"0.03\"} 46\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"0.04\"} 46\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"0.05\"} 46\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"0.075\"} 46\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"0.1\"} 46\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"0.15\"} 46\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"0.2\"} 46\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"0.3\"} 46\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"0.5\"} 46\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"1\"} 46\ntensorfold:request_time_per_output_token_seconds_bucket{le=\"+Inf\"} 46\ntensorfold:request_time_per_output_token_seconds_sum 0.419773\ntensorfold:request_time_per_output_token_seconds_count 46\n# HELP tensorfold:request_prefill_seconds Seconds a finished request's prompt pass took.\n# TYPE tensorfold:request_prefill_seconds histogram\ntensorfold:request_prefill_seconds_bucket{le=\"0.01\"} 0\ntensorfold:request_prefill_seconds_bucket{le=\"0.05\"} 23\ntensorfold:request_prefill_seconds_bucket{le=\"0.1\"} 46\ntensorfold:request_prefill_seconds_bucket{le=\"0.25\"} 46\ntensorfold:request_prefill_seconds_bucket{le=\"0.5\"} 46\ntensorfold:request_prefill_seconds_bucket{le=\"1\"} 46\ntensorfold:request_prefill_seconds_bucket{le=\"2.5\"} 46\ntensorfold:request_prefill_seconds_bucket{le=\"5\"} 46\ntensorfold:request_prefill_seconds_bucket{le=\"10\"} 46\ntensorfold:request_prefill_seconds_bucket{le=\"30\"} 46\ntensorfold:request_prefill_seconds_bucket{le=\"60\"} 46\ntensorfold:request_prefill_seconds_bucket{le=\"120\"} 46\ntensorfold:request_prefill_seconds_bucket{le=\"300\"} 46\ntensorfold:request_prefill_seconds_bucket{le=\"+Inf\"} 46\ntensorfold:request_prefill_seconds_sum 2.142097\ntensorfold:request_prefill_seconds_count 46\n# HELP tensorfold:num_requests_running Requests in prefill or decode. A mirror of tensorfold:requests_running.\n# TYPE tensorfold:num_requests_running gauge\ntensorfold:num_requests_running 0\n# HELP tensorfold:num_requests_waiting Requests queued or held until a lane is free. A mirror of tensorfold:requests_waiting.\n# TYPE tensorfold:num_requests_waiting gauge\ntensorfold:num_requests_waiting 0\n# HELP tensorfold:kv_cache_usage_perc A stream's cache occupancy under vLLM's name; same streams and ratios as tensorfold:kv_cache_usage_ratio.\n# TYPE tensorfold:kv_cache_usage_perc gauge\ntensorfold:kv_cache_usage_perc{stream=\"0\"} 0\n# HELP tensorfold:spec_decode_num_draft_tokens_total Draft tokens verified on finished requests, this server's single draft counter.\n# TYPE tensorfold:spec_decode_num_draft_tokens_total counter\ntensorfold:spec_decode_num_draft_tokens_total 7989\n# HELP tensorfold:spec_decode_num_accepted_tokens_total Draft tokens kept on finished requests.\n# TYPE tensorfold:spec_decode_num_accepted_tokens_total counter\ntensorfold:spec_decode_num_accepted_tokens_total 5573\n# HELP tensorfold:request_prefill_time_seconds Seconds a finished request's prompt pass took, under vLLM's name.\n# TYPE tensorfold:request_prefill_time_seconds histogram\ntensorfold:request_prefill_time_seconds_bucket{le=\"0.01\"} 0\ntensorfold:request_prefill_time_seconds_bucket{le=\"0.05\"} 23\ntensorfold:request_prefill_time_seconds_bucket{le=\"0.1\"} 46\ntensorfold:request_prefill_time_seconds_bucket{le=\"0.25\"} 46\ntensorfold:request_prefill_time_seconds_bucket{le=\"0.5\"} 46\ntensorfold:request_prefill_time_seconds_bucket{le=\"1\"} 46\ntensorfold:request_prefill_time_seconds_bucket{le=\"2.5\"} 46\ntensorfold:request_prefill_time_seconds_bucket{le=\"5\"} 46\ntensorfold:request_prefill_time_seconds_bucket{le=\"10\"} 46\ntensorfold:request_prefill_time_seconds_bucket{le=\"30\"} 46\ntensorfold:request_prefill_time_seconds_bucket{le=\"60\"} 46\ntensorfold:request_prefill_time_seconds_bucket{le=\"120\"} 46\ntensorfold:request_prefill_time_seconds_bucket{le=\"300\"} 46\ntensorfold:request_prefill_time_seconds_bucket{le=\"+Inf\"} 46\ntensorfold:request_prefill_time_seconds_sum 2.142097\ntensorfold:request_prefill_time_seconds_count 46\n",
+  "healthStart": {
+    "status": "ok",
+    "model": "example-model",
+    "model_ids": [
+      "example-model"
+    ],
+    "max_batch_size": 4,
+    "warming": false,
+    "memory": {
+      "active": 19316671216,
+      "cache": 0,
+      "peak": 19505140464
+    },
+    "live": {
+      "connections": 0,
+      "waiting": 0,
+      "decode_tokens_per_second": 0,
+      "prefill_tokens_per_second": 0
+    }
+  },
+  "healthEnd": {
+    "status": "ok",
+    "model": "example-model",
+    "model_ids": [
+      "example-model"
+    ],
+    "max_batch_size": 4,
+    "warming": false,
+    "memory": {
+      "active": 19316671216,
+      "cache": 0,
+      "peak": 19882349236
+    },
+    "live": {
+      "connections": 0,
+      "waiting": 0,
+      "decode_tokens_per_second": 147,
+      "prefill_tokens_per_second": 4697.1
+    }
+  }
+}

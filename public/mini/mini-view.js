@@ -5,7 +5,7 @@
 // hidden.
 import { t, setLanguage } from '../i18n.js';
 import { loadSettings, loadTheme } from '../settings.js';
-import { nodeOrder, nodeColor, finite, fixed, memory, memoryUnit, gpuMemory, memoryWording, hasNodeTemperature, gpuPowerWatts, temperature, temperatureUnit, duration, clockTime, escapeHtml as esc, unknown, severalServers, modelServers, pickedServer, viewInference, combinedInference, serverName, serverStateKey, serverColorIndex, PHONE_QUERY, onMediaChange, offMediaChange } from '../view-data.js';
+import { nodeOrder, nodeColor, finite, fixed, memory, memoryUnit, gpuMemory, memoryWording, temperature, temperatureUnit, duration, clockTime, escapeHtml as esc, unknown, severalServers, modelServers, pickedServer, viewInference, combinedInference, serverName, serverStateKey, serverColorIndex, PHONE_QUERY, onMediaChange, offMediaChange, engineMetric, hasNodeTemperature, gpuPowerWatts } from '../view-data.js';
 
 export const TABS = ['glance', 'scope', 'runs'];
 const TAB_KEY = 'spark-scope-mini-tab';
@@ -32,7 +32,7 @@ export function focusState(state, settings) {
 }
 
 // Prefill as the dashboard counts it (new prompt tokens computed), falling back to all prompt tokens.
-const prefillRate = (v) => (finite(v?.promptComputeTokensPerSecond) ? v.promptComputeTokensPerSecond : finite(v?.promptTokensPerSecond) ? v.promptTokensPerSecond : 0);
+const prefillRate = (v) => (finite(v?.promptComputeTokensPerSecond) ? v.promptComputeTokensPerSecond : finite(v?.promptTokensPerSecond) ? v.promptTokensPerSecond : null);
 // The phase of one sample: prefill while prompt tokens are being computed, decode while output tokens are produced.
 export function phaseOf(sample) {
   if (!sample) return 'idle';
@@ -57,6 +57,7 @@ export function sampleOf(state, at = Date.now(), previousAt = null) {
 export function startRun(state, at) {
   const today = state?.usage?.today ?? {};
   return { startedAt: at, last: at, day: state?.usage?.day ?? null, startOutput: today.output ?? null, startInput: today.input ?? null,
+    reported: { ...state?.inference?.reported }, metricKinds: { ...state?.inference?.metricKinds },
     decodeSum: 0, decodeTime: 0, peakDecode: 0, peakPrefill: 0, slowestTtft: null, hottest: null, hottestNode: null, energyWh: 0, outputTokens: 0, promptTokens: 0 };
 }
 export function addToRun(run, state, sample) {
@@ -67,8 +68,13 @@ export function addToRun(run, state, sample) {
   run.peakPrefill = Math.max(run.peakPrefill, sample.prefill);
   run.outputTokens += sample.decode * dt;
   run.promptTokens += sample.prefill * dt;
-  const ttft = state?.inference?.ttftP95RecentSeconds;
-  if (finite(ttft)) run.slowestTtft = Math.max(run.slowestTtft ?? 0, ttft);
+  const inference = state?.inference;
+  for (const key of Object.keys(inference?.reported ?? {})) {
+    if (inference.reported[key] === false || inference.metricKinds?.[key] !== run.metricKinds[key]) run.reported[key] = false;
+  }
+  const ttft = inference?.ttftP95RecentSeconds;
+  if (run.reported.ttftP95RecentSeconds === false) run.slowestTtft = null;
+  else if (finite(ttft)) run.slowestTtft = Math.max(run.slowestTtft ?? 0, ttft);
   let watts = 0;
   for (const [id, node] of Object.entries(sample.nodes)) {
     if (finite(node.power)) watts += node.power;
@@ -84,6 +90,7 @@ export function finishRun(run, state, number) {
   const fromLedger = (end, start) => (sameDay && finite(end) && finite(start) && end >= start ? end - start : null);
   return {
     number, startedAt: run.startedAt, seconds: Math.round((run.last - run.startedAt) / 1000),
+    reported: { ...run.reported }, metricKinds: { ...run.metricKinds },
     avgDecode: run.decodeTime > 0 ? run.decodeSum / run.decodeTime : null, peakDecode: run.peakDecode, peakPrefill: run.peakPrefill,
     slowestTtft: run.slowestTtft, hottest: run.hottest, hottestNode: run.hottestNode, energyWh: run.energyWh,
     outputTokens: fromLedger(today.output, run.startOutput) ?? Math.round(run.outputTokens),
@@ -162,7 +169,14 @@ export function mountMini(doc, win, { onBack, container = doc.body, getSettings 
   const metric = (label, value, unit, extra = '') => `<div class="m-metric"><small>${esc(label)}</small><b class="num">${value}<em>${unit}</em></b>${extra}</div>`;
   function chips() {
     const v = latest?.inference?.ok ? latest.inference : null;
-    return `<div class="m-chips"><span>${esc(t('mini.running'))} <b>${v ? fixed(v.runningRequests, 0) : unknown()}</b></span><span>${esc(t('mini.queue'))} <b>${v ? fixed(v.waitingRequests, 0) : unknown()}</b></span><span>KV <b>${v ? fixed(v.kvCachePercent, 0, '%') : unknown()}</b></span><span>TTFT <b>${v ? duration(v.ttftP95RecentSeconds) : unknown()}</b></span><span>TPOT <b>${v ? duration(v.tpotP95RecentSeconds) : unknown()}</b></span><span>${esc(t('engine.cacheHit'))} <b>${v ? fixed(v.prefixCacheHitPercent, 0, '%') : unknown()}</b></span></div>`;
+    const chip = field => {
+      const { key, label, help, shown, idle } = engineMetric(latest?.inference, field);
+      if (!shown) return '';
+      const value = idle ? t('engine.noRequests') : v ? (key.endsWith('Seconds') ? duration(v[key]) : fixed(v[key], 0, '%')) : unknown();
+      const caption = { 'engine.kvCache': 'KV', 'engine.ttft': 'TTFT', 'engine.tpot': 'TPOT' }[label] ?? t(label);
+      return `<span${help ? ` title="${esc(t(help))}"` : ''}>${esc(caption)} <b>${value}</b></span>`;
+    };
+    return `<div class="m-chips"><span>${esc(t('mini.running'))} <b>${v ? fixed(v.runningRequests, 0) : unknown()}</b></span><span>${esc(t('mini.queue'))} <b>${v ? fixed(v.waitingRequests, 0) : unknown()}</b></span>${['kvCachePercent', 'ttftP95RecentSeconds', 'tpotP95RecentSeconds', 'prefixCacheHitPercent'].map(chip).join('')}</div>`;
   }
   function serverRows() {
     const list = modelServers(latest);
@@ -192,11 +206,14 @@ export function mountMini(doc, win, { onBack, container = doc.body, getSettings 
     const reporting = metas.filter(meta => nodes[meta.id]?.ok && finite(nodes[meta.id].gpu?.powerWatts)).length;
     const gpuMems = metas.map((meta) => gpuMemory(nodes[meta.id])), wording = memoryWording(gpuMems.map((item) => item.kind));
     const fullest = gpuMems.filter((item) => finite(item.usedBytes) && finite(item.totalBytes) && item.totalBytes > 0).sort((a, b) => b.usedBytes / b.totalBytes - a.usedBytes / a.totalBytes)[0];
-    return `<div class="m-pair">${metric(t('mini.decode'), rate(v?.outputTokensPerSecond), 'tok/s', spark('decode', 'var(--blue)', now))}${metric(t('mini.prefill'), rate(v ? prefillRate(v) : null), 'tok/s', spark('prefill', 'var(--orange)', now))}</div>
+    const decodeLabel = t(engineMetric(latest?.inference, 'outputTokensPerSecond').label);
+    const prefill = engineMetric(latest?.inference, 'promptComputeTokensPerSecond');
+    const prefillLabel = t(prefill.label);
+    return `<div class="m-pair">${metric(decodeLabel, rate(v?.outputTokensPerSecond), 'tok/s', spark('decode', 'var(--blue)', now))}${prefill.shown ? metric(prefillLabel, rate(v ? prefillRate(v) : null), 'tok/s', spark('prefill', 'var(--orange)', now)) : ''}</div>
       ${chips()}${serverRows()}<div class="m-rule"></div>${nodeRows()}
       <div class="m-chips m-spread">${watts === null ? '' : `<span data-gpu-power>${esc(t('mini.gpuPower'))} <b>${fixed(watts)} W</b>${reporting < metas.length ? ` ${esc(t('statusbar.gpuPowerPartial', { reporting, count: metas.length }))}` : ''}</span>`}<span>${esc(t(wording === 'unified' ? 'mini.mostMemory' : 'mini.mostGpuMemory'))} <b>${fullest ? `${memory(fullest.usedBytes, settings.mem)} / ${memory(fullest.totalBytes, settings.mem, 0)} ${memoryUnit(settings.mem)}` : unknown()}</b></span></div>
       ${footer(t('mini.updated', { time: clockTime(latest?.updatedAt, { hour12: hour12() }) }))}
-      <div class="m-wide">${metric(t('mini.decode'), rate(v?.outputTokensPerSecond), 'tok/s')}${metric(t('mini.prefill'), rate(v ? prefillRate(v) : null), 'tok/s')}<div class="m-wide-nodes">${metas.map((meta) => { const gpu = nodes[meta.id]?.ok ? nodes[meta.id].gpu ?? {} : {}; return `<div style="--node:${color(meta.id)}"><span>${esc(meta.name)}</span><span class="m-bar"><i style="width:${finite(gpu.utilization) ? Math.max(0, Math.min(100, gpu.utilization)).toFixed(0) : 0}%"></i></span>${hasNodeTemperature(nodes[meta.id]) ? `<span class="${hotClass(gpu.temperature)}">${finite(gpu.temperature) ? `${temperature(gpu.temperature, settings.temp)}°` : '—'}</span>` : ''}</div>`; }).join('')}</div></div>`;
+      <div class="m-wide">${metric(decodeLabel, rate(v?.outputTokensPerSecond), 'tok/s')}${prefill.shown ? metric(prefillLabel, rate(v ? prefillRate(v) : null), 'tok/s') : ''}<div class="m-wide-nodes">${metas.map((meta) => { const gpu = nodes[meta.id]?.ok ? nodes[meta.id].gpu ?? {} : {}; return `<div style="--node:${color(meta.id)}"><span>${esc(meta.name)}</span><span class="m-bar"><i style="width:${finite(gpu.utilization) ? Math.max(0, Math.min(100, gpu.utilization)).toFixed(0) : 0}%"></i></span>${hasNodeTemperature(nodes[meta.id]) ? `<span class="${hotClass(gpu.temperature)}">${finite(gpu.temperature) ? `${temperature(gpu.temperature, settings.temp)}°` : '—'}</span>` : ''}</div>`; }).join('')}</div></div>`;
   }
 
   function scope(now, stacked = false) {
@@ -234,8 +251,8 @@ export function mountMini(doc, win, { onBack, container = doc.body, getSettings 
   }
   function runStats(r, previous) {
     const node = (id) => metas.find((meta) => meta.id === id)?.name ?? id ?? '';
-    return `<div class="m-stats"><div><small>${esc(t('mini.run.avgDecode'))}</small><b>${rate(r.avgDecode)}</b>${change(r.avgDecode, previous?.avgDecode, 'up')}</div><div><small>${esc(t('mini.run.peakDecode'))}</small><b>${rate(r.peakDecode)}</b>${change(r.peakDecode, previous?.peakDecode, 'up')}</div>
-      <div><small>${esc(t('mini.run.peakPrefill'))}</small><b>${rate(r.peakPrefill)}</b>${change(r.peakPrefill, previous?.peakPrefill, 'up')}</div><div><small>${esc(t('mini.run.slowestTtft'))}</small><b>${duration(r.slowestTtft)}</b>${change(r.slowestTtft, previous?.slowestTtft, 'down')}</div>
+    return `<div class="m-stats">${engineMetric(r, 'outputTokensPerSecond').shown ? `<div><small>${esc(t('mini.run.avgDecode'))}</small><b>${rate(r.avgDecode)}</b>${change(r.avgDecode, previous?.avgDecode, 'up')}</div><div><small>${esc(t('mini.run.peakDecode'))}</small><b>${rate(r.peakDecode)}</b>${change(r.peakDecode, previous?.peakDecode, 'up')}</div>` : ''}
+      ${engineMetric(r, 'promptComputeTokensPerSecond').shown ? `<div><small>${esc(t('mini.run.peakPrefill'))}</small><b>${rate(r.peakPrefill)}</b>${change(r.peakPrefill, previous?.peakPrefill, 'up')}</div>` : ''}${engineMetric(r, 'ttftP95RecentSeconds').shown ? `<div><small>${esc(t('mini.run.slowestTtft'))}</small><b>${duration(r.slowestTtft)}</b>${change(r.slowestTtft, previous?.slowestTtft, 'down')}</div>` : ''}
       <div><small>${esc(t('mini.run.hottest'))}</small><b class="${hotClass(r.hottest)}">${tempText(r.hottest)}</b> <em class="m-muted">${esc(node(r.hottestNode))}</em></div><div><small>${esc(t('mini.run.energy'))}</small><b>${fixed(r.energyWh, 2)} Wh</b></div>
       <div><small>${esc(t('mini.run.output'))}</small><b>${fixed(r.outputTokens, 0)}</b></div><div><small>${esc(t('mini.run.prompt'))}</small><b>${fixed(r.promptTokens, 0)}</b></div></div>`;
   }
@@ -246,10 +263,11 @@ export function mountMini(doc, win, { onBack, container = doc.body, getSettings 
       ? `<div class="m-rec"><span class="m-state m-recording"><span class="m-dot"></span>${esc(t('mini.run.recording'))} ${mmss((now - run.startedAt) / 1000)}</span><button type="button" class="m-stop" data-run="stop">${esc(t('mini.run.stop'))}</button></div>`
       : `<div class="m-rec"><span class="m-state m-muted">${esc(t('mini.run.ready'))}</span><button type="button" data-run="start">${esc(t('mini.run.start'))}</button></div>`;
     const shown = live ?? previous;
-    const list = runs.slice(0, 4).map((r) => `<div><span><b>${esc(t('mini.run.name', { n: r.number }))}</b> ${esc(clockTime(r.startedAt, { seconds: false, hour12: hour12() }))} | ${mmss(r.seconds)}</span><span>${rate(r.avgDecode)}</span><span>${duration(r.slowestTtft)} | ${finite(r.hottest) ? `${temperature(r.hottest, settings.temp)}°` : '—'}</span></div>`).join('');
-    return `${control}${stacked ? '' : `<div class="m-pair">${metric(t('mini.decodeNow'), rate(v?.outputTokensPerSecond), 'tok/s')}${metric(t('mini.prefillNow'), rate(v ? prefillRate(v) : null), 'tok/s')}</div>`}
+    const showTtft = runs.slice(0, 4).every(r => engineMetric(r, 'ttftP95RecentSeconds').shown);
+    const list = runs.slice(0, 4).map((r) => `<div><span><b>${esc(t('mini.run.name', { n: r.number }))}</b> ${esc(clockTime(r.startedAt, { seconds: false, hour12: hour12() }))} | ${mmss(r.seconds)}</span><span>${rate(r.avgDecode)}</span><span>${showTtft ? `${duration(r.slowestTtft)} | ` : ''}${finite(r.hottest) ? `${temperature(r.hottest, settings.temp)}°` : '—'}</span></div>`).join('');
+    return `${control}${stacked ? '' : `<div class="m-pair">${engineMetric(latest?.inference, 'outputTokensPerSecond').shown ? metric(t('mini.decodeNow'), rate(v?.outputTokensPerSecond), 'tok/s') : ''}${engineMetric(latest?.inference, 'promptComputeTokensPerSecond').shown ? metric(t('mini.prefillNow'), rate(v ? prefillRate(v) : null), 'tok/s') : ''}</div>`}
       ${shown ? `<div class="m-head"><span>${esc(live ? t('mini.run.thisRun') : t('mini.run.lastRun', { n: shown.number }))}</span><span class="num">${mmss(shown.seconds)}</span></div>${runStats(shown, live ? previous : runs[1])}` : `<p class="m-empty">${esc(t('mini.run.none'))}</p>`}
-      ${runs.length ? `<div class="m-rule"></div><div class="m-head"><span>${esc(t('mini.run.list'))}</span><span>${esc(t('mini.run.columns'))}</span></div><div class="m-runs">${list}</div>` : ''}
+      ${runs.length ? `<div class="m-rule"></div><div class="m-head"><span>${esc(t('mini.run.list'))}</span><span>${esc(t(showTtft ? 'mini.run.columns' : 'mini.run.columnsNoTtft'))}</span></div><div class="m-runs">${list}</div>` : ''}
       <div class="m-foot"><span>${esc(t('mini.run.kept'))}</span>${runs.length ? `<button type="button" class="m-link" data-run="csv">${esc(t('mini.run.csv'))}</button>` : ''}</div>`;
   }
 
