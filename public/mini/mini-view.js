@@ -5,7 +5,7 @@
 // hidden.
 import { t, setLanguage } from '../i18n.js';
 import { loadSettings, loadTheme } from '../settings.js';
-import { nodeOrder, nodeColor, finite, fixed, memory, memoryUnit, gpuMemory, memoryWording, temperature, temperatureUnit, duration, clockTime, escapeHtml as esc, unknown, severalServers, modelServers, pickedServer, viewInference, combinedInference, serverName, serverStateKey, serverColorIndex, PHONE_QUERY, onMediaChange, offMediaChange, engineMetric, hasNodeTemperature, gpuPowerWatts } from '../view-data.js';
+import { nodeOrder, nodeColor, finite, fixed, memory, memoryUnit, gpuMemory, memoryWording, temperature, temperatureUnit, duration, clockTime, escapeHtml as esc, unknown, severalServers, modelServers, pickedServer, viewInference, combinedInference, serverName, serverStateKey, serverColorIndex, PHONE_QUERY, onMediaChange, offMediaChange, engineMetric, hasNodeTemperature, gpuPowerWatts, outputCoverage, rateCoverage, engineNeedsKey } from '../view-data.js';
 
 export const TABS = ['glance', 'scope', 'runs'];
 const TAB_KEY = 'spark-scope-mini-tab';
@@ -50,7 +50,8 @@ export function sampleOf(state, at = Date.now(), previousAt = null) {
     temp: node?.ok && finite(node.gpu?.temperature) ? node.gpu.temperature : null,
     power: node?.ok && finite(node.gpu?.powerWatts) ? node.gpu.powerWatts : null,
   }]));
-  return { at, decode: v && finite(v.outputTokensPerSecond) ? v.outputTokensPerSecond : 0, prefill: v && fresh ? prefillRate(v) : 0, nodes };
+  return { at, decode: v && v.reported?.outputTokensPerSecond !== false && finite(v.outputTokensPerSecond) ? v.outputTokensPerSecond : 0,
+    prefill: v && fresh ? prefillRate(v) : 0, nodes };
 }
 
 // A recorded run, folded from samples: averages and peaks, the slowest TTFT, the hottest GPU, GPU energy and tokens.
@@ -91,10 +92,12 @@ export function finishRun(run, state, number) {
   return {
     number, startedAt: run.startedAt, seconds: Math.round((run.last - run.startedAt) / 1000),
     reported: { ...run.reported }, metricKinds: { ...run.metricKinds },
-    avgDecode: run.decodeTime > 0 ? run.decodeSum / run.decodeTime : null, peakDecode: run.peakDecode, peakPrefill: run.peakPrefill,
+    avgDecode: run.reported?.outputTokensPerSecond !== false && run.decodeTime > 0 ? run.decodeSum / run.decodeTime : null,
+    peakDecode: run.reported?.outputTokensPerSecond === false ? null : run.peakDecode,
+    peakPrefill: engineMetric(run, 'promptComputeTokensPerSecond', { averages: false }).shown ? run.peakPrefill : null,
     slowestTtft: run.slowestTtft, hottest: run.hottest, hottestNode: run.hottestNode, energyWh: run.energyWh,
-    outputTokens: fromLedger(today.output, run.startOutput) ?? Math.round(run.outputTokens),
-    promptTokens: fromLedger(today.input, run.startInput) ?? Math.round(run.promptTokens),
+    outputTokens: fromLedger(today.output, run.startOutput) ?? (run.reported?.outputTokensPerSecond === false ? null : Math.round(run.outputTokens)),
+    promptTokens: fromLedger(today.input, run.startInput) ?? (engineMetric(run, 'promptComputeTokensPerSecond', { averages: false }).shown ? Math.round(run.promptTokens) : null),
   };
 }
 // One row per run for a spreadsheet.
@@ -183,9 +186,10 @@ export function mountMini(doc, win, { onBack, container = doc.body, getSettings 
     if (list.length < 2) return '';
     const rows = list.map((server) => {
       const v = server.inference?.ok ? server.inference : null, key = serverStateKey(server);
-      return `<div style="--node:${nodeColor(settings.colors, serverColorIndex(server, metas))}"><span class="m-name" title="${esc(serverName(server))}"><i></i><span>${esc(serverName(server))}</span></span><span class="num">${rate(v?.outputTokensPerSecond)} tok/s</span><span class="m-${key}">${esc(t(`servers.state.${key}`))}</span></div>`;
+      return `<div style="--node:${nodeColor(settings.colors, serverColorIndex(server, metas))}"><span class="m-name" title="${esc(serverName(server))}"><i></i><span>${esc(serverName(server))}</span></span><span class="num">${server.inference?.reported?.outputTokensPerSecond === false ? '' : `${rate(v?.outputTokensPerSecond)} tok/s`}</span><span class="m-${key}">${esc(t(engineNeedsKey(server.inference) ? 'engine.apiKeyRequired' : `servers.state.${key}`))}</span></div>`;
     }).join('');
-    return `<div class="m-servers">${rows}<div class="m-total"><span>${esc(t('chart.legend.total'))}</span><span class="num">${rate(combinedInference(list)?.outputTokensPerSecond)} tok/s</span><span></span></div></div>`;
+    const total = combinedInference(list);
+    return `<div class="m-servers">${rows}<div class="m-total"><span>${esc(t('chart.legend.total'))} ${esc(outputCoverage(list))}</span><span class="num">${total?.reported?.outputTokensPerSecond === false ? '' : `${rate(total?.outputTokensPerSecond)} tok/s`}</span><span></span></div></div>`;
   }
   function nodeRows() {
     const nodes = latest?.nodes ?? {};
@@ -200,20 +204,27 @@ export function mountMini(doc, win, { onBack, container = doc.body, getSettings 
     return `<div class="m-foot"><span>${esc(note)}</span></div>`;
   }
 
+  function focusedRateCoverage(field) {
+    const list = modelServers(latest);
+    return rateCoverage(settings.servers === 'one' ? [pickedServer(list, settings.server)] : list, field);
+  }
+  const rateCaption = (label, field) => { const coverage = focusedRateCoverage(field); return t(label) + (coverage ? ` ${coverage}` : ''); };
+
   function glance(now) {
     const v = latest?.inference?.ok ? latest.inference : null, nodes = latest?.nodes ?? {};
     const watts = gpuPowerWatts(metas.map((meta) => nodes[meta.id]));
     const reporting = metas.filter(meta => nodes[meta.id]?.ok && finite(nodes[meta.id].gpu?.powerWatts)).length;
     const gpuMems = metas.map((meta) => gpuMemory(nodes[meta.id])), wording = memoryWording(gpuMems.map((item) => item.kind));
     const fullest = gpuMems.filter((item) => finite(item.usedBytes) && finite(item.totalBytes) && item.totalBytes > 0).sort((a, b) => b.usedBytes / b.totalBytes - a.usedBytes / a.totalBytes)[0];
-    const decodeLabel = t(engineMetric(latest?.inference, 'outputTokensPerSecond').label);
+    const decode = engineMetric(latest?.inference, 'outputTokensPerSecond');
+    const decodeLabel = decode.key === 'averageOutputTokensPerSecond' ? t(decode.label) : rateCaption(decode.label, decode.key);
     const prefill = engineMetric(latest?.inference, 'promptComputeTokensPerSecond');
-    const prefillLabel = t(prefill.label);
-    return `<div class="m-pair">${metric(decodeLabel, rate(v?.outputTokensPerSecond), 'tok/s', spark('decode', 'var(--blue)', now))}${prefill.shown ? metric(prefillLabel, rate(v ? prefillRate(v) : null), 'tok/s', spark('prefill', 'var(--orange)', now)) : ''}</div>
+    const prefillLabel = prefill.key === 'averagePromptTokensPerSecond' ? t(prefill.label) : rateCaption(prefill.label, prefill.key);
+    return `${engineNeedsKey(latest?.inference) ? `<p class="m-empty">${esc(t('engine.apiKeyRequired'))}</p>` : ''}<div class="m-pair">${decode.shown ? metric(decodeLabel, rate(v?.[decode.key]), 'tok/s', decode.key === 'averageOutputTokensPerSecond' ? '' : spark('decode', 'var(--blue)', now)) : ''}${prefill.shown ? metric(prefillLabel, rate(v?.[prefill.key]), 'tok/s', prefill.key === 'averagePromptTokensPerSecond' ? '' : spark('prefill', 'var(--orange)', now)) : ''}</div>
       ${chips()}${serverRows()}<div class="m-rule"></div>${nodeRows()}
       <div class="m-chips m-spread">${watts === null ? '' : `<span data-gpu-power>${esc(t('mini.gpuPower'))} <b>${fixed(watts)} W</b>${reporting < metas.length ? ` ${esc(t('statusbar.gpuPowerPartial', { reporting, count: metas.length }))}` : ''}</span>`}<span>${esc(t(wording === 'unified' ? 'mini.mostMemory' : 'mini.mostGpuMemory'))} <b>${fullest ? `${memory(fullest.usedBytes, settings.mem)} / ${memory(fullest.totalBytes, settings.mem, 0)} ${memoryUnit(settings.mem)}` : unknown()}</b></span></div>
       ${footer(t('mini.updated', { time: clockTime(latest?.updatedAt, { hour12: hour12() }) }))}
-      <div class="m-wide">${metric(decodeLabel, rate(v?.outputTokensPerSecond), 'tok/s')}${prefill.shown ? metric(prefillLabel, rate(v ? prefillRate(v) : null), 'tok/s') : ''}<div class="m-wide-nodes">${metas.map((meta) => { const gpu = nodes[meta.id]?.ok ? nodes[meta.id].gpu ?? {} : {}; return `<div style="--node:${color(meta.id)}"><span>${esc(meta.name)}</span><span class="m-bar"><i style="width:${finite(gpu.utilization) ? Math.max(0, Math.min(100, gpu.utilization)).toFixed(0) : 0}%"></i></span>${hasNodeTemperature(nodes[meta.id]) ? `<span class="${hotClass(gpu.temperature)}">${finite(gpu.temperature) ? `${temperature(gpu.temperature, settings.temp)}°` : '—'}</span>` : ''}</div>`; }).join('')}</div></div>`;
+      <div class="m-wide">${decode.shown ? metric(decodeLabel, rate(v?.[decode.key]), 'tok/s') : ''}${prefill.shown ? metric(prefillLabel, rate(v?.[prefill.key]), 'tok/s') : ''}<div class="m-wide-nodes">${metas.map((meta) => { const gpu = nodes[meta.id]?.ok ? nodes[meta.id].gpu ?? {} : {}; return `<div style="--node:${color(meta.id)}"><span>${esc(meta.name)}</span><span class="m-bar"><i style="width:${finite(gpu.utilization) ? Math.max(0, Math.min(100, gpu.utilization)).toFixed(0) : 0}%"></i></span>${hasNodeTemperature(nodes[meta.id]) ? `<span class="${hotClass(gpu.temperature)}">${finite(gpu.temperature) ? `${temperature(gpu.temperature, settings.temp)}°` : '—'}</span>` : ''}</div>`; }).join('')}</div></div>`;
   }
 
   function scope(now, stacked = false) {
@@ -234,12 +245,16 @@ export function mountMini(doc, win, { onBack, container = doc.body, getSettings 
     const hottest = metas.map((meta) => ({ meta, temp: latest?.nodes?.[meta.id]?.ok ? latest.nodes[meta.id].gpu?.temperature : null })).filter((h) => finite(h.temp)).sort((a, b) => b.temp - a.temp)[0];
     const showTemps = metas.some(meta => hasNodeTemperature(latest?.nodes?.[meta.id]));
     const phases = ['idle', 'prefill', 'decode'].map((phase) => `<span class="${phase === current ? `m-on m-${phase}` : ''}">${esc(t(`mini.phase.${phase}`))}</span>`).join('');
-    return `<div class="m-head"><div class="m-phase">${phases}</div><span class="num">${esc(t('mini.twoMinutes'))}</span></div>
-      <div class="m-scope"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="${esc(t('mini.scopeLabel'))}" role="img">${bands}<line x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" stroke="var(--grid)"/>${bars}${line ? `<path d="${line}" fill="none" stroke="var(--blue)" stroke-width="2" vector-effect="non-scaling-stroke"/>` : ''}</svg><span class="m-lbl m-left">${esc(t('mini.decode'))} ${rate(last.decode)} tok/s</span><span class="m-lbl m-right">${esc(t('mini.prefill'))} ${rate(latest?.inference?.ok ? prefillRate(latest.inference) : null)}</span></div>
+    const showRates = latest?.inference?.reported?.outputTokensPerSecond !== false;
+    const decodeCoverage = focusedRateCoverage('outputTokensPerSecond');
+    const prefillCoverage = focusedRateCoverage(engineMetric(latest?.inference, 'promptComputeTokensPerSecond', { averages: false }).key);
+    return `${showRates ? `<div class="m-head"><div class="m-phase">${phases}</div><span class="num">${esc(t('mini.twoMinutes'))}</span></div>
+      <div class="m-scope"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="${esc(t('mini.scopeLabel'))}" role="img">${bands}<line x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" stroke="var(--grid)"/>${bars}${line ? `<path d="${line}" fill="none" stroke="var(--blue)" stroke-width="2" vector-effect="non-scaling-stroke"/>` : ''}</svg><span class="m-lbl m-left">${esc(t('mini.decode'))} ${rate(last.decode)} tok/s${decodeCoverage ? `<br>${esc(decodeCoverage)}` : ''}</span><span class="m-lbl m-right">${esc(t('mini.prefill'))} ${rate(latest?.inference?.ok ? prefillRate(latest.inference) : null)}${prefillCoverage ? `<br>${esc(prefillCoverage)}` : ''}</span></div>` : ''}
       ${stacked ? '' : chips()}
+      ${!showRates && !showTemps ? `<p class="m-empty">${esc(t(engineNeedsKey(latest?.inference) ? 'engine.apiKeyRequired' : 'mini.scopeUnavailable'))}</p>` : ''}
       ${showTemps ? `<div class="m-head"><span>${esc(t('node.reading.temp'))}</span><span class="num ${hotClass(hottest?.temp)}">${hottest ? esc(t('mini.hottest', { temp: tempText(hottest.temp), node: hottest.meta.name })) : unknown()}</span></div>
       <div class="m-scope m-temps"><svg viewBox="0 0 ${W} ${TH}" preserveAspectRatio="none" aria-hidden="true"><line x1="0" x2="${W}" y1="${ty(HOT_CELSIUS).toFixed(1)}" y2="${ty(HOT_CELSIUS).toFixed(1)}" stroke="var(--red)" stroke-dasharray="3 4" opacity=".6" vector-effect="non-scaling-stroke"/>${tempLines}</svg><span class="m-lbl m-right m-hot" style="top:${Math.max(0, ty(HOT_CELSIUS) - 15).toFixed(0)}px">${tempText(HOT_CELSIUS)}</span></div>` : ''}
-      ${footer(t('mini.shading'))}`;
+      ${showRates ? footer(t('mini.shading')) : ''}`;
   }
 
   const mmss = (seconds) => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
@@ -251,9 +266,11 @@ export function mountMini(doc, win, { onBack, container = doc.body, getSettings 
   }
   function runStats(r, previous) {
     const node = (id) => metas.find((meta) => meta.id === id)?.name ?? id ?? '';
-    return `<div class="m-stats">${engineMetric(r, 'outputTokensPerSecond').shown ? `<div><small>${esc(t('mini.run.avgDecode'))}</small><b>${rate(r.avgDecode)}</b>${change(r.avgDecode, previous?.avgDecode, 'up')}</div><div><small>${esc(t('mini.run.peakDecode'))}</small><b>${rate(r.peakDecode)}</b>${change(r.peakDecode, previous?.peakDecode, 'up')}</div>` : ''}
-      ${engineMetric(r, 'promptComputeTokensPerSecond').shown ? `<div><small>${esc(t('mini.run.peakPrefill'))}</small><b>${rate(r.peakPrefill)}</b>${change(r.peakPrefill, previous?.peakPrefill, 'up')}</div>` : ''}${engineMetric(r, 'ttftP95RecentSeconds').shown ? `<div><small>${esc(t('mini.run.slowestTtft'))}</small><b>${duration(r.slowestTtft)}</b>${change(r.slowestTtft, previous?.slowestTtft, 'down')}</div>` : ''}
-      <div><small>${esc(t('mini.run.hottest'))}</small><b class="${hotClass(r.hottest)}">${tempText(r.hottest)}</b> <em class="m-muted">${esc(node(r.hottestNode))}</em></div><div><small>${esc(t('mini.run.energy'))}</small><b>${fixed(r.energyWh, 2)} Wh</b></div>
+    const showTemps = finite(r.hottest) || metas.some(meta => hasNodeTemperature(latest?.nodes?.[meta.id]));
+    const showPower = r.energyWh > 0 || gpuPowerWatts(Object.values(latest?.nodes ?? {})) !== null;
+    return `<div class="m-stats">${r.reported?.outputTokensPerSecond !== false ? `<div><small>${esc(t('mini.run.avgDecode'))}</small><b>${rate(r.avgDecode)}</b>${change(r.avgDecode, previous?.avgDecode, 'up')}</div><div><small>${esc(t('mini.run.peakDecode'))}</small><b>${rate(r.peakDecode)}</b>${change(r.peakDecode, previous?.peakDecode, 'up')}</div>` : ''}
+      ${engineMetric(r, 'promptComputeTokensPerSecond', { averages: false }).shown ? `<div><small>${esc(t('mini.run.peakPrefill'))}</small><b>${rate(r.peakPrefill)}</b>${change(r.peakPrefill, previous?.peakPrefill, 'up')}</div>` : ''}${engineMetric(r, 'ttftP95RecentSeconds').shown ? `<div><small>${esc(t('mini.run.slowestTtft'))}</small><b>${duration(r.slowestTtft)}</b>${change(r.slowestTtft, previous?.slowestTtft, 'down')}</div>` : ''}
+      ${showTemps ? `<div><small>${esc(t('mini.run.hottest'))}</small><b class="${hotClass(r.hottest)}">${tempText(r.hottest)}</b> <em class="m-muted">${esc(node(r.hottestNode))}</em></div>` : ''}${showPower ? `<div><small>${esc(t('mini.run.energy'))}</small><b>${fixed(r.energyWh, 2)} Wh</b></div>` : ''}
       <div><small>${esc(t('mini.run.output'))}</small><b>${fixed(r.outputTokens, 0)}</b></div><div><small>${esc(t('mini.run.prompt'))}</small><b>${fixed(r.promptTokens, 0)}</b></div></div>`;
   }
   function runsView(now, stacked = false) {
@@ -263,11 +280,13 @@ export function mountMini(doc, win, { onBack, container = doc.body, getSettings 
       ? `<div class="m-rec"><span class="m-state m-recording"><span class="m-dot"></span>${esc(t('mini.run.recording'))} ${mmss((now - run.startedAt) / 1000)}</span><button type="button" class="m-stop" data-run="stop">${esc(t('mini.run.stop'))}</button></div>`
       : `<div class="m-rec"><span class="m-state m-muted">${esc(t('mini.run.ready'))}</span><button type="button" data-run="start">${esc(t('mini.run.start'))}</button></div>`;
     const shown = live ?? previous;
-    const showTtft = runs.slice(0, 4).every(r => engineMetric(r, 'ttftP95RecentSeconds').shown);
-    const list = runs.slice(0, 4).map((r) => `<div><span><b>${esc(t('mini.run.name', { n: r.number }))}</b> ${esc(clockTime(r.startedAt, { seconds: false, hour12: hour12() }))} | ${mmss(r.seconds)}</span><span>${rate(r.avgDecode)}</span><span>${showTtft ? `${duration(r.slowestTtft)} | ` : ''}${finite(r.hottest) ? `${temperature(r.hottest, settings.temp)}°` : '—'}</span></div>`).join('');
-    return `${control}${stacked ? '' : `<div class="m-pair">${engineMetric(latest?.inference, 'outputTokensPerSecond').shown ? metric(t('mini.decodeNow'), rate(v?.outputTokensPerSecond), 'tok/s') : ''}${engineMetric(latest?.inference, 'promptComputeTokensPerSecond').shown ? metric(t('mini.prefillNow'), rate(v ? prefillRate(v) : null), 'tok/s') : ''}</div>`}
+    const recent = runs.slice(0, 4), showTtft = recent.some(r => engineMetric(r, 'ttftP95RecentSeconds').shown);
+    const showDecode = recent.some(r => r.reported?.outputTokensPerSecond !== false), showTemps = recent.some(r => finite(r.hottest));
+    const columns = [showDecode ? t('mini.decode') : '', showTtft ? 'TTFT' : '', showTemps ? t('mini.run.max') : ''].filter(Boolean).join(' | ');
+    const list = recent.map((r) => `<div><span><b>${esc(t('mini.run.name', { n: r.number }))}</b> ${esc(clockTime(r.startedAt, { seconds: false, hour12: hour12() }))} | ${mmss(r.seconds)}</span><span>${r.reported?.outputTokensPerSecond === false ? '' : rate(r.avgDecode)}</span><span>${showTtft && engineMetric(r, 'ttftP95RecentSeconds').shown ? `${duration(r.slowestTtft)}${showTemps ? ' | ' : ''}` : ''}${showTemps && finite(r.hottest) ? `${temperature(r.hottest, settings.temp)}°` : ''}</span></div>`).join('');
+    return `${control}${stacked ? '' : `<div class="m-pair">${latest?.inference?.reported?.outputTokensPerSecond !== false ? metric(rateCaption('mini.decodeNow', 'outputTokensPerSecond'), rate(v?.outputTokensPerSecond), 'tok/s') : ''}${engineMetric(latest?.inference, 'promptComputeTokensPerSecond', { averages: false }).shown ? metric(rateCaption('mini.prefillNow', engineMetric(latest?.inference, 'promptComputeTokensPerSecond', { averages: false }).key), rate(v ? prefillRate(v) : null), 'tok/s') : ''}</div>`}
       ${shown ? `<div class="m-head"><span>${esc(live ? t('mini.run.thisRun') : t('mini.run.lastRun', { n: shown.number }))}</span><span class="num">${mmss(shown.seconds)}</span></div>${runStats(shown, live ? previous : runs[1])}` : `<p class="m-empty">${esc(t('mini.run.none'))}</p>`}
-      ${runs.length ? `<div class="m-rule"></div><div class="m-head"><span>${esc(t('mini.run.list'))}</span><span>${esc(t(showTtft ? 'mini.run.columns' : 'mini.run.columnsNoTtft'))}</span></div><div class="m-runs">${list}</div>` : ''}
+      ${runs.length ? `<div class="m-rule"></div><div class="m-head"><span>${esc(t('mini.run.list'))}</span><span>${esc(columns)}</span></div><div class="m-runs">${list}</div>` : ''}
       <div class="m-foot"><span>${esc(t('mini.run.kept'))}</span>${runs.length ? `<button type="button" class="m-link" data-run="csv">${esc(t('mini.run.csv'))}</button>` : ''}</div>`;
   }
 

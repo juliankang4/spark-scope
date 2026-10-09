@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { fixtureState, usageMonth, MODES, LEDGER_MODELS, LEDGER_SCENARIO } from "./fixtures.mjs";
 import { SECURITY_HEADERS } from "../lib/http-guard.mjs";
 import { t } from "../public/i18n.js";
+import { engineMetric } from "../public/view-data.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUBLIC = path.join(ROOT, "public");
@@ -41,7 +42,7 @@ const server = createServer((request, response) => {
   const url = new URL(request.url, "http://localhost");
   if (url.pathname === "/api/state") {
     if (current.mode === "lost") { response.writeHead(503).end("{}"); return; }
-    const state = fixtureState(current.count, current.mode, fixtureNow(), { longNames: current.longNames, servers: current.servers ?? 0, offGroup: current.offGroup ?? false, gpuWorkstations: current.gpuWorkstations ?? 0, engine: current.engine ?? "vLLM", engineIdle: current.engineIdle ?? false, engineDown: current.engineDown ?? false, noSpec: current.noSpec ?? false, macNodes: current.macNodes ?? 0, macThermal: current.macThermal, macUnavailable: current.macUnavailable, macPending: current.macPending, macPowerMissing: current.macPowerMissing });
+    const state = fixtureState(current.count, current.mode, fixtureNow(), { longNames: current.longNames, servers: current.servers ?? 0, offGroup: current.offGroup ?? false, gpuWorkstations: current.gpuWorkstations ?? 0, engine: current.engine ?? "vLLM", engineIdle: current.engineIdle ?? false, engineDown: current.engineDown ?? false, engineKeyMissing: current.engineKeyMissing ?? false, mixedEngines: current.mixedEngines ?? false, noSpec: current.noSpec ?? false, macNodes: current.macNodes ?? 0, macThermal: current.macThermal, macUnavailable: current.macUnavailable, macPending: current.macPending, macPowerMissing: current.macPowerMissing });
     if (current.noPrefill) {
       for (const server of state.servers) for (const key of ["promptTokensPerSecond", "promptComputeTokensPerSecond", "promptCacheTokensPerSecond", "prefixCacheHitPercent"]) server.inference.reported[key] = false;
     }
@@ -1142,11 +1143,11 @@ try {
     }
   }
 
-  for (const [engine, activity] of [["vLLM", "serving"], ["SGLang", "serving"], ["llama.cpp", "serving"], ["Strata", "serving"], ["TensorFold", "serving"], ["llama.cpp", "idle"], ["Strata", "idle"], ["TensorFold", "idle"], ["llama.cpp", "down"], ["Strata", "down"], ["TensorFold", "down"]]) {
-    current = { count: 4, mode: "serving", engine, engineIdle: activity === "idle", engineDown: activity === "down", noSpec: true };
+  for (const [engine, activity] of [["vLLM", "serving"], ["SGLang", "serving"], ["llama.cpp", "serving"], ["Strata", "serving"], ["TensorFold", "serving"], ["llama.cpp", "idle"], ["Strata", "idle"], ["TensorFold", "idle"], ["llama.cpp", "down"], ["Strata", "down"], ["TensorFold", "down"], ["oMLX", "serving"], ["oMLX", "idle"], ["oMLX", "down"], ["oMLX", "key"]]) {
+    current = { count: engine === "oMLX" ? 1 : 4, macNodes: engine === "oMLX" ? 1 : 0, mode: "serving", engine, engineIdle: activity === "idle", engineDown: activity === "down", engineKeyMissing: activity === "key", noSpec: true };
     const looks = [["en", "default"], ["ko", "default"], ...(activity === "serving" ? [["en", "console"], ["en", "soft"], ["ko", "soft"]] : [])];
     for (const [lang, design] of looks) {
-      const engineState = fixtureState(4, "serving", Date.now(), current);
+      const engineState = fixtureState(current.count, "serving", Date.now(), current);
       const engineName = engine === "llama.cpp" ? "llamacpp" : engine.toLowerCase();
       const web = await openPage({ width: 1440, height: 1000 });
       await web.go(`${base}/?lang=${lang}&design=${design}`);
@@ -1154,14 +1155,21 @@ try {
       const fields = await web.evaluate(`(() => Object.fromEntries([...document.querySelectorAll('#engines [data-field]')].map(el => [el.dataset.field, { hidden: el.hidden, labelHidden: el.previousElementSibling.hidden, label: el.previousElementSibling.querySelector('[data-metric-label]').textContent.trim(), value: el.textContent, help: el.previousElementSibling.querySelector('.help')?.dataset.help }])))()`);
       const problems = [...await web.evaluate(CHECK_WEB), ...(lang === "ko" ? await englishLeft(web, engineState) : []), ...web.errors.splice(0)];
       for (const [field, info] of Object.entries(fields)) {
-        const key = field === "tpotP95RecentSeconds" && engine === "llama.cpp" ? "meanDecodeSeconds" : field;
-        if (info.hidden !== (engineState.inference.reported[key] === false) || info.hidden !== info.labelHidden) problems.push(`wrong visibility: ${field}`);
-        if (activity === "down" && !info.hidden && info.value !== t("common.unknown", {}, lang)) problems.push(`failed poll is not unknown: ${field}`);
+        if (info.hidden !== !engineMetric(engineState.inference, field).shown || info.hidden !== info.labelHidden) problems.push(`wrong visibility: ${field}`);
+        if (["down", "key"].includes(activity) && !info.hidden && info.value !== t("common.unknown", {}, lang)) problems.push(`failed poll is not unknown: ${field}`);
       }
       if (engine === "llama.cpp" && fields.tpotP95RecentSeconds.label !== t("engine.meanDecode", {}, lang)) problems.push("mean decode still labelled p95");
       if (engine === "TensorFold" && fields.promptComputeTokensPerSecond.label !== t("engine.prefill2s", {}, lang)) problems.push("prefill rate lacks its two-second window");
       if (engine === "Strata" && fields.promptComputeTokensPerSecond.label !== t("engine.prefill", {}, lang)) problems.push("Strata prefill label changes with activity");
-      if (activity === "idle" && fields.kvCachePercent.value !== t("engine.noRequests", {}, lang)) problems.push("idle context row not marked idle");
+      if (activity === "idle" && !fields.kvCachePercent.hidden && fields.kvCachePercent.value !== t("engine.noRequests", {}, lang)) problems.push("idle context row not marked idle");
+      if (engine === "oMLX") {
+        const note = await web.evaluate("document.querySelector('#plot-note').textContent");
+        if (!note.includes(t(activity === "down" || activity === "key" ? "chart.note.noData" : "chart.note.unsupported", {}, lang))) problems.push("wrong output explanation: " + note);
+        if (activity === "key" && !await web.evaluate("document.querySelector('.status').textContent.includes(" + JSON.stringify(t("engine.apiKeyRequired", {}, lang)) + ")")) problems.push("missing key reason in status");
+        if (activity === "key" && await web.evaluate("document.querySelector('.status').textContent.split(" + JSON.stringify(t("engine.apiKeyRequired", {}, lang)) + ").length") !== 2) problems.push("duplicate API key notice");
+        if (fields.outputTokensPerSecond.label !== t("engine.decodeMean", {}, lang) || fields.promptComputeTokensPerSecond.label !== t("engine.prefillMean", {}, lang)) problems.push("session rates lack average labels");
+        if (!await web.evaluate("document.querySelector('#speed').parentElement.hidden && document.querySelector('#legend-speed').parentElement.hidden && document.querySelector('#avg').parentElement.hidden")) problems.push("unreported live output shown");
+      }
       if (await web.evaluate("document.querySelector('#today-requests').hidden") !== (engineState.usage.reported.requests === false)) problems.push("unreported ledger requests are visible");
       if (activity === "serving" && design === "default") {
         for (const info of Object.values(fields).filter(info => !info.hidden && info.help)) {
@@ -1171,6 +1179,7 @@ try {
           await web.evaluate("document.body.click()");
         }
       }
+      if (engine === "oMLX" && activity === "key") await web.shoot(`web-omlx-key-${lang}.png`, { selector: ".status" });
       await web.evaluate("document.querySelector('#engines').scrollIntoView()");
       const file = `engine-${engineName}-${activity}-${lang}${design === "default" ? "" : `-${design}`}.png`;
       await web.shoot(file, { selector: "#engines" });
@@ -1184,6 +1193,9 @@ try {
       await mini.waitFor("document.querySelector('.m-metric') !== null");
       const chips = await mini.evaluate("document.querySelector('.m-chips').textContent");
       const miniProblems = [...await mini.evaluate(CHECK_MINI), ...(lang === "ko" ? await englishLeft(mini, engineState) : []), ...mini.errors.splice(0)];
+      if (engine === "oMLX" && /KV|TTFT|TPOT/.test(chips)) miniProblems.push("unsupported oMLX chip shown");
+      if (activity === "key" && !await mini.evaluate("document.querySelector('.m-tab-glance').textContent.includes(" + JSON.stringify(t("engine.apiKeyRequired", {}, lang)) + ")")) miniProblems.push("missing Glance key reason");
+      if (engine === "oMLX" && !await mini.evaluate("document.querySelector('.m-metric').textContent.includes(" + JSON.stringify(t("engine.decodeMean", {}, lang)) + ") && !document.querySelector('.m-metric svg')")) miniProblems.push("session mean displayed as a live series");
       if (engine === "llama.cpp" && /TTFT|TPOT/.test(chips)) miniProblems.push("unsupported latency chip shown");
       if (engine === "TensorFold" && chips.includes(t("engine.cacheHit", {}, lang))) miniProblems.push("unsupported cache chip shown");
       if (["llama.cpp", "Strata", "TensorFold"].includes(engine) && activity === "idle" && !chips.includes(`${t("engine.contextUsed", {}, lang)} ${t("engine.noRequests", {}, lang)}`)) miniProblems.push("idle context chip missing or not marked idle");
@@ -1197,9 +1209,86 @@ try {
         await mini.shoot(runFile);
         report(runFile, [runText], [...await mini.evaluate(CHECK_MINI), ...(/TTFT/.test(runText) ? ["unsupported run TTFT shown"] : []), ...mini.errors.splice(0)]);
       }
+      if (engine === "oMLX" && design === "default") {
+        await mini.evaluate("document.querySelector('[data-tab=scope]').click()");
+        const scopeText = await mini.evaluate("document.querySelector('.m-tab-scope').textContent");
+        report(`mini-omlx-scope-${activity}-${lang}`, [scopeText], await mini.evaluate("document.querySelector('.m-scope:not(.m-temps)') !== null") ? ["unreported live scope shown"] : scopeText.includes(t(activity === "key" ? "engine.apiKeyRequired" : "mini.scopeUnavailable", {}, lang)) ? [] : ["empty unsupported Scope view"]);
+        await mini.shoot(`mini-omlx-scope-${activity}-${lang}.png`);
+        await mini.evaluate("document.querySelector('[data-tab=runs]').click(); document.querySelector('[data-run=start]').click(); document.querySelector('[data-run=stop]').click()");
+        const text = await mini.evaluate("document.querySelector('.m-tab-runs').textContent");
+        const unsupported = ["mini.run.avgDecode", "mini.run.peakDecode", "mini.run.peakPrefill", "mini.run.slowestTtft"].filter(key => text.includes(t(key, {}, lang)));
+        report(`mini-omlx-runs-${activity}-${lang}`, [text], [...await mini.evaluate(CHECK_MINI), ...unsupported.map(key => `unreported run metric: ${key}`), ...(text.includes(t("common.unknown", {}, lang)) ? ["unsupported run value shown"] : []), ...mini.errors.splice(0)]);
+        await mini.shoot(`mini-omlx-runs-${activity}-${lang}.png`);
+      }
       await mini.evaluate("localStorage.clear()");
       await mini.close();
+      if (engine === "oMLX" && design === "default") {
+        const rack = await openPage({ width: 1920, height: 480 });
+        await rack.go(`${base}/rack/?lang=${lang}`);
+        await rack.waitFor("document.querySelectorAll('.bay').length === 1");
+        const result = await rack.evaluate(CHECK_RACK);
+        const problems = [...result.issues, ...(lang === "ko" ? await englishLeft(rack, engineState) : []), ...rack.errors.splice(0)];
+        if (await rack.evaluate("getComputedStyle(document.querySelector('.out')).display !== 'none' || document.querySelector('.out').getClientRects().length !== 0")) problems.push("unreported rack output shown");
+        if (activity === "key" && !result.band.includes(t("engine.apiKeyRequired", {}, lang))) problems.push("missing rack key reason");
+        if (!await rack.evaluate("(() => { const band=document.querySelector(\'.over\'), token=document.querySelector(\'.tok\'); return Math.abs(band.getBoundingClientRect().right-token.getBoundingClientRect().right-parseFloat(getComputedStyle(band).paddingRight))<1; })()")) problems.push("hidden output shifted the token total");
+        const file = `rack-engine-omlx-${activity}-${lang}.png`;
+        await rack.shoot(file);
+        report(file, [result.band], problems);
+        await rack.close();
+      }
     }
+  }
+
+  for (const [width, lang, needsKey] of [[1440, "en", false], [768, "en", false], [375, "ko", false], [1440, "ko", true]]) {
+    current = { count: 2, macNodes: 1, servers: 2, mode: "serving", engine: "oMLX", mixedEngines: true, engineKeyMissing: needsKey };
+    const state = fixtureState(2, "serving", Date.now(), current), suffix = `${width}-${lang}${needsKey ? "-key" : ""}`;
+    const web = await openPage({ width, height: 1000 });
+    await web.go(`${base}/?lang=${lang}`);
+    await web.waitFor("document.querySelectorAll('#engines [data-field]').length > 10");
+    const issues = [...await web.evaluate(CHECK_WEB), ...(lang === "ko" ? await englishLeft(web, state) : []), ...web.errors.splice(0)];
+    if (!await web.evaluate("document.querySelector('#speed').nextElementSibling.textContent.includes('1/2') && document.querySelector('#legend-output').textContent.includes('1/2')")) issues.push("mixed output coverage missing");
+    await web.shoot(`web-omlx-mixed-${suffix}.png`, { fullPage: true });
+    report(`web-omlx-mixed-${suffix}`, [], issues);
+    await web.close();
+    const mini = await openPage({ width: 340, height: 640 });
+    await mini.go(`${base}/mini/`);
+    await mini.evaluate(`localStorage.setItem('spark-scope-settings', JSON.stringify({ lang: '${lang}' }))`);
+    await mini.go(`${base}/mini/`);
+    await mini.waitFor("document.querySelector('.m-servers') !== null");
+    const grid = await mini.evaluate(`(() => { const rows=[...document.querySelector('.m-servers').children].map(row=>[...row.children].map(el=>el.getBoundingClientRect().left)); return rows.every(row=>row.length===3 && row.every((x,i)=>Math.abs(x-rows[0][i])<1)); })()`);
+    const miniIssues = [...await mini.evaluate(CHECK_MINI), ...(lang === "ko" ? await englishLeft(mini, state) : []), ...mini.errors.splice(0)];
+    if (!grid) miniIssues.push("mixed server columns shifted");
+    if (!await mini.evaluate("[...document.querySelectorAll('.m-pair .m-metric small')].every(el=>el.textContent.includes('1/2')) && document.querySelector('.m-total').textContent.includes('1/2')")) miniIssues.push("mixed mini coverage missing");
+    await mini.shoot(`mini-omlx-mixed-${suffix}.png`);
+    report(`mini-omlx-mixed-${suffix}`, [], miniIssues);
+    for (const tab of ["scope", "runs"]) {
+      await mini.evaluate(`document.querySelector('[data-tab=${tab}]').click()`);
+      const selector = tab === "scope" ? ".m-scope:not(.m-temps) .m-lbl" : ".m-pair .m-metric small";
+      const labels = await mini.evaluate(`(() => [...document.querySelectorAll(${JSON.stringify(selector)})].map(el=>el.textContent))()`);
+      const issues = [...await mini.evaluate(CHECK_MINI), ...mini.errors.splice(0)];
+      if (labels.length !== 2 || labels.some(label=>!label.includes("1/2"))) issues.push("missing mixed " + tab + " rate coverage");
+      if (tab === "scope" && !await mini.evaluate("(() => { const left=document.querySelector('.m-scope .m-left').getBoundingClientRect(), right=document.querySelector('.m-scope .m-right').getBoundingClientRect(); return left.right <= right.left; })()")) issues.push("scope rate labels overlap");
+      const file = `mini-omlx-mixed-${suffix}-${tab}.png`;
+      await mini.shoot(file);
+      report(file, labels, issues);
+    }
+    if (width === 1440 && !needsKey) {
+      await mini.evaluate(`localStorage.clear(); localStorage.setItem('spark-scope-settings', JSON.stringify({ lang: "${lang}", servers: "one", server: "b" }))`);
+      await mini.go(`${base}/mini/`);
+      await mini.waitFor("document.querySelector('.m-pair .m-metric') !== null");
+      const labels = await mini.evaluate("[...document.querySelectorAll('.m-pair .m-metric small')].map(el=>el.textContent)");
+      report(`mini-omlx-picked-${suffix}`, labels, labels.some(label=>label.includes("1/2")) ? ["picked server is labelled as a partial total"] : []);
+    }
+    await mini.evaluate("localStorage.clear()");
+    await mini.close();
+    const rack = await openPage({ width: 1920, height: 480 });
+    await rack.go(`${base}/rack/?lang=${lang}${width === 375 ? '&width=819' : ''}`);
+    await rack.waitFor("document.querySelectorAll('.bay').length === 2");
+    const result = await rack.evaluate(CHECK_RACK), rackIssues = [...result.issues, ...(lang === "ko" ? await englishLeft(rack, state) : []), ...rack.errors.splice(0)];
+    if (!await rack.evaluate("document.querySelector('#out-coverage').textContent.includes('1/2') && document.querySelector('#out-coverage').getClientRects().length > 0 && getComputedStyle(document.querySelector('#out-coverage')).display !== 'none'")) rackIssues.push("mixed rack coverage missing");
+    await rack.shoot(`rack-omlx-mixed-${suffix}.png`);
+    report(`rack-omlx-mixed-${suffix}`, [result.band], rackIssues);
+    await rack.close();
   }
 
   current = { count: 4, mode: "serving", servers: 2, mixedLatency: true, noPrefill: true };

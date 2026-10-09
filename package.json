@@ -1,7 +1,7 @@
 {
   "name": "spark-scope",
   "version": "0.1.3",
-  "description": "Read-only dashboard and rack panel for NVIDIA DGX Spark-class nodes (DGX Spark, ASUS Ascent GX10, MSI EdgeXpert) and their vLLM, SGLang, TensorFold, llama.cpp or Strata server",
+  "description": "Read-only dashboard and rack panel for NVIDIA DGX Spark-class nodes and Apple Silicon Macs with vLLM, SGLang, TensorFold, llama.cpp, Strata or oMLX",
   "keywords": [
     "dgx-spark",
     "gb10",

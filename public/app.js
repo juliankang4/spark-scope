@@ -1,5 +1,5 @@
 import { mountMini } from './mini/mini-view.js';
-import { PHONE_QUERY, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, gpuMemory, memoryWording, readingLabel, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, serverStateKey, pickedServer, viewInference, engineMetric, nodeReading, hasNodeTemperature, memoryWarning } from './view-data.js';
+import { PHONE_QUERY, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, gpuMemory, memoryWording, readingLabel, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, serverStateKey, pickedServer, viewInference, engineMetric, nodeReading, hasNodeTemperature, memoryWarning, outputCoverage, engineNeedsKey } from './view-data.js';
 import { READING_IDS, rackQuery, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 import { t, setLanguage, translatePage, serverText, LANGUAGE_NAMES } from './i18n.js';
 import { hide as hideHelp } from './help.js';
@@ -116,20 +116,26 @@ function activeAverage(points){const rates=points.filter(point=>point.runningReq
 function renderCharts(state) {
   const all=state.history||[],history=chartSeries(state),end=Date.now(),start=end-range*60_000;
   const several=severalServers(state),each=several&&settings.servers!=='one';
-  const avg=several&&!each?activeAverage(history.filter(point=>point.at>=start)):state.historyStats?.activeOutputTokensPerSecond;text('#avg',fixed(avg));
+  const showOutput=viewInference(state,settings)?.reported?.outputTokensPerSecond!==false;
+  const avg=showOutput?(several&&!each?activeAverage(history.filter(point=>point.at>=start)):state.historyStats?.activeOutputTokensPerSecond):null;text('#avg',fixed(avg));
+  for(const selector of ['#speed','#legend-speed','#avg'])$(selector).parentElement.hidden=!showOutput;
   const rates=history.map(p=>p.outputTokensPerSecond).filter(finite);
   const max=Math.max(1,...rates,finite(avg)?avg:0)*1.15;
   // "All at once": a line per server in its colour, with the total drawn neutral on top.
-  $('#server-lines').innerHTML=each?modelServers(state).map(server=>`<path d="${chartPath(all.map(point=>({at:point.at,value:point.servers?.[server.id]?.outputTokensPerSecond??null})),'value',{start,end,min:0,max,top:4,bottom:22})}" fill="none" stroke="${serverColor(server)}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`).join(''):'';
+  $('#server-lines').innerHTML=each?modelServers(state).filter(server=>server.inference?.reported?.outputTokensPerSecond!==false).map(server=>`<path d="${chartPath(all.map(point=>({at:point.at,value:point.servers?.[server.id]?.outputTokensPerSecond??null})),'value',{start,end,min:0,max,top:4,bottom:22})}" fill="none" stroke="${serverColor(server)}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`).join(''):'';
   $('#output-line').setAttribute('stroke',each?'var(--ink)':'var(--blue)');$('.legend div:first-child i').style.background=each?'var(--ink)':'';
-  text('#legend-output',t(each?'chart.legend.total':'chart.legend.output'));
-  const d=chartPath(history,'outputTokensPerSecond',{start,end,min:0,max,top:4,bottom:22});$('#output-line').setAttribute('d',d);$('#output-fill').setAttribute('d','');
+  const coverage=outputCoverage(each?modelServers(state):shownServers(state));
+  text('#legend-output',t(each?'chart.legend.total':'chart.legend.output')+(coverage?` ${coverage}`:''));
+  $('#speed').nextElementSibling.textContent='tok/s'+(coverage?` ${coverage}`:'');
+  const d=showOutput?chartPath(history,'outputTokensPerSecond',{start,end,min:0,max,top:4,bottom:22}):'';$('#output-line').setAttribute('d',d);$('#output-fill').setAttribute('d','');
   $('#avg-line').setAttribute('d',finite(avg)?chartPath([{at:start,value:avg},{at:end,value:avg}],'value',{start,end,min:0,max,top:4,bottom:22}):'');
   const queueMax=Math.max(1,...history.map(p=>p.queue).filter(finite));$('#queue-line').setAttribute('d',chartPath(history,'queue',{start,end,min:0,max:queueMax,top:120,bottom:4}));
   const label=value=>clock(value,{seconds:false});
   text('#range-start',label(start));text('#range-mid',label((start+end)/2));text('#range-end',label(end));
   const shownStopped=several&&!each?pickedServer(modelServers(state),settings.server).inferenceState==='stopped':state.inferenceState==='stopped';
-  $('#plot-note').hidden=rates.length>0;$('#plot-note').textContent=t(shownStopped?'chart.note.stopped':'chart.note.noData');
+  const focus=viewInference(state,settings);
+  $('#plot-note').hidden=Boolean(focus?.ok&&showOutput&&rates.length>0);
+  $('#plot-note').textContent=t(shownStopped?'chart.note.stopped':!focus?.ok?'chart.note.noData':!showOutput?'chart.note.unsupported':'chart.note.noData');
   for(const kind of ['temp','mem']) {
     // Values are picked per node id from each sample, so an id never collides with the sample's own fields (such as "at").
     const field=kind==='temp'?'temperature':'memoryAvailableBytes',scale=kind==='mem'?2**30:1,ids=metas.filter(meta=>kind!=='temp'||hasNodeTemperature(state.nodes?.[meta.id])).map(meta=>meta.id);
@@ -166,9 +172,12 @@ function drawState(state) {
   servers=modelServers(state);syncNodes(nodeOrder(state));$('#shell').classList.remove('stale');
   const v=state.inference,stopped=state.inferenceState==='stopped',nodes=state.nodes||{},several=servers.length>1,focus=viewInference(state,settings);
   const online=metas.filter(m=>nodes[m.id]?.ok).length,serving=metas.filter(m=>nodes[m.id]?.ok&&nodes[m.id]?.inferenceProcessReady).length,count=metas.length;
-  $('.status').className='status '+(state.status==='healthy'?'':stopped?'stopped':'error');text('#status-title',serverText(state.messageKey,state.messageParams,state.message)||t('statusbar.checkingStatus'));
+  $('.status').className='status '+(state.status==='healthy'?'':stopped?'stopped':'error');
+  const needsKey=servers.filter(server=>engineNeedsKey(server.inference));
+  const singleKeyAlert=!several&&needsKey.length>0&&state.messageKey==='status.inferenceAttention';
+  text('#status-title',singleKeyAlert?t('engine.apiKeyRequired'):serverText(state.messageKey,state.messageParams,state.message)||t('statusbar.checkingStatus'));
   const watts=metas.map(m=>nodes[m.id]).filter(n=>n?.ok&&finite(n.gpu?.powerWatts)).map(n=>n.gpu.powerWatts);
-  $('#status-desc').innerHTML=`<span>${t('statusbar.nodes',{online,count})}</span><span>${t('statusbar.processes',{serving,count})}</span><span>${several?t('statusbar.apis',{answering:servers.filter(server=>server.inference?.ok).length,count:servers.length}):t(v?.ok?'statusbar.apiUp':'statusbar.apiNoResponse')}</span>${watts.length?`<span>${t('statusbar.gpuPower',{watts:fixed(watts.reduce((sum,w)=>sum+w,0),1)})}${watts.length<count?` ${t('statusbar.gpuPowerPartial',{reporting:watts.length,count})}`:''}</span>`:''}`;
+  $('#status-desc').innerHTML=`<span>${t('statusbar.nodes',{online,count})}</span><span>${t('statusbar.processes',{serving,count})}</span>${singleKeyAlert?'':`<span>${several?t('statusbar.apis',{answering:servers.filter(server=>server.inference?.ok).length,count:servers.length}):t(v?.ok?'statusbar.apiUp':engineNeedsKey(v)?'engine.apiKeyRequired':'statusbar.apiNoResponse')}</span>`}${several?needsKey.map(server=>`<span>${esc(serverName(server))}: ${t('engine.apiKeyRequired')}</span>`).join(''):''}${watts.length?`<span>${t('statusbar.gpuPower',{watts:fixed(watts.reduce((sum,w)=>sum+w,0),1)})}${watts.length<count?` ${t('statusbar.gpuPowerPartial',{reporting:watts.length,count})}`:''}</span>`:''}`;
   text('#updated-at',clock(state.updatedAt));
   if(several){const names=servers.map(serverName).join(' | ');text('#model-title',names);text('#model-meta',t('header.servers',{count:servers.length,nodes:count}));document.title=`${names} | Spark Scope`}
   else{text('#model-title',v?.modelName||t(stopped?'header.inferenceStopped':'header.modelUnknown'));text('#model-meta',serving?t('header.engineRunning',{engine:state.serving?.engine??t('header.engineFallback'),count:serving}):t('header.liveMonitor',{count}));document.title=v?.modelName?`${v.modelName} | Spark Scope`:'Spark Scope'}
@@ -227,7 +236,8 @@ function fillServerRow(row,server,pick){
   const v=server.inference,name=serverName(server);
   row.querySelector('i').style.background=serverColor(server);
   serverCell(row,'name',name);row.querySelector('[data-cell="name"]').title=name;serverCell(row,'nodes',t('servers.nodes',{count:server.nodes.length}));
-  serverState(row,serverStateKey(server));
+  serverState(row,serverStateKey(server));if(engineNeedsKey(v))serverCell(row,'state',t('engine.apiKeyRequired'));
+  row.querySelector('[data-cell="output"]').hidden=v?.reported?.outputTokensPerSecond===false;
   serverCell(row,'output',v?.ok?`${fixed(v.outputTokensPerSecond)} tok/s`:unknown());serverCell(row,'queue',t('servers.queue',{queue:v?.ok?fixed(v.waitingRequests,0):unknown()}));
   if(pick!==null)row.setAttribute('aria-pressed',String(server.id===pick));
 }

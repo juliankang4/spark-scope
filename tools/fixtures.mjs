@@ -120,27 +120,28 @@ function nodeSample(topology, meta, index, { nowMs, ok, proc, darkNics, hot, spa
 }
 
 // One server's chart fields at a moment; later servers run a smaller, slower model.
-function serverHistory(t, wave, serving, k) {
+function serverHistory(t, wave, inference, k) {
+  const serving = inference.ok;
   const busy = serving && t > -48 + k * 9;
   const scale = 1 / (1 + k * 1.4);
   return {
-    outputTokensPerSecond: serving ? (busy ? (52 + 14 * (k ? -wave : wave)) * scale : 0) : null,
-    promptTokensPerSecond: serving ? 2800 * scale : null,
+    outputTokensPerSecond: serving && inference.reported?.outputTokensPerSecond !== false ? (busy ? (52 + 14 * (k ? -wave : wave)) * scale : 0) : null,
+    promptTokensPerSecond: serving && inference.reported?.promptTokensPerSecond !== false ? 2800 * scale : null,
     runningRequests: serving ? (busy ? 2 : 0) : null,
     queue: serving ? (wave > 0.6 && !k ? 1 : 0) : null,
   };
 }
 
 // serving: per model server, whether its API serves (one value for a single server).
-function history(topology, nowMs, { serving, unreachable, sparkCount }) {
+function history(topology, nowMs, { readings, unreachable, sparkCount }) {
   const points = [];
   const servers = topology.servers ?? [{ id: "default" }];
-  const servingOf = Array.isArray(serving) ? serving : [serving];
+  const servingOf = readings.map(inference => inference.ok);
   for (let at = nowMs - 60 * 60_000; at <= nowMs; at += 10_000) {
     const t = (at - nowMs) / 60_000;
     const wave = Math.sin(t / 3) * 0.5 + Math.sin(t / 7.3) * 0.5;
     const busy = servingOf[0] && t > -48;
-    const each = servers.map((server, k) => serverHistory(t, wave, servingOf[k], k));
+    const each = servers.map((server, k) => serverHistory(t, wave, readings[k], k));
     const sum = (field) => { const values = each.map((fields) => fields[field]).filter((value) => value !== null); return values.length ? values.reduce((a, b) => a + b, 0) : null; };
     points.push({
       at,
@@ -223,7 +224,7 @@ export function usageMonth(month, nowMs, { start } = {}) {
 }
 
 // servers: split the nodes into that many model servers; offGroup: the last one is switched off (no process, no API).
-export function fixtureState(count, mode, nowMs = Date.now(), { longNames = false, servers = 0, offGroup = false, gpuWorkstations = 0, engine = "vLLM", engineIdle = false, engineDown = false, noSpec = false, macNodes = 0, macThermal = null, macUnavailable = false, macPending = false, macPowerMissing = false } = {}) {
+export function fixtureState(count, mode, nowMs = Date.now(), { longNames = false, servers = 0, offGroup = false, gpuWorkstations = 0, engine = "vLLM", engineIdle = false, engineDown = false, engineKeyMissing = false, mixedEngines = false, noSpec = false, macNodes = 0, macThermal = null, macUnavailable = false, macPending = false, macPowerMissing = false } = {}) {
   const topology = topologyFor(count, { longNames, servers, gpuWorkstations, macNodes });
   const fault = mode === "fault" ? FAULTS[count] : {};
   const nodeId = (id) => (longNames ? longId(id) : id);
@@ -246,8 +247,8 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
   const inference = apiUp
     ? {
       ok: true, engine: macNodes === count && !gpuWorkstations ? "llama.cpp" : "vLLM", modelName: longNames ? "example-org/Example-Reasoning-Model-70B-Instruct-FP8-Dynamic" : "example-model", latencyMs: 3,
-      outputTokensPerSecond: 61.3, promptTokensPerSecond: 2950, promptComputeTokensPerSecond: 2104, promptCacheTokensPerSecond: 846,
-      reported: { outputTokensPerSecond: true, promptTokensPerSecond: true, promptComputeTokensPerSecond: true, promptCacheTokensPerSecond: true, prefixCacheHitPercent: true, speculativeAcceptancePercent: true, requests: true, kvCachePercent: true, ttftP95RecentSeconds: true, tpotP95RecentSeconds: true, meanDecodeSeconds: false },
+      outputTokensPerSecond: 61.3, averageOutputTokensPerSecond: null, averagePromptTokensPerSecond: null, promptTokensPerSecond: 2950, promptComputeTokensPerSecond: 2104, promptCacheTokensPerSecond: 846,
+      reported: { outputTokensPerSecond: true, averageOutputTokensPerSecond: false, averagePromptTokensPerSecond: false, promptTokensPerSecond: true, promptComputeTokensPerSecond: true, promptCacheTokensPerSecond: true, prefixCacheHitPercent: true, speculativeAcceptancePercent: true, requests: true, kvCachePercent: true, ttftP95RecentSeconds: true, tpotP95RecentSeconds: true, meanDecodeSeconds: false },
       metricKinds: {}, meanDecodeSeconds: null,
       prefixCacheHitPercent: 41.2, speculativeAcceptancePercent: 0, kvCachePercent: 12.5, tpotP95Seconds: 0.028, ttftP95Seconds: 0.42, tpotP95RecentSeconds: 0.031, ttftP95RecentSeconds: 0.51, latencyWindowSeconds: 300,
       runningRequests: 2, waitingRequests: 0, updatedAt: new Date(nowMs).toISOString(), error: null,
@@ -255,6 +256,7 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
       prefillUpdatedAt: new Date(Math.floor(nowMs / 12_000) * 12_000).toISOString(),
     }
     : { ok: false, updatedAt: new Date(nowMs).toISOString(), error: "fetch failed" };
+  const standard = { ...inference, reported: { ...inference.reported }, metricKinds: { ...inference.metricKinds } };
   if (apiUp && engine !== "vLLM") {
     inference.engine = engine;
     inference.speculativeAcceptancePercent = null;
@@ -279,6 +281,20 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
         inference.promptTokensPerSecond = inference.promptComputeTokensPerSecond;
       }
     }
+    if (engine === "oMLX") {
+      inference.outputTokensPerSecond = null;
+      inference.averageOutputTokensPerSecond = 46.2;
+      inference.averagePromptTokensPerSecond = 2247;
+      inference.promptTokensPerSecond = inference.promptComputeTokensPerSecond = inference.promptCacheTokensPerSecond = null;
+      inference.prefixCacheHitPercent = 11776 / 23738 * 100;
+      inference.kvCachePercent = inference.ttftP95Seconds = inference.tpotP95Seconds = inference.ttftP95RecentSeconds = inference.tpotP95RecentSeconds = null;
+      for (const key of ["outputTokensPerSecond", "promptTokensPerSecond", "promptComputeTokensPerSecond", "promptCacheTokensPerSecond", "kvCachePercent", "ttftP95RecentSeconds", "tpotP95RecentSeconds"]) inference.reported[key] = false;
+      inference.reported.averageOutputTokensPerSecond = inference.reported.averagePromptTokensPerSecond = true;
+      for (const key of ["averageOutputTokensPerSecond", "averagePromptTokensPerSecond"]) inference.metricKinds[key] = "sessionMean";
+      inference.metricKinds.prefixCacheHitPercent = "sinceStart";
+      inference.prefillUpdatedAt = null;
+      inference.runningRequests = 1;
+    }
     if (engine === "TensorFold") {
       inference.prefixCacheHitPercent = inference.promptCacheTokensPerSecond = null;
       inference.reported.prefixCacheHitPercent = inference.reported.promptCacheTokensPerSecond = false;
@@ -288,18 +304,26 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
   }
   if (apiUp && noSpec) { inference.speculativeAcceptancePercent = null; inference.reported.speculativeAcceptancePercent = false; }
   if (apiUp && engineIdle) {
-    inference.outputTokensPerSecond = 0;
+    inference.outputTokensPerSecond = engine === "oMLX" ? null : 0;
     inference.runningRequests = 0;
     if (engine === "TensorFold") { inference.promptTokensPerSecond = inference.promptComputeTokensPerSecond = 0; inference.prefillUpdatedAt = null; }
   }
-  if (apiUp && engineDown) inference.ok = false;
+  if (apiUp && (engineDown || engineKeyMissing)) {
+    inference.ok = false;
+    inference.error = engineKeyMissing ? "oMLX needs an API key" : "fetch failed";
+  }
+  if (engine === "oMLX") for (const node of topology.nodes.slice(0, macNodes)) if (nodes[node.id]?.inferenceProcessUp) nodes[node.id].inference = { ...nodes[node.id].inference, engine: "oMLX", processName: "omlx-server" };
   // Later servers run a smaller model at lower rates; in "fault" the second server's API does not answer either.
   const down = { ok: false, updatedAt: new Date(nowMs).toISOString(), error: "fetch failed" };
   const readings = groups.map((group, k) => {
     if (!k) return inference;
     if (!proc || (offGroup && k === groups.length - 1) || (mode === "fault" && k === 1)) return down;
-    const scale = 1 / (1 + k * 1.4);
-    return { ...inference, ok: true, modelName: k === 1 ? "example-coder-32b" : `example-model-${k}`, outputTokensPerSecond: 61.3 * scale, promptTokensPerSecond: 2950 * scale, promptComputeTokensPerSecond: 2104 * scale, promptCacheTokensPerSecond: 846 * scale, kvCachePercent: 31.2, prefixCacheHitPercent: 63.4, runningRequests: 1, waitingRequests: 1, error: null };
+    const scale = 1 / (1 + k * 1.4), source = mixedEngines ? standard : inference;
+    const scaled = key => Number.isFinite(source[key]) ? source[key] * scale : null;
+    return { ...source, ok: true, engine: mixedEngines ? "vLLM" : source.engine, modelName: k === 1 ? "example-coder-32b" : `example-model-${k}`,
+      outputTokensPerSecond: scaled("outputTokensPerSecond"), averageOutputTokensPerSecond: scaled("averageOutputTokensPerSecond"), averagePromptTokensPerSecond: scaled("averagePromptTokensPerSecond"),
+      promptTokensPerSecond: scaled("promptTokensPerSecond"), promptComputeTokensPerSecond: scaled("promptComputeTokensPerSecond"), promptCacheTokensPerSecond: scaled("promptCacheTokensPerSecond"),
+      kvCachePercent: source.reported?.kvCachePercent === false ? null : 31.2, prefixCacheHitPercent: source.prefixCacheHitPercent, runningRequests: 1, waitingRequests: 1, error: null };
   });
   const serverList = groups.map((group, k) => ({ id: group.id, name: group.name ?? null, nodes: group.nodes, implicit: Boolean(group.implicit), inference: readings[k] }));
   for (const server of serverList) {
@@ -310,6 +334,7 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
   const ringLinks = buildRingLinks(nodes, topology);
   const month = usageMonth(new Date(nowMs).toISOString().slice(0, 7), nowMs);
   const today = month.days.find((day) => day.day === month.day) ?? { input: 0, compute: 0, cache: 0, output: 0, requests: 0, total: 0 };
+  const samples = history(topology, nowMs, { readings, unreachable, sparkCount: count });
   // Shaped by the server's own publicState(), so the pages see exactly what /api/state would send.
   return publicState({
     ...clusterStatus(nodes, serverList, ringLinks, topology),
@@ -319,7 +344,7 @@ export function fixtureState(count, mode, nowMs = Date.now(), { longNames = fals
     nodes,
     ringLinks,
     serving: serverList[0].serving,
-    history: history(topology, nowMs, { serving: readings.map((reading) => reading.ok), unreachable, sparkCount: count }),
+    history: samples,
     historyStats: { activeOutputTokensPerSecond: apiUp ? 54.8 : null, activeSamples: apiUp ? 280 : 0, windowMinutes: 60 },
     usage: { persistent: true, timeZone: "UTC", day: month.day, modelName: "example-model", today, reported: { input: true, compute: true, cache: engine !== "TensorFold", output: true, requests: !["llama.cpp", "TensorFold"].includes(engine) }, error: null },
     startedAt: new Date(nowMs - 3 * 3600_000).toISOString(),

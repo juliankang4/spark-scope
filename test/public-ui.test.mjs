@@ -498,6 +498,28 @@ test('engine presentation follows reported fields and keeps averages out of p95'
     assert.equal(combinedInference([one, { id: 'unknown' }]).reported[key], false, key);
   }
   assert.equal(combinedInference([server({ ...reading, ok: false })]).reported.ttftP95RecentSeconds, false);
+  const mean = { ok: true, reported: { outputTokensPerSecond: false, averageOutputTokensPerSecond: true, averagePromptTokensPerSecond: true, promptTokensPerSecond: false, promptComputeTokensPerSecond: false }, metricKinds: { averageOutputTokensPerSecond: 'sessionMean', averagePromptTokensPerSecond: 'sessionMean' }, outputTokensPerSecond: null, averageOutputTokensPerSecond: 46.2, averagePromptTokensPerSecond: 2247, promptTokensPerSecond: null, promptComputeTokensPerSecond: null };
+  assert.deepEqual(engineMetric(mean, 'outputTokensPerSecond'), { key: 'averageOutputTokensPerSecond', label: 'engine.decodeMean', help: 'help.decodeMean', shown: true, idle: false });
+  assert.equal(engineMetric(mean, 'promptComputeTokensPerSecond').label, 'engine.prefillMean');
+  const allMeans = combinedInference([server(mean), server(mean)]);
+  assert.equal(allMeans.reported.outputTokensPerSecond, false);
+  assert.equal(allMeans.reported.averageOutputTokensPerSecond, false, 'independent session averages are not combined');
+  assert.equal(allMeans.reported.promptComputeTokensPerSecond, false);
+  const mixedMeans = combinedInference([server(mean), server({ ok: true, reported: { outputTokensPerSecond: true, averageOutputTokensPerSecond: false, promptComputeTokensPerSecond: true }, outputTokensPerSecond: 20, promptComputeTokensPerSecond: 1000 })]);
+  assert.equal(mixedMeans.outputTokensPerSecond, 20, 'a session average is never added to live speed');
+  assert.equal(mixedMeans.reported.averageOutputTokensPerSecond, false);
+  assert.equal(mixedMeans.reported.promptComputeTokensPerSecond, true);
+  assert.equal(mixedMeans.promptComputeTokensPerSecond, 1000, 'only the reported prefill rate is summed');
+  const { sampleOf } = await import('../public/mini/mini-view.js');
+  const now = Date.now();
+  assert.equal(sampleOf({ inference: { ...mixedMeans, prefillUpdatedAt: new Date(now).toISOString() }, nodes: {} }, now).prefill, 1000);
+  assert.equal(engineMetric(mean, 'promptComputeTokensPerSecond', { averages: false }).shown, false);
+  const { outputCoverage, rateCoverage } = await import('../public/view-data.js');
+  assert.match(outputCoverage([server(mean), server({ ok: true, outputTokensPerSecond: 20 })]), /1\/2/);
+  const inputServer = server({ ok: true, promptComputeTokensPerSecond: 1000 });
+  assert.match(rateCoverage([server(mean), inputServer], 'promptComputeTokensPerSecond'), /1\/2/);
+  assert.equal(rateCoverage([inputServer], 'promptComputeTokensPerSecond'), '');
+  assert.equal(rateCoverage([server(mean)], 'promptComputeTokensPerSecond'), '');
 });
 
 test('the model servers view is a setting that a settings link carries', () => {

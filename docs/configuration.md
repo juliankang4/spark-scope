@@ -10,7 +10,8 @@ The server is set with environment variables, all optional. Display preferences 
 |---|---|---|
 | `SPARK_SCOPE_HOST` | `127.0.0.1` | Listen address. Set `0.0.0.0` (or a specific address) to serve other machines; see [Security](../README.md#security). |
 | `SPARK_SCOPE_PORT` | `8787` | Listen port. |
-| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | Base URL of the OpenAI-compatible inference server, `http://` or `https://` and without a user name or password. With [model servers](topology.md#model-servers) in `topology.json`, each server's `api` is used instead. The dashboard reads `/health`, `/metrics` and `/v1/models`, plus `/slots` for llama.cpp live output speed while requests run. vLLM listens on 8000 by default, SGLang on 30000, TensorFold, llama.cpp and Strata on 8080. |
+| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | Base URL of the OpenAI-compatible inference server, `http://` or `https://` and without a user name or password. With [model servers](topology.md#model-servers) in `topology.json`, each server's `api` is used instead. The dashboard reads `/health`, `/metrics` and `/v1/models`, plus `/slots` for llama.cpp live output speed while requests run. oMLX uses `/api/status` after its health response identifies it. vLLM and oMLX listen on 8000 by default, SGLang on 30000, TensorFold, llama.cpp and Strata on 8080. |
+| `SPARK_SCOPE_API_KEY` | none | Optional engine Bearer key, read from the process environment for a single server. With several topology servers, each uses its own optional `apiKeyEnv` variable name instead. |
 | `SPARK_SCOPE_TOPOLOGY` | `~/.config/spark-scope/topology.json` if it exists, otherwise `topology.json` next to `server.mjs` | Topology file. When set explicitly, a missing file is an error. |
 | `SPARK_SCOPE_USAGE_DB` | `$XDG_DATA_HOME/spark-scope/usage.sqlite` (`~/.local/share/...`) | Token ledger database. The directory is created if needed. |
 | `SPARK_SCOPE_TIME_ZONE` | the server's time zone | IANA time zone (for example `America/Los_Angeles`) that decides where ledger days begin. The page shows it next to the ledger. |
@@ -25,7 +26,9 @@ Example for a two-node cluster whose head serves SGLang, viewed from the LAN:
 SPARK_SCOPE_HOST=0.0.0.0 SPARK_SCOPE_API_URL=http://127.0.0.1:30000 npm start
 ```
 
-As a service, the same variables go on `Environment=` lines in the unit ([Running as a service](../README.md#running-as-a-service)).
+As a service, the same variables go on `Environment=` lines in the unit ([Running as a service](../README.md#running-as-a-service)). Load keys from a protected service environment or secret manager. Do not put key values in shell commands, process arguments, URLs or topology files. The dashboard sends the configured key as `Authorization: Bearer` on every engine GET poll, regardless of engine type. An unset variable sends no key. Multiple servers do not inherit `SPARK_SCOPE_API_KEY`; `apiKeyEnv` must name a variable for each keyed server. Only a single topology server without `apiKeyEnv` falls back to `SPARK_SCOPE_API_KEY`.
+
+Keys are kept inside the collector and omitted from public state, logs, error messages and node-collector child environments. An explicitly named `apiKeyEnv` that is empty or unset produces a startup warning with only the server id. The configured `apiKeyEnv` string is never printed, because it may contain a mistakenly pasted key. Authenticated requests do not follow redirects. Use a trusted loopback address or HTTPS when sending a key. The dashboard performs only GET reads; an engine's key may grant broader privileges, so use the least-privileged key the engine supports.
 
 ## Mac nodes
 
@@ -53,7 +56,7 @@ Apple Silicon Macs use the same topology as Linux nodes. `"host": "local"` colle
   - the 0.6 Python CUDA `/health` counter path remains supported when those counters are present;
   - **Context used** is the average occupancy of the running streams' context windows, not KV memory use. The row stays visible while idle and reads **no requests**;
   - TPOT p95 comes from `request_time_per_output_token_seconds`: the p95 of each finished reply's mean token gap. One-token replies add no observation. On older builds without that histogram the field is hidden;
-  - with API keys, 1.0.2 needs `--metrics-open` for the dashboard to read `/metrics`; `/health` then returns status only. The metrics-based output rate still works, but the health rate fallback is unavailable. The dashboard sends no key and never sends `reset_peak=1`.
+  - with API keys, configure the dashboard's Bearer key or start 1.0.2 with `--metrics-open` for unkeyed metrics. `/health` then returns status only. The metrics-based output rate still works, but the health rate fallback is unavailable. The dashboard never sends `reset_peak=1`.
 - **llama.cpp** (`llama-server`): read from `llamacpp:*` metrics. Start it with `--metrics`; its default API port is 8080. Tested with b11193. Differences:
   - live output speed comes from increases in each processing slot's `next_token[].n_decoded`, tracked by slot id and `id_task` through GET `/slots` (enabled by default). The completed output counter feeds the ledger, not live speed;
   - `/slots` is read only while `/metrics` reports running requests: unlike `/metrics`, `/health` and `/v1/models`, a `/slots` request wakes a server started with `--sleep-idle-seconds` and restarts its idle timer. A poll with no running request reads zero and sets a zero-token baseline. The next active poll counts from zero over the time since that baseline, so the first reading of a request can be low;
@@ -76,9 +79,23 @@ Apple Silicon Macs use the same topology as Linux nodes. `"host": "local"` colle
   - the Prometheus format omits `totals.since`. A second `/metrics` request with `Accept: application/json` reads that start time and the ledger counters from the same snapshot each poll, keeping the same ledger session across format changes and dashboard restarts. If that request fails or the start time is missing, the poll is unknown and the ledger skips it;
   - if the endpoint returns JSON despite the Accept header, the existing JSON parser remains available. It hides latency fields without histograms and uses context information from JSON, averaging processing slots when present;
   - speculative acceptance is accepted over offered draft tokens;
-  - a server started with an API key answers `/metrics` with HTTP 401, so the dashboard cannot read it: it sends no key.
-- Other engines (oMLX, Ollama, TensorRT-LLM, Triton) are recognised by process or image name on the node cards, but their throughput and token metrics are not read.
+  - a server started with an API key needs the dashboard's environment-based Bearer key to read `/metrics`.
+- **oMLX**: read-only health and status polling on Apple Silicon Macs, tested with 0.7.0. See [oMLX](#omlx) below.
+- Other engines (Ollama, TensorRT-LLM, Triton) are recognised by process or image name on the node cards, but their throughput and token metrics are not read.
 
 The engine panel and mini window hide fields that the engine does not report, using the server's `reported` map. Optional speculative acceptance is hidden when null. A failed poll retains the last known field support and shows `unknown` for supported fields. Engines without latency histograms hide those fields. vLLM and SGLang retain their latency rows before the first request creates histogram samples.
 
-The engine label comes from the metric names (or Strata's JSON format) or the GPU process name, and the number of serving nodes from how many nodes run a GPU process; neither is assumed. In multi-node serving, point `SPARK_SCOPE_API_URL` at the node that hosts the API.
+The engine label comes from the metric names, Strata's JSON format, oMLX's health shape or the GPU process name, and the number of serving nodes from how many nodes run a GPU process; neither is assumed. In multi-node serving, point `SPARK_SCOPE_API_URL` at the node that hosts the API.
+
+### oMLX
+
+Run Spark Scope on the Mac with its local node, or collect the Mac through SSH and point the engine URL at its reachable oMLX port. No metrics flag is needed. oMLX 0.7.0 has no `/metrics` route. Only after HTTP 404 does the dashboard identify oMLX by `/health`'s `default_model` and `engine_pool`, without needing a key. It then reads `GET /api/status`. Other engines keep their existing metrics detection order.
+
+- With a key configured in oMLX, `/api/status` requires Bearer authentication. Set `SPARK_SCOPE_API_KEY` for a single server, or a topology server's `apiKeyEnv` variable for multiple servers. HTTP 401 reads `oMLX needs an API key`, including when a supplied key is invalid.
+- Without an oMLX key and with a loopback bind, status is open. oMLX's `auth.skip_api_key_verification` setting is another no-key option, accepted only on a loopback bind. It also bypasses admin authentication; do not use it on an exposed endpoint. `allow_unauthenticated_inference` alone does not open `/api/status`.
+- Polls never call admin routes, `/v1/models/status`, load, unload or stats-clear endpoints. Health and status reads do not lease an engine, load a model or refresh its idle timeout. They leave TTL unload and GPU keep-warm unchanged.
+- **Mean prefill** is `avg_prefill_tps`: computed prompt tokens divided by prefill time for completed requests since server start. Cached tokens and idle time are excluded. **Mean decode** is `avg_generation_tps`: completed output tokens divided by generation time over that same session, excluding idle time. These values are already rounded by oMLX. They are not live rates, per-request means or a benchmark. Independent servers' session averages are not added in the combined mini view.
+- Live output speed, the output trace and mini live-rate/run-speed views are hidden. TTFT, TPOT, KV cache, cache-read speed and speculative acceptance are also hidden because the status API does not report them. Running and waiting requests remain visible. **Cache hit since start** is cached over all prompt tokens, unknown before any prompt has completed.
+- The ledger counts `total_prompt_tokens` (including cached tokens), `total_cached_tokens`, their non-negative difference, `total_completion_tokens` and `total_requests`. These counters move only when requests finish. They are server-wide, not per model.
+- The display `modelName` is `default_model` with zero or one model loaded, even if another model is loaded. With several models loaded it is null. A change between non-null display labels restarts the chart. Ledger attribution always uses `default_model`, including multi-model polls. Its session key is `oMLX|server` (with a prefix for additional servers), independent of the display name. Changing the default does not rebook totals; the current default labels that server\'s daily row, including earlier tokens in that row. This is server-wide usage attributed to a label, not per-model accounting.
+- `processStartedAt` is null. A drop in a completed counter starts a new ledger run. A restart whose new counters already exceed the previous reading cannot be detected from these counters alone.

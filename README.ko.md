@@ -1,13 +1,13 @@
 <h1 align="center">Spark Scope</h1>
 
-<p align="center">NVIDIA DGX Spark 계열 장비, Apple Silicon Mac과 그 위에서 돌아가는 vLLM, SGLang, TensorFold, llama.cpp 또는 Strata 서버를 지켜보는<br>읽기 전용 대시보드와 랙 패널입니다.</p>
+<p align="center">NVIDIA DGX Spark 계열 장비, Apple Silicon Mac과 그 위에서 돌아가는 vLLM, SGLang, TensorFold, llama.cpp, Strata 또는 oMLX 서버를 지켜보는<br>읽기 전용 대시보드와 랙 패널입니다.</p>
 
 <p align="center">
   <a href="https://github.com/juliankang4/spark-scope/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/juliankang4/spark-scope"></a>
   <a href="https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/juliankang4/spark-scope"></a>
   <img alt="Node.js 22.13 or later" src="https://img.shields.io/badge/node-%E2%89%A5%2022.13-339933?logo=nodedotjs&amp;logoColor=white">
-  <img alt="Engines: vLLM, SGLang, TensorFold, llama.cpp and Strata" src="https://img.shields.io/badge/engines-vLLM%20%7C%20SGLang%20%7C%20TensorFold%20%7C%20llama.cpp%20%7C%20Strata-76b900">
+  <img alt="Engines: vLLM, SGLang, TensorFold, llama.cpp, Strata and oMLX" src="https://img.shields.io/badge/engines-vLLM%20%7C%20SGLang%20%7C%20TensorFold%20%7C%20llama.cpp%20%7C%20Strata%20%7C%20oMLX-76b900">
   <img alt="Runs on arm64 and x64" src="https://img.shields.io/badge/arch-arm64%20%7C%20x64-blue">
 </p>
 
@@ -19,7 +19,7 @@
 
 ## 소개
 
-Spark Scope는 NVIDIA DGX Spark 계열 장비(DGX Spark, ASUS Ascent GX10, MSI EdgeXpert 등 GB10 장비)와 그 위에서 실행 중인 vLLM, SGLang, TensorFold, llama.cpp 또는 Strata 서버를 모니터링합니다. 노드 한 대부터 작은 클러스터까지 쓸 수 있습니다. Apple Silicon Mac도 로컬이나 SSH로 모니터링할 수 있습니다.
+Spark Scope는 NVIDIA DGX Spark 계열 장비(DGX Spark, ASUS Ascent GX10, MSI EdgeXpert 등 GB10 장비)와 그 위에서 실행 중인 vLLM, SGLang, TensorFold, llama.cpp, Strata 또는 oMLX 서버를 모니터링합니다. 노드 한 대부터 작은 클러스터까지 쓸 수 있습니다. Apple Silicon Mac도 추론 서버 없이 로컬이나 SSH로 모니터링할 수 있습니다.
 
 원래는 10인치 랙에 넣은 제 4노드 링(ASUS GX10 3대와 MSI EdgeXpert 1대)을 보려고 만들었습니다. 이 저장소에는 그 대시보드를 올렸습니다. 제 호스트 이름은 지웠고 노드 1대와 2대 구성에 맞게 레이아웃을 다시 짰습니다. GX10용 2U 랙 모듈은 [MakerWorld](https://makerworld.com/en/models/3380382)에 있습니다.
 
@@ -56,7 +56,7 @@ npm 의존성 없이 Node.js 프로세스 하나로 동작합니다. 각 노드�
   nvm 같은 버전 관리자를 써도 됩니다. 일부 Node 버전은 시작할 때 "SQLite is an experimental feature" 경고를 띄우는데, 동작에는 문제가 없습니다.
 - Linux 노드에는 `bash`, `nvidia-smi`, 기본 coreutils가 필요합니다. DGX OS에는 이미 다 들어 있습니다. `systemd`, `journalctl`, `docker`는 있으면 씁니다. Apple Silicon Mac은 macOS 기본 도구를 쓰며 sudo가 필요 없습니다. Mac에서 대시보드를 실행할 때는 macOS arm64용 Node.js를 설치합니다.
 - 원격 노드를 보려면 대시보드를 돌리는 머신에 SSH 클라이언트가 있어야 하고 각 노드에 key 기반 SSH로 접속할 수 있어야 합니다.
-- 추론 서버는 선택 사항입니다. 메트릭을 내보내는 vLLM(메트릭이 기본으로 켜져 있음), SGLang(`--enable-metrics`로 시작), TensorFold(메트릭이 항상 켜져 있음), llama.cpp(`llama-server`를 `--metrics`로 시작), Strata(메트릭이 항상 켜져 있음) 중 하나면 됩니다.
+- 추론 서버는 선택 사항입니다. 메트릭을 내보내는 vLLM(메트릭이 기본으로 켜져 있음), SGLang(`--enable-metrics`로 시작), TensorFold(메트릭이 항상 켜져 있음), llama.cpp(`llama-server`를 `--metrics`로 시작), Strata(메트릭이 항상 켜져 있음), oMLX(상태 API 사용, 메트릭 옵션 불필요) 중 하나면 됩니다.
 
 ### Spark 없이 체험하기
 
@@ -145,26 +145,41 @@ SGLang 기본 포트를 쓴다면 `SPARK_SCOPE_API_URL=http://127.0.0.1:30000`, 
 
 노드 쪽 권한 중 두 가지는 선택 사항입니다. 커널 오류 요약을 보려면 커널 저널(`journalctl -k`)을 읽을 수 있어야 합니다. root가 아닌 계정은 `systemd-journal`이나 `adm` 그룹에 넣으면 됩니다. 이 권한이 없으면 패널에 "커널 진단 정보 없음"이 표시됩니다. 컨테이너 세부 정보를 보려면 Docker 소켓에 접근할 수 있어야 합니다. 그런데 `docker` 그룹 멤버십은 root 권한과 같으므로, 이 대시보드만 보려고 그 권한을 주어서는 안 됩니다. 권한이 없으면 컨테이너 세부 정보가 나오지 않습니다.
 
-### vLLM, SGLang, TensorFold, llama.cpp 또는 Strata
+### vLLM, SGLang, TensorFold, llama.cpp, Strata 또는 oMLX
 
-`SPARK_SCOPE_API_URL`에 추론 서버 주소를 지정합니다. 여러 노드로 서빙한다면 API가 떠 있는 노드를 가리켜야 합니다. vLLM, TensorFold, Strata는 메트릭이 기본으로 켜져 있습니다. SGLang은 `--enable-metrics`, llama.cpp는 `--metrics`를 붙여 시작해야 합니다. llama.cpp의 진행 중 출력 속도를 보려면 기본으로 켜져 있는 `/slots`도 필요합니다. `/slots`를 끄거나 접근할 수 없으면 요청 처리 중 속도는 `unknown`으로 나옵니다. Strata를 API 키와 함께 시작했다면 대시보드가 키를 보내지 않으므로 읽을 수 없습니다. 엔진마다 일부 수치의 측정 방식이 다르거나 제공하지 않는 값이 있습니다. 그 차이는 [추론 엔진](docs/configuration.md#inference-engines) 항목에 정리했습니다. oMLX 같은 다른 엔진도 노드 카드에서는 인식하지만 메트릭은 읽지 않습니다.
+`SPARK_SCOPE_API_URL`에 추론 서버 주소를 지정합니다. 여러 노드로 서빙한다면 API가 떠 있는 노드를 가리켜야 합니다. vLLM, TensorFold, Strata는 메트릭이 기본으로 켜져 있습니다. SGLang은 `--enable-metrics`, llama.cpp는 `--metrics`를 붙여 시작해야 합니다. llama.cpp의 진행 중 출력 속도를 보려면 기본으로 켜져 있는 `/slots`도 필요합니다. `/slots`를 끄거나 접근할 수 없으면 요청 처리 중 속도는 `unknown`으로 나옵니다. 키가 필요하면 대시보드 프로세스의 환경 변수에서 Bearer 키를 읽습니다. URL이나 `topology.json`에는 키 값을 넣지 않습니다. 엔진마다 일부 수치의 측정 방식이 다르거나 제공하지 않는 값이 있습니다. 그 차이는 [추론 엔진](docs/configuration.md#inference-engines) 항목에 정리했습니다.
 
 엔진 패널과 미니 창은 엔진이 제공하는 항목만 표시합니다. llama.cpp는 캐시 적중률과 평균 Decode 시간을 표시하며, 컨텍스트 사용률은 요청 처리 중에만 보여 줍니다. Strata는 Prometheus 형식 메트릭에서 TTFT와 토큰 간격 히스토그램을 읽고, 카운터와 시작 시각은 JSON 형식 메트릭 요청으로 따로 읽습니다. 네이티브 TensorFold 1.0.2는 진행 중 토큰과 완료된 토큰을 합쳐 Decode 속도를 계산합니다. 이 카운터가 없으면 health의 2초 속도를 대신 사용하며, Prefill도 health의 2초 속도를 사용합니다. 파서는 네이티브 서버 응답 캡처를 정제한 fixture로 검사합니다.
+
+대시보드는 `/metrics`가 404를 반환하면 키 없이 읽을 수 있는 `/health` 응답으로 oMLX 0.7.0을 식별합니다. 이어서 `/api/status`에서 실행 중 요청, 대기 요청, 세션 캐시 적중률, 완료된 요청의 평균 Prefill 속도와 평균 Decode 속도를 읽습니다. 실시간 출력 속도, TTFT, TPOT, KV와 추측 디코딩 수락률은 숨깁니다. 이 요청들은 모델을 로드하지 않으며 유휴 언로드를 막지 않습니다. 카운터는 서버 전체의 합계입니다. 로드된 모델이 1개 이하일 때 모델 라벨과 원장에는 `default_model`을 씁니다.
+
+서버가 하나이고 키가 필요하면 `SPARK_SCOPE_API_KEY`를 환경 변수로 설정합니다. Bash 터미널에서 다음 명령을 쓰면 키를 화면에 표시하거나 셸 기록에 남기지 않고 입력할 수 있습니다.
+
+```bash
+read -r -s -p 'Engine API key: ' SPARK_SCOPE_API_KEY
+printf '\n'
+export SPARK_SCOPE_API_KEY
+npm start
+```
+
+모든 엔진 GET 요청에 같은 Bearer 헤더를 붙입니다. 키를 쓸 때는 신뢰하는 loopback 주소나 HTTPS만 사용합니다. 유효한 키가 없으면 oMLX는 `oMLX needs an API key` 오류를 표시합니다. loopback에 바인딩한 oMLX에 키가 설정되지 않았다면 대시보드 키도 필요 없습니다. `skip_api_key_verification`은 loopback 전용 대안이지만 admin 경로도 열리므로 주의해야 합니다. 자세한 내용은 [oMLX](docs/configuration.md#omlx) 항목에 있습니다.
 
 노드를 그룹으로 나눠 따로 서빙한다면(케이블로 연결한 노드 2대가 각자 자기 모델을 돌리거나, 4대를 2 + 2로, 3대를 2 + 1로 나눈 경우) `SPARK_SCOPE_API_URL` 대신 `topology.json`에 그룹마다 모델 서버를 적고 API와 노드를 지정합니다.
 
 ```json
 "servers": [
-  { "id": "a", "api": "http://spark-1:8000", "nodes": ["1", "2"] },
-  { "id": "b", "api": "http://spark-3:30000", "nodes": ["3", "4"] }
+  { "id": "a", "api": "http://spark-1:8000", "apiKeyEnv": "ENGINE_A_TOKEN", "nodes": ["1", "2"] },
+  { "id": "b", "api": "http://spark-3:30000", "apiKeyEnv": "ENGINE_B_TOKEN", "nodes": ["3", "4"] }
 ]
 ```
+
+`apiKeyEnv`는 선택 사항이며 키 값이 아닌 환경 변수 이름을 적습니다. 서버가 여러 개일 때 이 항목이 없는 서버에는 키를 보내지 않습니다. `SPARK_SCOPE_API_KEY`를 모든 서버에 공유하지 않습니다.
 
 그러면 대시보드 하나에서 모든 서버를 봅니다. 상태 줄 바로 아래 띠를 서버 수만큼 나눠 서버마다 한 칸씩 보여 주고, 선과 엔진 패널도 서버마다 하나씩 붙습니다(설정에서 한 번에 하나씩만 볼 수도 있습니다). 랙 패널 하단 띠에는 칩이 표시되고 토큰 원장은 모든 서버가 하나를 함께 씁니다. 필드와 규칙은 [모델 서버](docs/topology.md#model-servers) 항목에 정리했습니다.
 
 ### Apple Silicon Mac 노드
 
-저장소의 1노드 토폴로지는 Mac에서도 그대로 쓸 수 있습니다. Mac에서 `npm start`를 실행하면 로컬로 수집합니다. 원격 노드로 연결하려면 `host`에 Mac의 SSH 별칭을 넣습니다. 별도 도구나 관리자 권한은 필요 없습니다.
+저장소의 1노드 토폴로지는 Mac에서도 그대로 쓸 수 있습니다. Mac에서 `SPARK_SCOPE_API_URL=http://127.0.0.1:8000 npm start`를 실행하면 로컬 노드와 기본 포트의 oMLX를 읽습니다. 키가 필요하면 위의 환경 변수 설정을 사용합니다. 원격 노드로 연결하려면 `host`에 Mac의 SSH 별칭을 넣습니다. 별도 도구나 관리자 권한은 필요 없습니다.
 
 Mac 카드에는 GPU 사용률과 시스템 공유 메모리가 나옵니다. 온도 칸에는 열 상태, 전력 칸에는 MacBook의 시스템 전력(배터리가 없으면 스왑 사용량), 클럭 칸에는 GPU 메모리 사용량이 표시됩니다. NVMe와 NIC 칸에는 각각 스왑 사용량과 압축 메모리가 나옵니다. 수집에 실패해도 칸 위치와 라벨은 유지하고 값만 알 수 없음으로 표시합니다. GPU 온도, GPU 전력, 클럭과 Linux 전용 진단은 숨깁니다. 메모리 경고는 OS의 메모리 압력 수준을 따릅니다. 시스템 전력은 약 1분마다 갱신되며 GPU 전력 합계에는 포함하지 않습니다. 자세한 내용은 [Mac 노드](docs/configuration.md#mac-nodes) 문서에 있습니다.
 
@@ -203,7 +218,8 @@ sudo loginctl enable-linger "$USER"   # 로그인 세션 없이도 계속 실행
 
 | 변수 | 기본값 | 용도 |
 |---|---|---|
-| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | 추론 서버입니다. vLLM은 8000, SGLang은 30000, TensorFold, llama.cpp, Strata는 8080 포트를 씁니다. |
+| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | 추론 서버입니다. vLLM과 oMLX는 8000, SGLang은 30000, TensorFold, llama.cpp, Strata는 8080 포트를 씁니다. |
+| `SPARK_SCOPE_API_KEY` | 없음 | 서버가 하나일 때 사용할 Bearer 키. 환경 변수에서만 읽습니다. |
 | `SPARK_SCOPE_HOST` | `127.0.0.1` | listen 주소입니다. `0.0.0.0`으로 두면 다른 머신에서도 접속할 수 있습니다. [보안](#보안)을 함께 봐야 합니다. |
 | `SPARK_SCOPE_PORT` | `8787` | listen 포트입니다. |
 | `SPARK_SCOPE_TOPOLOGY` | `~/.config/spark-scope/topology.json` | 토폴로지 파일입니다. 이 파일이 없으면 저장소에 들어 있는 노드 1대용 `topology.json`을 씁니다. |

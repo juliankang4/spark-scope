@@ -75,10 +75,12 @@ html:lang(ko){word-break:keep-all}
 .cl .chip-name{min-width:0;overflow:hidden;text-overflow:ellipsis}.cl .chip b{flex:none;font-weight:600;color:var(--ink)}
 .cl>span.chips.tight{column-gap:12px}.cl>span.chips.tight .unit,.cl>span.chips.tighter .chip b{display:none}
 .out{display:flex;align-items:baseline;gap:14px}
+.out[hidden]{display:none}
+.out span small{display:block;font-size:14px;margin-left:0}
 .out b{font-size:104px;line-height:.9}
 .out span{font-size:26px;color:var(--ink2)}
 .out small{font-size:20px;color:var(--ink2);margin-left:8px}
-.tok{justify-self:end;text-align:right;display:grid;gap:2px}
+.tok{grid-column:3;justify-self:end;text-align:right;display:grid;gap:2px}
 .tok b{font-size:56px;line-height:.9}
 .tok span{font-size:20px;color:var(--ink2)}
 
@@ -130,6 +132,7 @@ html:lang(ko){word-break:keep-all}
 .screen.narrow .out b{font-size:80px}
 .screen.narrow .out span{font-size:22px}
 .screen.narrow .out small{display:none}
+.screen.narrow .out span small{display:block;font-size:12px}
 .screen.narrow .tok b{font-size:46px}
 .screen.narrow .tok span{font-size:17px}
 /* Three-digit temperatures (°F from 100) use smaller figures so they fit the same space as two. */

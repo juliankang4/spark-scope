@@ -87,12 +87,16 @@ const nodeDefinitions = topology.nodes.map((node) => ({ ...node, interfaces: nod
 
 // One inference API per model server: those listed under "servers" in topology.json, or SPARK_SCOPE_API_URL for every
 // node. The first server's sessions keep the ledger's plain keys; the others prefix their id (see usage-store.mjs).
+for (const server of topology.servers ?? []) {
+  if (server.apiKeyEnv && !process.env[server.apiKeyEnv]) console.warn(`Server ${server.id}: its apiKeyEnv variable is empty or unset`);
+}
 const servers = topologyServers(topology, config.apiUrl).map((server, index) => ({
   ...server,
-  collector: new InferenceCollector(server.api),
+  collector: new InferenceCollector(server.api, { apiKeyEnv: server.apiKeyEnv }),
   keyPrefix: index === 0 ? "" : `${server.id}:`,
   lastServedModel: null,
 }));
+const apiKeyEnvNames = servers.map(server => server.apiKeyEnv).filter(Boolean);
 // A ledger that cannot be opened (corrupt file, wrong permissions) turns off token counting, not the dashboard.
 let usageStore = null;
 let usageOpenError = null;
@@ -196,7 +200,7 @@ async function collectNodes() {
   collectingNodes = true;
   try {
     const snapshots = await Promise.all(nodeDefinitions.map((definition) => (
-      definition.collect ? collectNode(definition) : uncollectedNode(definition))));
+      definition.collect ? collectNode(definition, { apiKeyEnvNames }) : uncollectedNode(definition))));
     for (let index = 0; index < nodeDefinitions.length; index += 1) {
       const definition = nodeDefinitions[index];
       const previous = state.nodes[definition.id];

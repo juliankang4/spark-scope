@@ -197,7 +197,7 @@ async function fakeVllm(model) {
   let generated = 1000;
   const server = createServer((request, response) => {
     if (request.url === "/metrics") {
-      response.end(`vllm:num_requests_running{model_name="${model}"} 1\nvllm:num_requests_waiting{model_name="${model}"} 0\nvllm:generation_tokens_total{model_name="${model}"} ${generated}\nvllm:prompt_tokens_total{model_name="${model}"} 5000\nprocess_start_time_seconds 1790000000\n`);
+      response.end(`vllm:num_requests_running{model_name="${model}"} 1\nvllm:num_requests_waiting{model_name="${model}"} 0\nvllm:generation_tokens_total{model_name="${model}"} ${generated}\nvllm:prompt_tokens_total{model_name="${model}"} 5000\nvllm:prompt_tokens_by_source_total{source="local_compute"} 5000\nvllm:request_prefill_time_seconds_sum 5\nvllm:request_prefill_time_seconds_count 1\nprocess_start_time_seconds 1790000000\n`);
     } else if (request.url === "/v1/models") {
       response.end(JSON.stringify({ data: [{ id: model }] }));
     } else {
@@ -246,6 +246,54 @@ test("model servers listed in topology.json are each read, judged and booked, an
     await Promise.all([a.close(), b.close()]);
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("mixed oMLX and vLLM history excludes session means and multi-model polls still book usage", async () => {
+  const { createServer } = await import("node:http");
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-mixed-"));
+  const fixture = JSON.parse(readFileSync(path.join(ROOT, "test/fixtures/omlx-v0.7.0.json")));
+  let status = { ...fixture.cached, models_loaded: 2, loaded_models: ["example-model", "another-model"] };
+  const omlx = createServer((request, response) => {
+    if (request.url === "/health") response.end(JSON.stringify(fixture.health));
+    else if (request.url === "/api/status") response.end(JSON.stringify(status));
+    else response.writeHead(404).end("{}");
+  });
+  await new Promise(resolve => omlx.listen(0, "127.0.0.1", resolve));
+  const vllm = await fakeVllm("live-model"), engineUrl = `http://127.0.0.1:${omlx.address().port}`;
+  const layout = { nodes: [{ id: "1", host: "local", collect: false }, { id: "2", host: "local", collect: false }], links: [], servers: [
+    { id: "a", api: engineUrl, apiKeyEnv: "VERIFY_MISSING_ENGINE_KEY", nodes: ["1"] }, { id: "b", api: vllm.url, nodes: ["2"] },
+  ] };
+  const { child, base, output } = await startServer(directory, { SPARK_SCOPE_API_INTERVAL_MS: "500", VERIFY_MISSING_ENGINE_KEY: "" }, layout);
+  try {
+    const first = await waitFor(base, state => state.servers.every(server => server.inference?.ok) && state.history.length > 2, "mixed history");
+    assert.equal(first.inference.averagePromptTokensPerSecond, 2247);
+    assert.equal(first.inference.modelName, null);
+    assert.equal(first.inference.promptTokensPerSecond, null);
+    assert.ok(first.history.every(point => point.servers.a.promptTokensPerSecond === null));
+    assert.ok(first.history.filter(point => point.servers.b.promptTokensPerSecond !== null).every(point => point.promptTokensPerSecond === 1000));
+    assert.doesNotMatch(JSON.stringify(first), /ledgerModelName|VERIFY_MISSING_ENGINE_KEY/);
+    assert.match(output(), /Server a: its apiKeyEnv variable is empty or unset/);
+    assert.doesNotMatch(output(), /VERIFY_MISSING_ENGINE_KEY/);
+    status = { ...status, total_prompt_tokens: status.total_prompt_tokens + 1000, total_completion_tokens: status.total_completion_tokens + 50, total_requests: status.total_requests + 1 };
+    const booked = await waitFor(base, state => state.usage.today.input === 1000, "multi-model usage");
+    assert.equal(booked.usage.today.requests, 1);
+    assert.equal(booked.usage.modelName, "example-model");
+  } finally {
+    child.kill();
+    await Promise.all([vllm.close(), new Promise(resolve => omlx.close(resolve))]);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a credential mistakenly pasted into apiKeyEnv is never echoed in startup output", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-key-warning-"));
+  const credentialLikeName = "fixtureSecretValue123";
+  const layout = { nodes: [{ id: "1", host: "local", collect: false }], links: [], servers: [{ id: "a", api: "http://127.0.0.1:9", apiKeyEnv: credentialLikeName, nodes: ["1"] }] };
+  const { child, output } = await startServer(directory, { [credentialLikeName]: "" }, layout);
+  try {
+    assert.match(output(), /Server a: its apiKeyEnv variable is empty or unset/);
+    assert.equal(output().includes(credentialLikeName), false);
+  } finally { child.kill(); rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("a model server that never answers does not slow down the others", async () => {

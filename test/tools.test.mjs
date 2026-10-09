@@ -25,6 +25,11 @@ test("the demo serves the pages and moving made-up data without touching anythin
   assert.ok(Date.parse(decode.inference.prefillUpdatedAt) < base + 8000);
   assert.equal(idle.inference.runningRequests, 0);
   for (let count = 1; count <= 8; count++) assert.equal(Object.keys(liveState(count, "fault", base).nodes).length, count);
+  assert.equal(fixtureState(8, "fault", base, { servers: 5 }).servers.length, 5);
+  const omlxMixed = fixtureState(2, "serving", base, { servers: 2, macNodes: 1, engine: "oMLX", mixedEngines: true });
+  assert.equal(omlxMixed.inference.promptTokensPerSecond, null);
+  assert.equal(omlxMixed.nodes["1"].inference.engine, "oMLX");
+  assert.ok(omlxMixed.history.every(point => point.servers.a.promptTokensPerSecond === null && point.promptTokensPerSecond === point.servers.b.promptTokensPerSecond));
   const mixed = liveState(4, "serving", base + 8000, { gpuWorkstations: 1 });
   assert.equal(Object.keys(mixed.nodes).length, 5);
   assert.equal(mixed.nodes["5"].gpu.memory.kind, "discrete");

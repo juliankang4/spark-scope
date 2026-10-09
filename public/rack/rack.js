@@ -194,13 +194,16 @@ function renderCluster(fetchFailed) {
   $("cl-line1").classList.toggle("chips", Boolean(view.chips));
   if (view.chips) {
     const line = $("cl-line1");
-    line.innerHTML = view.chips.map((chip) => `<span class="chip"><span class="lamp ${chip.level}"></span><span class="chip-name">${escapeHtml(chip.name)}</span><b>${escapeHtml(chip.value)}${chip.unit ? `<span class="unit"> ${escapeHtml(chip.unit)}</span>` : ""}</b></span>`).join("");
+    line.innerHTML = view.chips.map((chip) => `<span class="chip"><span class="lamp ${chip.level}"></span><span class="chip-name">${escapeHtml(chip.name)}</span>${chip.value === undefined ? "" : `<b>${escapeHtml(chip.value)}${chip.unit ? `<span class="unit"> ${escapeHtml(chip.unit)}</span>` : ""}</b>`}</span>`).join("");
     fitChips(line);
     // Text is measured with the fonts at hand; a font that loads after this draw (wider than its fallback) refits.
     document.fonts?.ready.then(() => fitChips(line));
   } else $("cl-line1").textContent = view.lines[0] ?? "";
   $("cl-line2").textContent = view.lines[1] ?? "";
+  $("out-value").parentElement.hidden = !view.outShown;
+  $("band-svg").style.display = view.outShown ? "" : "none";
   $("out-value").textContent = f1(view.out);
+  $("out-coverage").textContent = view.outputCoverage;
   $("tok-total").textContent = compact(view.todayTotal);
   $("tok-sub").textContent = view.todayRequests === null ? t("rack.tokensToday") : t("rack.tokensTodayRequests", { count: view.todayRequests.toLocaleString("en-US") });
 }

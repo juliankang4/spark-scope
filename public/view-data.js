@@ -73,6 +73,7 @@ export function combinedInference(servers) {
   reported.prefixCacheHitPercent = false;
   reported.speculativeAcceptancePercent = false;
   reported.meanDecodeSeconds = readings.length > 0 && readings.every(reading => reading.reported?.meanDecodeSeconds === true);
+  for (const key of ['averageOutputTokensPerSecond', 'averagePromptTokensPerSecond']) reported[key] = readings.length === 1 && readings[0].reported?.[key] === true;
   const metricKinds = {};
   for (const key of Object.keys(ENGINE_LABELS)) {
     const kinds = new Set(readings.filter(reading => reading.reported?.[key] !== false).map(reading => reading.metricKinds?.[key] ?? 'default'));
@@ -83,7 +84,7 @@ export function combinedInference(servers) {
     }
   }
   if (!live.length) return readings.length ? { ok: false, reported, metricKinds, error: readings.find((reading) => reading.error)?.error ?? null, updatedAt: latest(readings, 'updatedAt') } : null;
-  const values = (key) => live.map((server) => server.inference[key]).filter(finite);
+  const values = (key) => live.filter(server => server.inference.reported?.[key] !== false).map(server => server.inference[key]).filter(finite);
   const sum = (key) => { const list = values(key); return list.length ? list.reduce((total, value) => total + value, 0) : null; };
   const max = (key) => { const list = values(key); return list.length ? Math.max(...list) : null; };
   const ok = live.map((server) => server.inference);
@@ -94,6 +95,8 @@ export function combinedInference(servers) {
     modelName: live.map(serverName).join(' | '),
     latencyMs: max('latencyMs'),
     outputTokensPerSecond: sum('outputTokensPerSecond'),
+    averageOutputTokensPerSecond: reported.averageOutputTokensPerSecond === false ? null : sum('averageOutputTokensPerSecond'),
+    averagePromptTokensPerSecond: reported.averagePromptTokensPerSecond === false ? null : sum('averagePromptTokensPerSecond'),
     promptTokensPerSecond: sum('promptTokensPerSecond'),
     promptComputeTokensPerSecond: sum('promptComputeTokensPerSecond'),
     promptCacheTokensPerSecond: sum('promptCacheTokensPerSecond'),
@@ -131,19 +134,23 @@ export function linkText(link) {
 }
 const ENGINE_LABELS = {
   promptTokensPerSecond: 'engine.prefill', promptComputeTokensPerSecond: 'engine.prefill', promptCacheTokensPerSecond: 'engine.cacheRead',
-  outputTokensPerSecond: 'engine.decode', prefixCacheHitPercent: 'engine.cacheHit', speculativeAcceptancePercent: 'engine.specAcceptance',
+  outputTokensPerSecond: 'engine.decode', averageOutputTokensPerSecond: 'engine.decodeMean', averagePromptTokensPerSecond: 'engine.prefillMean', prefixCacheHitPercent: 'engine.cacheHit', speculativeAcceptancePercent: 'engine.specAcceptance',
   requests: 'engine.requests', kvCachePercent: 'engine.kvCache', ttftP95RecentSeconds: 'engine.ttft',
   tpotP95RecentSeconds: 'engine.tpot', meanDecodeSeconds: 'engine.meanDecode',
 };
 
-export function engineMetric(inference, field) {
+export function engineMetric(inference, field, { averages = true } = {}) {
   let key = field;
   if (field === 'tpotP95RecentSeconds' && inference?.reported?.meanDecodeSeconds) key = 'meanDecodeSeconds';
+  if (averages && field === 'outputTokensPerSecond' && inference?.reported?.outputTokensPerSecond === false && inference.reported.averageOutputTokensPerSecond) key = 'averageOutputTokensPerSecond';
   if (field === 'promptComputeTokensPerSecond' && inference?.reported?.[field] === false && inference.reported.promptTokensPerSecond) key = 'promptTokensPerSecond';
+  if (averages && ['promptTokensPerSecond', 'promptComputeTokensPerSecond'].includes(field) && inference?.reported?.[key] === false && inference.reported.averagePromptTokensPerSecond) key = 'averagePromptTokensPerSecond';
   const kind = inference?.metricKinds?.[key];
   const label = kind === 'context' ? 'engine.contextUsed' : kind === 'twoSecond' ? (key === 'outputTokensPerSecond' ? 'engine.decode2s' : 'engine.prefill2s')
+    : kind === 'sessionMean' ? (key === 'averageOutputTokensPerSecond' ? 'engine.decodeMean' : 'engine.prefillMean')
     : kind === 'sinceStart' ? 'engine.cacheHitSinceStart' : ENGINE_LABELS[key];
-  const help = key === 'meanDecodeSeconds' ? 'help.meanDecode' : kind === 'sinceStart' ? 'help.cacheHitSinceStart'
+  const help = kind === 'sessionMean' ? (key === 'averageOutputTokensPerSecond' ? 'help.decodeMean' : 'help.prefillMean')
+    : key === 'meanDecodeSeconds' ? 'help.meanDecode' : kind === 'sinceStart' ? 'help.cacheHitSinceStart'
     : kind === 'context' ? 'help.contextUsed' : kind === 'twoSecond' ? (key === 'outputTokensPerSecond' ? 'help.decode2s' : 'help.prefill2s')
     : inference?.engine === 'Strata' && ['promptTokensPerSecond', 'promptComputeTokensPerSecond'].includes(key) ? 'help.strataPrefill'
     : kind === 'queueExcluded' ? 'help.ttftQueueExcluded' : kind === 'tokenWeightedMean' ? 'help.tpotTokenWeighted'
@@ -152,6 +159,13 @@ export function engineMetric(inference, field) {
 }
 
 export const finite = value => Number.isFinite(value);
+export const engineNeedsKey = inference => inference?.error === 'oMLX needs an API key';
+
+export function rateCoverage(servers, field) {
+  const reporting = servers.filter(server => server.inference?.ok && server.inference.reported?.[field] !== false && finite(server.inference[field])).length;
+  return reporting > 0 && reporting < servers.length ? t('servers.outputPartial', { reporting, count: servers.length }) : '';
+}
+export const outputCoverage = servers => rateCoverage(servers, 'outputTokensPerSecond');
 // Numbers use one fixed format (1,234.5) so the K/M/B suffixes and the columns read the same everywhere.
 export function fixed(value, digits = 1, suffix = '') {
   return finite(value) ? value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits }) + suffix : unknown();

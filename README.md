@@ -1,13 +1,13 @@
 <h1 align="center">Spark Scope</h1>
 
-<p align="center">A read-only dashboard and rack panel for NVIDIA DGX Spark-class machines and Apple Silicon Macs<br>and the vLLM, SGLang, TensorFold, llama.cpp or Strata server running on them.</p>
+<p align="center">A read-only dashboard and rack panel for NVIDIA DGX Spark-class machines and Apple Silicon Macs<br>and the vLLM, SGLang, TensorFold, llama.cpp, Strata or oMLX server running on them.</p>
 
 <p align="center">
   <a href="https://github.com/juliankang4/spark-scope/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/juliankang4/spark-scope"></a>
   <a href="https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/juliankang4/spark-scope/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/juliankang4/spark-scope"></a>
   <img alt="Node.js 22.13 or later" src="https://img.shields.io/badge/node-%E2%89%A5%2022.13-339933?logo=nodedotjs&amp;logoColor=white">
-  <img alt="Engines: vLLM, SGLang, TensorFold, llama.cpp and Strata" src="https://img.shields.io/badge/engines-vLLM%20%7C%20SGLang%20%7C%20TensorFold%20%7C%20llama.cpp%20%7C%20Strata-76b900">
+  <img alt="Engines: vLLM, SGLang, TensorFold, llama.cpp, Strata and oMLX" src="https://img.shields.io/badge/engines-vLLM%20%7C%20SGLang%20%7C%20TensorFold%20%7C%20llama.cpp%20%7C%20Strata%20%7C%20oMLX-76b900">
   <img alt="Runs on arm64 and x64" src="https://img.shields.io/badge/arch-arm64%20%7C%20x64-blue">
 </p>
 
@@ -17,7 +17,7 @@
 
 ## About
 
-Spark Scope watches NVIDIA DGX Spark-class machines (DGX Spark, ASUS Ascent GX10, MSI EdgeXpert and other GB10 boxes) and the vLLM, SGLang, TensorFold, llama.cpp or Strata server running on them, from a single node to a small cluster. Apple Silicon Macs can also be monitored locally or over SSH.
+Spark Scope watches NVIDIA DGX Spark-class machines (DGX Spark, ASUS Ascent GX10, MSI EdgeXpert and other GB10 boxes) and the vLLM, SGLang, TensorFold, llama.cpp, Strata or oMLX server running on them, from a single node to a small cluster. Apple Silicon Macs can be monitored locally or over SSH, with or without an inference server.
 
 I wrote it for my own four-node ring (three ASUS GX10s and an MSI EdgeXpert) in a 10-inch rack. This repository is that dashboard with my hostnames taken out and the layout reworked for one and two nodes. The 2U rack modules for the GX10 are on [MakerWorld](https://makerworld.com/en/models/3380382).
 
@@ -54,7 +54,7 @@ More in [Web page](docs/dashboard.md) and [Rack panel](docs/rack.md). The screen
   A version manager such as nvm works too. Some Node versions print an "SQLite is an experimental feature" warning on start; it is harmless.
 - On a Linux node: `bash`, `nvidia-smi` and the usual coreutils. DGX OS already has everything. `systemd`, `journalctl` and `docker` are used when present. Apple Silicon Macs use the built-in macOS tools without sudo; install the macOS arm64 build of Node.js when running the dashboard on the Mac.
 - For remote nodes: an SSH client on the dashboard machine and key-based SSH access to each node.
-- Optionally an inference server with metrics: vLLM (on by default), SGLang (start it with `--enable-metrics`), TensorFold (always on), llama.cpp (start `llama-server` with `--metrics`) or Strata (always on).
+- Optionally an inference server with metrics: vLLM (on by default), SGLang (start it with `--enable-metrics`), TensorFold (always on), llama.cpp (start `llama-server` with `--metrics`), Strata (always on) or oMLX (status API, no metrics flag).
 
 ### Try it without a Spark
 
@@ -143,26 +143,41 @@ The dashboard can run on one of the Sparks (that node uses `"host": "local"`, th
 
 Optional permissions on the nodes: kernel error summaries need read access to the kernel journal (`journalctl -k`), which non-root accounts get through the `systemd-journal` or `adm` group. Without it the panel says "Kernel diagnostics unavailable". Container details need access to the Docker socket. Membership of the `docker` group is equivalent to root, so do not grant it just for this dashboard. Without it, container details are not shown.
 
-### vLLM, SGLang, TensorFold, llama.cpp or Strata
+### vLLM, SGLang, TensorFold, llama.cpp, Strata or oMLX
 
-Point `SPARK_SCOPE_API_URL` at the inference server; in multi-node serving, at the node that hosts the API. vLLM's, TensorFold's and Strata's metrics are on by default. Start SGLang with `--enable-metrics` and llama.cpp with `--metrics`. llama.cpp also needs its default-enabled `/slots` endpoint for live output speed; with slots disabled or unavailable, that speed reads `unknown` while requests run. A Strata server started with an API key cannot be read, because the dashboard sends no key. Some engine readings are measured differently or unavailable, listed under [Inference engines](docs/configuration.md#inference-engines). Other engines, including oMLX, are recognised on the node cards, but their metrics are not read.
+Point `SPARK_SCOPE_API_URL` at the inference server; in multi-node serving, at the node that hosts the API. vLLM's, TensorFold's and Strata's metrics are on by default. Start SGLang with `--enable-metrics` and llama.cpp with `--metrics`. llama.cpp also needs its default-enabled `/slots` endpoint for live output speed; with slots disabled or unavailable, that speed reads `unknown` while requests run. An optional Bearer key comes from the dashboard process's environment, never from a URL or a key value in `topology.json`. Some engine readings are measured differently or unavailable, listed under [Inference engines](docs/configuration.md#inference-engines).
 
 The engine panel and mini window show only supported fields. llama.cpp reports cache hit and mean decode time, with context use only while requests run. Strata reads TTFT and inter-token histograms from its Prometheus metrics, and its counters and start time from a second, JSON metrics request. Native TensorFold 1.0.2 counts live and finished output together for decode, with two-second health rates as a fallback and for prefill. Its parser tests replay trimmed native-server captures.
+
+oMLX 0.7.0 is identified by its open `/health` response after `/metrics` returns 404. The dashboard then reads `/api/status`: running and waiting requests, session cache hit, and mean prefill and decode speeds for completed requests. Live output speed, TTFT, TPOT, KV and speculative acceptance are hidden. These reads do not load a model or keep it from unloading. Counters are server-wide; the model label and ledger use `default_model` when at most one model is loaded.
+
+For a single server, set `SPARK_SCOPE_API_KEY` in the environment if the engine requires a key. In a Bash terminal, this prompts without echoing the key or putting it in shell history:
+
+```bash
+read -r -s -p 'Engine API key: ' SPARK_SCOPE_API_KEY
+printf '\n'
+export SPARK_SCOPE_API_KEY
+npm start
+```
+
+The same Bearer header is sent on all engine GET polls. Use only a trusted loopback endpoint or HTTPS for keys. Without a valid key, oMLX reports `oMLX needs an API key`. A loopback-bound oMLX with no configured key needs no dashboard key; its `skip_api_key_verification` setting is another loopback-only option that also opens its admin routes. See [oMLX](docs/configuration.md#omlx).
 
 When the nodes serve in separate groups (two cabled nodes each running its own model, four as 2 + 2, three as 2 + 1), list each group as a model server in `topology.json` with its API and nodes instead of setting `SPARK_SCOPE_API_URL`:
 
 ```json
 "servers": [
-  { "id": "a", "api": "http://spark-1:8000", "nodes": ["1", "2"] },
-  { "id": "b", "api": "http://spark-3:30000", "nodes": ["3", "4"] }
+  { "id": "a", "api": "http://spark-1:8000", "apiKeyEnv": "ENGINE_A_TOKEN", "nodes": ["1", "2"] },
+  { "id": "b", "api": "http://spark-3:30000", "apiKeyEnv": "ENGINE_B_TOKEN", "nodes": ["3", "4"] }
 ]
 ```
+
+`apiKeyEnv` is optional and names an environment variable, not a key. With several servers, a server without it sends no key; `SPARK_SCOPE_API_KEY` is not shared across them.
 
 One dashboard then shows every server: a strip under the status line with a segment per server, a line and an engine panel for each (or one at a time, in the settings), chips on the rack panel's band, and one token ledger for all of them. Fields and rules: [Model servers](docs/topology.md#model-servers).
 
 ### Apple Silicon Mac nodes
 
-The shipped one-node topology works on a Mac too: run `npm start` on the Mac to collect it locally, or use its SSH alias as a remote node's `host`. No helper or elevated permissions are needed.
+The shipped one-node topology works on a Mac too: run `SPARK_SCOPE_API_URL=http://127.0.0.1:8000 npm start` on the Mac to collect it locally and read oMLX on its default port. Use the environment key above if needed. For remote collection, use the Mac's SSH alias as the node's `host`. No helper or elevated permissions are needed.
 
 Mac cards show GPU load and shared system memory. The temperature slot shows thermal state, the power slot shows whole-system power on MacBooks (swap without a battery), and the clock slot shows GPU memory in use. NVMe and NIC slots show swap use and compressed memory, without moving the selected slots. GPU temperature, GPU power, clock and Linux-only diagnostics are hidden. Memory warnings use the OS pressure level. System power refreshes about once a minute and is never counted as GPU power. Details: [Mac nodes](docs/configuration.md#mac-nodes).
 
@@ -201,7 +216,8 @@ The server itself is set with environment variables. The ones most setups need:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | The inference server (vLLM listens on 8000, SGLang on 30000, TensorFold, llama.cpp and Strata on 8080). |
+| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | The inference server (vLLM and oMLX listen on 8000, SGLang on 30000, TensorFold, llama.cpp and Strata on 8080). |
+| `SPARK_SCOPE_API_KEY` | none | Optional Bearer key for a single server, read only from the environment. |
 | `SPARK_SCOPE_HOST` | `127.0.0.1` | Listen address. `0.0.0.0` serves other machines; see [Security](#security). |
 | `SPARK_SCOPE_PORT` | `8787` | Listen port. |
 | `SPARK_SCOPE_TOPOLOGY` | `~/.config/spark-scope/topology.json` | Topology file (the shipped one-node `topology.json` when that does not exist). |

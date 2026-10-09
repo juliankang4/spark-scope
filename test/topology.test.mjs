@@ -163,8 +163,19 @@ test("model servers name their API and nodes; each node serves in at most one, a
   // Without "servers": one server on every node at SPARK_SCOPE_API_URL.
   const single = normalizeTopology({ nodes, links: [] });
   assert.equal(single.servers, null);
-  assert.deepEqual(topologyServers(single, "http://127.0.0.1:8000/"), [{ id: "default", name: null, api: "http://127.0.0.1:8000", nodes: ["1", "2", "3"], implicit: true }]);
+  assert.deepEqual(topologyServers(single, "http://127.0.0.1:8000/"), [{ id: "default", name: null, api: "http://127.0.0.1:8000", apiKeyEnv: "SPARK_SCOPE_API_KEY", nodes: ["1", "2", "3"], implicit: true }]);
+  const keyed = normalizeTopology({ nodes, links: [], servers: [
+    { id: "a", api: "http://spark-1:8000", apiKeyEnv: "ENGINE_A_TOKEN", nodes: ["1"] },
+    { id: "b", api: "http://spark-2:8000", nodes: ["2", "3"] },
+  ] });
+  assert.equal(topologyServers(keyed).at(0).apiKeyEnv, "ENGINE_A_TOKEN");
+  assert.equal(topologyServers(keyed).at(1).apiKeyEnv, undefined, "multiple servers never inherit one shared key");
+  assert.equal(topologyServers(normalizeTopology({ nodes, links: [], servers: [{ id: "a", api: "http://spark-1:8000", nodes: ["1"] }] })).at(0).apiKeyEnv, "SPARK_SCOPE_API_KEY");
+  assert.doesNotMatch(JSON.stringify(publicTopology(keyed)), /apiKey|ENGINE_A_TOKEN/);
   const bad = (servers) => () => normalizeTopology({ nodes, links: [], servers });
+  for (const credential of [{ apiKeyEnv: "fixture-only-key" }, { apiKey: "fixture-only-key" }, { api_key: "fixture-only-key" }]) {
+    assert.throws(bad([{ id: "a", api: "http://spark-1:8000", nodes: ["1"], ...credential }]), error => !error.message.includes("fixture-only-key") && /environment variable|apiKeyEnv/.test(error.message));
+  }
   assert.throws(bad([]), /non-empty array/);
   assert.throws(bad([{ id: "a", api: "http://admin:secret@spark-1:8000", nodes: ["1"] }]), /without a user name or password/);
   assert.throws(bad([{ id: "a", api: "spark-1:8000", nodes: ["1"] }]), /http:\/\/ or https:\/\//);

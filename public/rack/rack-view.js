@@ -1,5 +1,5 @@
 // Pure view-model helpers for the Spark Scope rack panel (1920 x 480 by default). No DOM access, so node --test can import them.
-import { compact as compactCount, roleName, systemStateText, modelServers, combinedInference, serverName, gpuMemory, memoryWording, hasNodeTemperature, memoryWarning, gpuPowerWatts } from "../view-data.js";
+import { compact as compactCount, roleName, systemStateText, modelServers, combinedInference, serverName, gpuMemory, memoryWording, hasNodeTemperature, memoryWarning, gpuPowerWatts, outputCoverage, engineNeedsKey } from "../view-data.js";
 import { t, serverText } from "../i18n.js";
 
 export const BRAND = "SPARK SCOPE";
@@ -268,9 +268,9 @@ export function rackFocus(state, serverId = "") {
 export function serverChips(servers) {
   return servers.map((server) => {
     const v = server.inference;
-    if (v?.ok) return { name: serverName(server), level: "good", value: f1(v.outputTokensPerSecond), unit: "tok/s" };
+    if (v?.ok) return { name: serverName(server), level: "good", ...(v.reported?.outputTokensPerSecond === false ? {} : { value: f1(v.outputTokensPerSecond), unit: "tok/s" }) };
     if (server.inferenceState === "stopped") return { name: serverName(server), level: "idle", value: t("rack.server.idle") };
-    return { name: serverName(server), level: v ? "crit" : "idle", value: t(v ? "rack.server.down" : "rack.server.checking") };
+    return { name: serverName(server), level: v ? "crit" : "idle", value: t(engineNeedsKey(v) ? "engine.apiKeyRequired" : v ? "rack.server.down" : "rack.server.checking") };
   });
 }
 
@@ -282,6 +282,8 @@ export function clusterView(state, { fetchFailed = false, lastReceivedAt = null,
     running,
     waiting,
     out: inference?.ok && finite(inference.outputTokensPerSecond) ? inference.outputTokensPerSecond : null,
+    outShown: inference?.reported?.outputTokensPerSecond !== false,
+    outputCoverage: outputCoverage(state?.servingServers ?? [{ inference }]),
     todayTotal: state?.usage?.today?.total ?? null,
     todayRequests: state?.usage?.reported?.requests === false ? null : state?.usage?.today?.requests ?? null,
   };
@@ -298,7 +300,7 @@ export function clusterView(state, { fetchFailed = false, lastReceivedAt = null,
   if (state.status === "offline") return { ...base, level: "crit", title: t("rack.cluster.unreachable"), lines: [message, counts()] };
   const chips = state.servingServers ? serverChips(state.servingServers) : null;
   if (state.inferenceState === "stopped") return { ...base, level: "idle", title: t("rack.cluster.inferenceStopped"), lines: [t("rack.cluster.noModelServing"), counts()], chips };
-  if (!inference?.ok) return { ...base, level: "crit", title: t("rack.cluster.inferenceDown"), lines: [chips ? "" : `${servingLine(state)} | ${t("rack.cluster.apiNoResponse")}`, counts()], chips };
+  if (!inference?.ok) return { ...base, level: "crit", title: t("rack.cluster.inferenceDown"), lines: [chips ? "" : `${servingLine(state)} | ${t(engineNeedsKey(inference) ? "engine.apiKeyRequired" : "rack.cluster.apiNoResponse")}`, counts()], chips };
   const title = t(running > 0 ? "rack.cluster.serving" : "rack.cluster.ready");
   const queue = running === null ? null : t("rack.cluster.queue", { running, waiting: waiting ?? 0 });
   if (state.status !== "healthy") {

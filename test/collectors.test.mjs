@@ -332,6 +332,19 @@ test("a local node runs the collector with bash directly; any other node goes ov
   assert.deepEqual(remote.args.slice(-2), ["spark-2", "bash -s"]);
 });
 
+test("node collector children do not inherit single-server or per-server credentials", async () => {
+  const before = [process.env.SPARK_SCOPE_API_KEY, process.env.ENGINE_A_TOKEN];
+  process.env.SPARK_SCOPE_API_KEY = process.env.ENGINE_A_TOKEN = "fixture-only-credential";
+  try {
+    await withFakeCommand("ssh", 'if [ -n "$SPARK_SCOPE_API_KEY$ENGINE_A_TOKEN" ]; then echo "credential inherited" >&2; exit 1; fi; echo "hostname|fixture-node"', async () => {
+      const node = await collectNode({ host: "fixture-node" }, { apiKeyEnvNames: ["ENGINE_A_TOKEN"] });
+      assert.equal(node.ok, true, node.error ?? "");
+    });
+  } finally {
+    for (const [index, name] of ["SPARK_SCOPE_API_KEY", "ENGINE_A_TOKEN"].entries()) { if (before[index] === undefined) delete process.env[name]; else process.env[name] = before[index]; }
+  }
+});
+
 test("local collection runs on this machine and leaves what it cannot read unknown instead of failing", async () => {
   const node = await collectNode({ id: "1", name: "this", host: "local", local: true, interfaces: ["spkmissing0"] });
   assert.equal(node.ok, true, node.error ?? "");
@@ -601,7 +614,7 @@ test("a poll cut short by the time limit keeps what arrived and stops the whole 
   assert.equal(await leftover(hung), "");
 });
 
-async function withFakeEngine(metricsText, run) {
+async function withFakeEngine(metricsText, run, { apiKey = null } = {}) {
   const http = await import("node:http");
   let body = metricsText;
   let health = null;
@@ -610,10 +623,16 @@ async function withFakeEngine(metricsText, run) {
   let slotsDelayMs = 0;
   let models = [{ id: "example-model" }];
   let modelsDelayMs = 0;
-  const requested = [];
+  const requested = [], responses = new Map();
   const server = http.createServer((request, response) => {
     requested.push(request.url);
     assert.equal(request.method, "GET");
+    assert.equal(request.headers.authorization, apiKey ? `Bearer ${apiKey}` : undefined);
+    if (responses.has(request.url)) {
+      const { status, body, headers } = responses.get(request.url);
+      response.writeHead(status, headers).end(typeof body === "string" ? body : JSON.stringify(body));
+      return;
+    }
     if (request.url === "/metrics") {
       assert.ok(["text/plain", "application/json"].includes(request.headers.accept));
       const json = request.headers.accept === "application/json";
@@ -635,11 +654,141 @@ async function withFakeEngine(metricsText, run) {
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   try {
-    return await run(`http://127.0.0.1:${server.address().port}`, (next) => { body = next; }, (next) => { health = next; }, (next, delayMs = 0) => { models = next; modelsDelayMs = delayMs; }, (next, status = 200, delayMs = 0) => { slots = next; slotsStatus = status; slotsDelayMs = delayMs; }, requested);
+    return await run(`http://127.0.0.1:${server.address().port}`, (next) => { body = next; }, (next) => { health = next; }, (next, delayMs = 0) => { models = next; modelsDelayMs = delayMs; }, (next, status = 200, delayMs = 0) => { slots = next; slotsStatus = status; slotsDelayMs = delayMs; }, requested,
+      (path, status, body, headers = {}) => { responses.set(path, { status, body, headers }); });
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
 }
+
+test("oMLX captured status keeps session averages separate from live speed and books each completed token once", async () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/omlx-v0.7.0.json", import.meta.url), "utf8"));
+  const { InferenceCollector } = await import("../lib/collectors.mjs");
+  const { UsageStore } = await import("../lib/usage-store.mjs");
+  const { readOmlxMetrics } = await import("../lib/engines/omlx.mjs");
+  const invalid = readOmlxMetrics({ ...fixture.cached, total_cached_tokens: 24000, avg_generation_tps: "46.2", avg_prefill_tps: -1 });
+  assert.equal(invalid.promptComputeTotal, null);
+  assert.equal(invalid.prefixCacheHitPercent, null);
+  assert.equal(invalid.averageOutputTokensPerSecond, null);
+  assert.equal(invalid.prefillTimeTotal, null);
+  await withFakeEngine("", async (url, _setMetrics, setHealth, _setModels, _setSlots, requested, setResponse) => {
+    setHealth(fixture.health);
+    setResponse("/metrics", 404, { detail: "Not Found" });
+    const collector = new InferenceCollector(url), ledger = new UsageStore(":memory:", { timeZone: "UTC" });
+    const poll = async status => { setResponse("/api/status", 200, status); const reading = await collector.collect(); ledger.record(reading); return reading; };
+    try {
+      const idle = await poll(fixture.idle), running = await poll(fixture.running);
+      assert.equal(idle.engine, "oMLX");
+      assert.equal(idle.modelName, "example-model");
+      assert.equal(running.runningRequests, 1);
+      assert.equal(ledger.summary().allTime.total, 0);
+      for (const reading of [idle, running, await poll(fixture.completed)]) {
+        assert.equal(reading.ok, true);
+        assert.equal(reading.outputTokensPerSecond, null);
+        assert.equal(reading.reported.outputTokensPerSecond, false);
+        assert.equal(reading.reported.averageOutputTokensPerSecond, true);
+        assert.equal(reading.metricKinds.averageOutputTokensPerSecond, "sessionMean");
+        assert.equal(reading.metricKinds.averagePromptTokensPerSecond, "sessionMean");
+        for (const field of ["promptTokensPerSecond", "promptComputeTokensPerSecond"]) { assert.equal(reading[field], null); assert.equal(reading.reported[field], false); }
+        for (const field of ["kvCachePercent", "ttftP95RecentSeconds", "tpotP95RecentSeconds", "speculativeAcceptancePercent", "promptCacheTokensPerSecond"]) assert.equal(reading.reported[field], false, field);
+        for (const field of ["processStartedAt", "kvCachePercent", "ttftP95Seconds", "tpotP95Seconds", "ttftP95RecentSeconds", "tpotP95RecentSeconds", "prefillUpdatedAt"]) assert.equal(reading[field], null, field);
+      }
+      const cached = await poll(fixture.cached);
+      assert.equal(cached.averageOutputTokensPerSecond, 46.2);
+      assert.equal(cached.averagePromptTokensPerSecond, 2247);
+      assert.equal(cached.ledgerModelName, "example-model");
+      assert.equal(cached.promptTokensTotal, 23738);
+      assert.equal(cached.promptComputeTokensTotal, 11962);
+      assert.equal(cached.promptCacheTokensTotal, 11776);
+      assert.equal(cached.prefixCacheHitPercent, 11776 / 23738 * 100);
+      assert.equal(cached.completedRequestsTotal, 2);
+      const totals = ledger.summary().allTime;
+      await poll({ ...fixture.cached, models_loaded: 0, loaded_models: [] });
+      const switched = await poll({ ...fixture.cached, loaded_models: ["another-model"] });
+      assert.equal(switched.modelName, "example-model", "the default identifies server-wide totals even when another model is loaded");
+      const several = await poll({ ...fixture.cached, models_loaded: 2, loaded_models: ["example-model", "another-model"] });
+      assert.equal(several.modelName, null, "a multi-model snapshot must not borrow a discovered model name");
+      assert.deepEqual(ledger.summary().allTime, totals, "TTL unload and model changes do not book the totals again");
+      await poll({ ...fixture.cached, default_model: "another-default" });
+      assert.deepEqual(ledger.summary().allTime, totals, "a changed default also keeps the server-wide ledger key");
+      await poll(fixture.idle);
+      assert.deepEqual(ledger.summary().allTime, totals, "a restart at zero does not subtract booked tokens");
+      await poll(fixture.completed);
+      const afterRestart = ledger.summary().allTime;
+      assert.equal(afterRestart.input, 23738 + 11873);
+      assert.equal(afterRestart.output, 2516 + 2500);
+      assert.equal(afterRestart.requests, 3);
+      const multi = new UsageStore(":memory:", { timeZone: "UTC" }), day = n => Date.UTC(2026, 9, n, 12);
+      try {
+        setResponse("/api/status", 200, fixture.idle);
+        multi.record(await collector.collect(), day(1));
+        for (const n of [2, 3]) {
+          setResponse("/api/status", 200, { ...fixture.cached, models_loaded: 2, loaded_models: ["example-model", "another-model"], total_prompt_tokens: 23738 + (n - 2) * 1000, total_completion_tokens: 2516 + (n - 2) * 1000, total_requests: n });
+          const reading = await collector.collect();
+          assert.equal(reading.modelName, null);
+          assert.equal(reading.ledgerModelName, "example-model");
+          multi.record(reading, day(n));
+        }
+        assert.deepEqual(multi.month("2026-10").days.map(row => [row.day, row.input, row.requests]), [["2026-10-02", 23738, 2], ["2026-10-03", 1000, 1]]);
+      } finally { multi.close(); }
+      assert.ok(requested.every(path => ["/health", "/metrics", "/api/status"].includes(path)), "no models/status or admin endpoint is called");
+    } finally { ledger.close(); }
+  });
+});
+
+test("engine Bearer credentials are environment-only, private, bounded to GET polls and absent from errors", async () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/omlx-v0.7.0.json", import.meta.url), "utf8"));
+  const { InferenceCollector } = await import("../lib/collectors.mjs");
+  const { publicInference } = await import("../lib/public-state.mjs");
+  const apiKey = "fixture-only-credential";
+  await withFakeEngine("", async (url, _setMetrics, setHealth, _setModels, _setSlots, requested, setResponse) => {
+    const collector = new InferenceCollector(url, { apiKeyEnv: "ENGINE_TOKEN", env: { ENGINE_TOKEN: apiKey } });
+    setHealth(fixture.health);
+    setResponse("/metrics", 404, "not found");
+    setResponse("/api/status", 401, { detail: apiKey });
+    const denied = await collector.collect();
+    assert.equal(denied.error, "oMLX needs an API key");
+    assert.equal(denied.engine, "oMLX");
+    assert.equal(JSON.stringify([collector, publicInference(denied)]).includes(apiKey), false);
+    setResponse("/api/status", 200, { ...fixture.completed, api_key: apiKey, model_path: "/private/model" });
+    const accepted = await collector.collect();
+    assert.equal(accepted.ok, true);
+    assert.equal(JSON.stringify([collector, publicInference(accepted)]).includes(apiKey), false);
+    setResponse("/api/status", 200, `{bad ${apiKey}`);
+    assert.equal((await collector.collect()).error, "oMLX status response is invalid");
+    setResponse("/metrics", 200, "vllm:num_requests_running 0\nvllm:generation_tokens_total 20\n");
+    assert.equal((await collector.collect()).engine, "vLLM", "metrics detection still wins even with an oMLX-shaped health body");
+    setResponse("/metrics", 200, `{bad ${apiKey}`);
+    assert.equal((await collector.collect()).error, "invalid metrics JSON");
+    setResponse("/metrics", 200, JSON.stringify({ echo: apiKey }));
+    assert.equal((await collector.collect()).error, "unsupported metrics JSON format");
+    setResponse("/metrics", 302, apiKey, { Location: "/admin/api/stats" });
+    const redirected = await collector.collect();
+    assert.equal(redirected.ok, false);
+    assert.equal(redirected.error.includes(apiKey), false);
+    assert.equal(requested.includes("/admin/api/stats"), false, "authenticated requests never follow a redirect");
+    for (const invalidKey of [`${apiKey}\n`, `${apiKey} secret`]) assert.throws(() => new InferenceCollector(url, { apiKeyEnv: "ENGINE_TOKEN", env: { ENGINE_TOKEN: invalidKey } }), error => !error.message.includes(apiKey));
+  }, { apiKey });
+  await withFakeEngine("", async (url, _setMetrics, setHealth, _setModels, _setSlots, requested, setResponse) => {
+    const collector = new InferenceCollector(url);
+    setHealth(fixture.health);
+    setResponse("/metrics", 404, "not found");
+    setResponse("/api/status", 401, { detail: "API key required" });
+    assert.equal((await collector.collect()).error, "oMLX needs an API key");
+    setResponse("/api/status", 200, fixture.idle);
+    assert.equal((await collector.collect()).ok, true, "loopback without a configured key works");
+    setResponse("/api/status", 302, "redirect", { Location: "/admin/api/stats" });
+    assert.equal((await collector.collect()).ok, false);
+    assert.equal(requested.includes("/admin/api/stats"), false, "unkeyed oMLX status also refuses admin redirects");
+    setHealth({ default_model: "other", engine_pool: [] });
+    const start = requested.length;
+    assert.equal((await collector.collect()).error, "metrics HTTP 404");
+    assert.equal(requested.slice(start).includes("/api/status"), false);
+    setHealth(fixture.health);
+    setResponse("/metrics", 401, "denied");
+    assert.equal((await collector.collect()).error, "metrics HTTP 401", "only HTTP 404 opens the oMLX detection path");
+  });
+});
 
 test("llama.cpp b11193 reads slots only while requests run and keeps completed counters out of the decode rate", async () => {
   const { readFileSync } = await import("node:fs");
