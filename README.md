@@ -186,7 +186,7 @@ Point `SPARK_SCOPE_API_URL` at the inference server. In multi-node serving, poin
 |---|---|---|
 | vLLM | Metrics are on by default. | Speculative acceptance only while speculative decoding is on. |
 | SGLang | Start it with `--enable-metrics`. | Same as vLLM. |
-| TensorFold | Metrics are always on. | Native 1.0.2 exports no cache counters, so cache hit and cache read are hidden. Prefill is a two-second rate. |
+| TensorFold | Metrics are always on. | Builds after 1.0.4 export prompt cache counters for models that keep prompt states, which fill cache hit and cache read; 1.0.2 to 1.0.4 hide both. Prefill is a two-second rate. |
 | llama.cpp | Start `llama-server` with `--metrics`. Keep `/slots` on (the default) for live output speed. | No TTFT or completed-request count. Mean decode time replaces TPOT p95, and context use replaces KV cache. |
 | Strata | Metrics are always on. | Context use replaces KV cache. |
 | oMLX | No flag needed; it reads the status API. | No live output speed, TTFT, TPOT, KV cache, cache-read speed or speculative acceptance. Prefill and decode are averages over completed requests. |
