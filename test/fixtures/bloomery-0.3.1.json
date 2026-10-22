@@ -1,0 +1,56 @@
+{
+  "metrics": "# HELP llamacpp:prompt_tokens_total Number of prompt tokens processed, excluding cached tokens\n# TYPE llamacpp:prompt_tokens_total counter\nllamacpp:prompt_tokens_total 8225\n# HELP llamacpp:prompt_tokens_cached_total Number of prompt tokens reused from the cache\n# TYPE llamacpp:prompt_tokens_cached_total counter\nllamacpp:prompt_tokens_cached_total 4109\n# HELP llamacpp:prompt_seconds_total Prompt process time\n# TYPE llamacpp:prompt_seconds_total counter\nllamacpp:prompt_seconds_total 1.9462510229999999\n# HELP llamacpp:prompt_cache_seconds_total Prompt cache time before the prompts (the requests' cache_ms: a slot state saved, a cached state put back, the cut); bloomery's own, llama-server has no such counter\n# TYPE llamacpp:prompt_cache_seconds_total counter\nllamacpp:prompt_cache_seconds_total 0.008670231\n# HELP llamacpp:tokens_predicted_total Number of generation tokens processed.\n# TYPE llamacpp:tokens_predicted_total counter\nllamacpp:tokens_predicted_total 1344\n# HELP llamacpp:tokens_predicted_seconds_total Predict process time\n# TYPE llamacpp:tokens_predicted_seconds_total counter\nllamacpp:tokens_predicted_seconds_total 14.556542836\n# HELP llamacpp:n_decode_total Total number of llama_decode() calls\n# TYPE llamacpp:n_decode_total counter\nllamacpp:n_decode_total 1344\n# HELP llamacpp:n_tokens_max Largest observed sequence length (prompt + generation)\n# TYPE llamacpp:n_tokens_max counter\nllamacpp:n_tokens_max 4347\n# HELP llamacpp:spec_decode_num_draft_tokens_total Speculative: Total draft tokens generated\n# TYPE llamacpp:spec_decode_num_draft_tokens_total counter\nllamacpp:spec_decode_num_draft_tokens_total 0\n# HELP llamacpp:spec_decode_num_accepted_tokens_total Speculative: Total draft tokens accepted by the target model\n# TYPE llamacpp:spec_decode_num_accepted_tokens_total counter\nllamacpp:spec_decode_num_accepted_tokens_total 0\n# HELP llamacpp:spec_decode_num_drafts_total Speculative: Total speculative decoding verification steps\n# TYPE llamacpp:spec_decode_num_drafts_total counter\nllamacpp:spec_decode_num_drafts_total 0\n# HELP llamacpp:n_busy_slots_per_decode Average number of busy slots per llama_decode() call\n# TYPE llamacpp:n_busy_slots_per_decode gauge\nllamacpp:n_busy_slots_per_decode 1\n# HELP llamacpp:prompt_tokens_seconds Average prompt throughput in tokens/s.\n# TYPE llamacpp:prompt_tokens_seconds gauge\nllamacpp:prompt_tokens_seconds 4226.073565434422\n# HELP llamacpp:predicted_tokens_seconds Average generation throughput in tokens/s.\n# TYPE llamacpp:predicted_tokens_seconds gauge\nllamacpp:predicted_tokens_seconds 92.32961528998038\n# HELP llamacpp:kv_cache_usage_ratio KV-cache usage. 1 means 100 percent usage.\n# TYPE llamacpp:kv_cache_usage_ratio gauge\nllamacpp:kv_cache_usage_ratio 0.008823394775390625\n# HELP llamacpp:kv_cache_tokens KV-cache tokens.\n# TYPE llamacpp:kv_cache_tokens gauge\nllamacpp:kv_cache_tokens 4626\n# HELP llamacpp:requests_processing Number of request processing.\n# TYPE llamacpp:requests_processing gauge\nllamacpp:requests_processing 0\n# HELP llamacpp:requests_deferred Number of request deferred.\n# TYPE llamacpp:requests_deferred gauge\nllamacpp:requests_deferred 0\n",
+  "metricsHeaders": {
+    "Process-Start-Time-Unix": "1791763200"
+  },
+  "health": {
+    "status": "ok",
+    "slots_idle": 2,
+    "slots_processing": 0
+  },
+  "models": {
+    "data": [
+      {
+        "id": "example-model"
+      }
+    ]
+  },
+  "slots": [
+    {
+      "n_ctx": 262144,
+      "id": 0,
+      "id_task": 11,
+      "task_id": 11,
+      "state": 0,
+      "is_processing": false,
+      "n_past": 4347,
+      "next_token": {
+        "has_next_token": false,
+        "n_remain": -1,
+        "n_decoded": 256,
+        "stopped_eos": false,
+        "stopped_word": false,
+        "stopped_limit": true,
+        "stopping_word": ""
+      }
+    },
+    {
+      "n_ctx": 262144,
+      "id": 1,
+      "id_task": 17,
+      "task_id": 17,
+      "state": 0,
+      "is_processing": false,
+      "n_past": 279,
+      "next_token": {
+        "has_next_token": false,
+        "n_remain": -1,
+        "n_decoded": 256,
+        "stopped_eos": false,
+        "stopped_word": false,
+        "stopped_limit": true,
+        "stopping_word": ""
+      }
+    }
+  ]
+}

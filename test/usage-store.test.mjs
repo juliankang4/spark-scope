@@ -222,6 +222,40 @@ test("a clock that went back (a Pi without its RTC after a power cut) does not b
   }
 });
 
+test("a run whose start time appears or goes missing keeps counting from its last values", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-usage-start-"));
+  const databasePath = path.join(directory, "usage.sqlite");
+  const at = Date.parse("2026-10-02T01:00:00Z");
+  const run = (overrides) => snapshot({ engine: "llama.cpp", processStartedAt: null, completedRequestsTotal: null, ...overrides });
+  const started = "2026-10-01T22:00:00.000Z";
+  let store = new UsageStore(databasePath, { timeZone: "UTC" });
+  try {
+    store.record(run({ generationTokensTotal: 1000 }), at);
+    assert.equal(store.record(run({ generationTokensTotal: 1500 }), at + 2000).today.output, 500);
+    store.close();
+    // A dashboard update now reads the same run's start time.
+    store = new UsageStore(databasePath, { timeZone: "UTC" });
+    assert.equal(store.record(run({ generationTokensTotal: 1700, processStartedAt: started }), at + 60_000).today.output, 700);
+    // One poll without the start time, then with it again.
+    assert.equal(store.record(run({ generationTokensTotal: 1800 }), at + 62_000).today.output, 800);
+    assert.equal(store.record(run({ generationTokensTotal: 1900, processStartedAt: started }), at + 64_000).today.output, 900);
+    // A restart first seen with counters above every earlier session's is booked whole.
+    const restartedAt = "2026-10-02T01:30:00.000Z";
+    assert.equal(store.record(run({ generationTokensTotal: 5000, processStartedAt: restartedAt }), at + 3_600_000).today.output, 5900);
+    store.close();
+    // The dashboard restarts and its first poll lacks the start time: only the increase is booked.
+    store = new UsageStore(databasePath, { timeZone: "UTC" });
+    assert.equal(store.record(run({ generationTokensTotal: 5100 }), at + 3_602_000).today.output, 6000);
+    assert.equal(store.record(run({ generationTokensTotal: 5200, processStartedAt: restartedAt }), at + 3_604_000).today.output, 6100);
+    // A counter drop is still a restart, counted from its start.
+    assert.equal(store.record(run({ generationTokensTotal: 50, processStartedAt: "2026-10-02T02:10:00.000Z" }), at + 3_606_000).today.output, 6150);
+    assert.equal(store.record(run({ generationTokensTotal: 60 }), at + 3_608_000).today.output, 6160);
+  } finally {
+    try { store.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("an existing ledger keeps counting into its current session", () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "spark-scope-usage-continue-"));
   const databasePath = path.join(directory, "usage.sqlite");

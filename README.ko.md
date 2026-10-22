@@ -1,11 +1,11 @@
 <h1 align="center">Spark Scope</h1>
 
-<p align="center">NVIDIA DGX Spark 계열 장비와 그 위에서 돌아가는 vLLM, SGLang, TensorFold, llama.cpp, Strata 또는 oMLX 서버를 지켜보는<br>읽기 전용 모니터링 대시보드와 랙 패널입니다.<br>NVIDIA GPU가 있는 Linux 머신과 oMLX를 쓰는 Apple Silicon Mac도 지원합니다.</p>
+<p align="center">NVIDIA DGX Spark 계열 장비와 그 위에서 돌아가는 vLLM, SGLang, TensorFold, llama.cpp, bloomery, Strata 또는 oMLX 서버를 지켜보는<br>읽기 전용 모니터링 대시보드와 랙 패널입니다.<br>NVIDIA GPU가 있는 Linux 머신과 oMLX를 쓰는 Apple Silicon Mac도 지원합니다.</p>
 
 <p align="center">
   <a href="https://github.com/juliankang4/spark-scope/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/juliankang4/spark-scope"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/juliankang4/spark-scope"></a>
-  <img alt="Engines: vLLM, SGLang, TensorFold, llama.cpp, Strata and oMLX" src="https://img.shields.io/badge/engines-vLLM%20%7C%20SGLang%20%7C%20TensorFold%20%7C%20llama.cpp%20%7C%20Strata%20%7C%20oMLX-76b900">
+  <img alt="Engines: vLLM, SGLang, TensorFold, llama.cpp, bloomery, Strata and oMLX" src="https://img.shields.io/badge/engines-vLLM%20%7C%20SGLang%20%7C%20TensorFold%20%7C%20llama.cpp%20%7C%20bloomery%20%7C%20Strata%20%7C%20oMLX-76b900">
 </p>
 
 <p align="center"><a href="README.md">English</a> · <b>한국어</b></p>
@@ -57,7 +57,7 @@ Claude Code나 Codex 같은 코딩 에이전트에게 아래 설치 과정을 �
 3. SSH 노드마다 `ssh -o BatchMode=yes <별칭> true`가 아무것도 묻지 않고 실행되는지 확인해.
    안 되면 "Several nodes over SSH"의 몇 번째 단계가 빠졌는지 알려 줘. key 생성, authorized_keys
    수정, 호스트 key 승인은 대신 하지 마.
-4. 어떤 추론 서버(vLLM, SGLang, TensorFold, llama.cpp, Strata, oMLX 또는 없음)를 쓰는지, 그 URL과
+4. 어떤 추론 서버(vLLM, SGLang, TensorFold, llama.cpp, bloomery, Strata, oMLX 또는 없음)를 쓰는지, 그 URL과
    API 키가 필요한지 물어봐. 키가 필요해도 키 자체는 나에게 묻지 마. ~/.config/spark-scope/engine.env를
    권한 600으로 만들어 두고, SPARK_SCOPE_API_KEY=... 줄(서버가 여럿이면 apiKeyEnv에 적은 변수)은
    내가 직접 넣게 해 줘.
@@ -65,7 +65,7 @@ Claude Code나 Codex 같은 코딩 에이전트에게 아래 설치 과정을 �
    ExecStart(`command -v node`로 나온 경로), Environment= 줄을 채우고, engine.env가 있으면
    EnvironmentFile=로 읽게 해. 내가 따로 말하지 않으면 SPARK_SCOPE_HOST=127.0.0.1을 유지해.
    sudo가 필요한 명령은 실행하기 전에 물어봐. systemd가 없으면(예: macOS) 내가 직접 실행할
-   `npm start` 명령을 알려 줘. 키는 README의 "vLLM, SGLang, TensorFold, llama.cpp, Strata or oMLX"
+   `npm start` 명령을 알려 줘. 키는 README의 "vLLM, SGLang, TensorFold, llama.cpp, bloomery, Strata or oMLX"
    절에 나온 방법으로 입력하게 해.
 6. 실행되면 `curl -s http://127.0.0.1:8787/api/health`와 로그 마지막 몇 줄을 확인하고, 결과와
    열어 볼 주소를 알려 줘.
@@ -89,7 +89,7 @@ Claude Code나 Codex 같은 코딩 에이전트에게 아래 설치 과정을 �
   nvm 같은 버전 관리자를 써도 됩니다. 일부 Node 버전은 시작할 때 "SQLite is an experimental feature" 경고를 띄우는데, 동작에는 문제가 없습니다.
 - Linux 노드에는 `bash`, `nvidia-smi`, 기본 coreutils가 필요합니다. DGX OS에는 이미 다 들어 있습니다. `systemd`, `journalctl`, `docker`는 있으면 씁니다. Apple Silicon Mac은 macOS 기본 도구만 쓰고 sudo도 필요 없습니다. Mac에서 대시보드를 실행하려면 macOS arm64용 Node.js를 설치합니다.
 - 원격 노드를 보려면 대시보드를 돌리는 머신에 SSH 클라이언트가 있어야 하고 각 노드에 key 기반 SSH로 접속할 수 있어야 합니다.
-- 추론 서버는 선택 사항입니다. 메트릭을 내보내는 vLLM(메트릭이 기본으로 켜져 있음), SGLang(`--enable-metrics`로 시작), TensorFold(메트릭이 항상 켜져 있음), llama.cpp(`llama-server`를 `--metrics`로 시작), Strata(메트릭이 항상 켜져 있음), oMLX(상태 API 사용, 메트릭 옵션 불필요) 중 하나면 됩니다.
+- 추론 서버는 선택 사항입니다. 메트릭을 내보내는 vLLM(메트릭이 기본으로 켜져 있음), SGLang(`--enable-metrics`로 시작), TensorFold(메트릭이 항상 켜져 있음), llama.cpp(`llama-server`를 `--metrics`로 시작), bloomery(메트릭이 항상 켜져 있음), Strata(메트릭이 항상 켜져 있음), oMLX(상태 API 사용, 메트릭 옵션 불필요) 중 하나면 됩니다.
 
 ### Spark 없이 체험하기
 
@@ -120,7 +120,7 @@ Spark에서 <http://127.0.0.1:8787/> 주소를 엽니다. 네트워크에 노출
 ssh -L 8787:127.0.0.1:8787 you@your-spark
 ```
 
-SGLang 기본 포트를 쓴다면 `SPARK_SCOPE_API_URL=http://127.0.0.1:30000`, TensorFold, llama.cpp, Strata라면 `http://127.0.0.1:8080`으로 지정합니다. 추론 서버가 없어도 노드 카드는 그대로 작동하고 추론 패널에는 `unknown`이나 `stopped`가 표시됩니다.
+SGLang 기본 포트를 쓴다면 `SPARK_SCOPE_API_URL=http://127.0.0.1:30000`, TensorFold, llama.cpp, bloomery, Strata라면 `http://127.0.0.1:8080`으로 지정합니다. 추론 서버가 없어도 노드 카드는 그대로 작동하고 추론 패널에는 `unknown`이나 `stopped`가 표시됩니다.
 
 ## 환경에 맞게 적용하기
 
@@ -180,7 +180,7 @@ SGLang 기본 포트를 쓴다면 `SPARK_SCOPE_API_URL=http://127.0.0.1:30000`, 
 
 노드 쪽 권한 중 두 가지는 선택 사항입니다. 커널 오류 요약을 보려면 커널 저널(`journalctl -k`)을 읽을 수 있어야 합니다. root가 아닌 계정은 `systemd-journal`이나 `adm` 그룹에 넣으면 됩니다. 이 권한이 없으면 패널에 "커널 진단 정보 없음"이 표시됩니다. 컨테이너 세부 정보를 보려면 Docker 소켓에 접근할 수 있어야 합니다. 그런데 `docker` 그룹 멤버십은 root 권한과 같으므로, 이 대시보드만 보려고 그 권한을 주어서는 안 됩니다. 권한이 없으면 컨테이너 세부 정보가 나오지 않습니다.
 
-### vLLM, SGLang, TensorFold, llama.cpp, Strata 또는 oMLX
+### vLLM, SGLang, TensorFold, llama.cpp, bloomery, Strata 또는 oMLX
 
 `SPARK_SCOPE_API_URL`에 추론 서버 주소를 지정합니다. 여러 노드로 서빙한다면 API가 떠 있는 노드를 가리켜야 합니다. 엔진 종류는 서버 응답을 보고 알아내므로 따로 설정할 것이 없습니다.
 
@@ -190,6 +190,7 @@ SGLang 기본 포트를 쓴다면 `SPARK_SCOPE_API_URL=http://127.0.0.1:30000`, 
 | SGLang | `--enable-metrics`로 시작합니다. | vLLM과 같습니다. |
 | TensorFold | 메트릭이 항상 켜져 있습니다. | 1.0.4 이후 빌드는 프롬프트 상태를 보관하는 모델에서 캐시 카운터를 내보내므로 캐시 적중률과 캐시 읽기가 나옵니다. 1.0.2부터 1.0.4까지는 둘 다 숨깁니다. Prefill은 2초 구간 속도입니다. |
 | llama.cpp | `llama-server`를 `--metrics`로 시작합니다. 진행 중 출력 속도를 보려면 `/slots`를 켜 둡니다(기본값). | TTFT와 완료 요청 수가 없습니다. TPOT p95 대신 평균 Decode 시간을, KV cache 대신 컨텍스트 사용률을 보여 줍니다. |
+| bloomery | 메트릭이 항상 켜져 있습니다. | llama.cpp와 같습니다. |
 | Strata | 메트릭이 항상 켜져 있습니다. | KV cache 대신 컨텍스트 사용률을 보여 줍니다. |
 | oMLX | 옵션이 필요 없습니다. 상태 API를 읽습니다. | 실시간 출력 속도, TTFT, TPOT, KV cache, 캐시 읽기 속도, 추측 디코딩 수락률이 없습니다. Prefill과 Decode는 완료된 요청의 평균입니다. |
 
@@ -276,7 +277,7 @@ dsh plugin --profile web add dsh-spark-scope
 
 | 변수 | 기본값 | 용도 |
 |---|---|---|
-| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | 추론 서버입니다. vLLM과 oMLX는 8000, SGLang은 30000, TensorFold, llama.cpp, Strata는 8080 포트를 씁니다. |
+| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | 추론 서버입니다. vLLM과 oMLX는 8000, SGLang은 30000, TensorFold, llama.cpp, bloomery, Strata는 8080 포트를 씁니다. |
 | `SPARK_SCOPE_API_KEY` | 없음 | 서버가 하나일 때 사용할 Bearer 키. 환경 변수에서만 읽습니다. |
 | `SPARK_SCOPE_HOST` | `127.0.0.1` | listen 주소입니다. `0.0.0.0`으로 두면 다른 머신에서도 접속할 수 있습니다. [보안](#보안)을 함께 봐야 합니다. |
 | `SPARK_SCOPE_PORT` | `8787` | listen 포트입니다. |

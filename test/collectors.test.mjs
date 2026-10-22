@@ -258,6 +258,8 @@ test("engine names come only from metric prefixes and known process or image nam
   assert.equal(knownEngine("tensorfold"), "TensorFold");
   assert.equal(knownEngine("strata"), "Strata");
   assert.equal(knownEngine("omlx-server"), "oMLX");
+  assert.equal(knownEngine("bloomery-serve"), "bloomery");
+  assert.equal(knownEngine("llama-server"), "llama.cpp");
   assert.equal(parseInferenceProcess("42, python3, 100, S, omlx").engine, "oMLX");
   assert.equal(knownEngine("python3"), null);
   const { readEngineMetrics } = await import("../lib/engines/index.mjs");
@@ -1065,6 +1067,70 @@ test("llama.cpp b11193 reads slots only while requests run and keeps completed c
     assert.equal(reset.completedRequestsTotal, null);
     assert.equal(reset.meanDecodeSeconds, null);
     assert.equal(slotRequests(), 6, "only the six polls with running requests requested /slots");
+  });
+});
+
+// The slots are from a bloomery 0.3.1 run (trimmed, model renamed); /health follows 0.3.1's handler. No /metrics body
+// was kept from that run: the fixture's /metrics is 0.3.1's exposition filled with the counters that run's six requests
+// booked (from their timings), and the start time header is an example value.
+test("bloomery 0.3.1 is told from llama.cpp by its prompt cache counter and reads its object-shaped slots", async () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/bloomery-0.3.1.json", import.meta.url), "utf8"));
+  assert.deepEqual(Object.keys(fixture), ["metrics", "metricsHeaders", "health", "models", "slots"]);
+  const llamacpp = JSON.parse(readFileSync(new URL("./fixtures/llamacpp-b11193.json", import.meta.url), "utf8"));
+  assert.equal(metricsEngine(parsePrometheus(fixture.metrics)), "bloomery");
+  assert.equal(metricsEngine(parsePrometheus(llamacpp.metrics)), "llama.cpp", "llama-server has no prompt cache time counter");
+  const { InferenceCollector } = await import("../lib/collectors.mjs");
+  await withFakeEngine(fixture.metrics, async (url, setMetrics, setHealth, setModels, setSlots, requested, setResponse) => {
+    const serve = (text, start = fixture.metricsHeaders["Process-Start-Time-Unix"]) => setResponse("/metrics", 200, text, { "content-type": "text/plain", "Process-Start-Time-Unix": start });
+    const slotRequests = () => requested.filter((path) => path === "/slots").length;
+    serve(fixture.metrics);
+    setHealth(fixture.health);
+    setModels(fixture.models.data);
+    setSlots(fixture.slots);
+    const collector = new InferenceCollector(url);
+    const idle = await collector.collect();
+    assert.equal(idle.ok, true);
+    assert.equal(idle.engine, "bloomery");
+    assert.equal(idle.modelName, "example-model");
+    assert.equal(idle.processStartedAt, new Date(1791763200 * 1000).toISOString());
+    assert.equal(idle.generationTokensTotal, 1344);
+    assert.equal(idle.promptComputeTokensTotal, 8225);
+    assert.equal(idle.promptCacheTokensTotal, 4109);
+    assert.equal(idle.promptTokensTotal, 12334);
+    assert.equal(idle.prefixCacheHitPercent, 4109 / 12334 * 100);
+    assert.equal(idle.metricKinds.prefixCacheHitPercent, "sinceStart");
+    assert.equal(idle.outputTokensPerSecond, 0);
+    assert.equal(slotRequests(), 0, "an idle poll does not request /slots");
+    assert.equal(idle.kvCachePercent, null, "slots that only hold a cached prompt are not context in use");
+    assert.equal(idle.reported.kvCachePercent, true);
+    assert.equal(idle.metricKinds.kvCachePercent, "context");
+    assert.equal(idle.reported.meanDecodeSeconds, true);
+    assert.equal(idle.reported.speculativeAcceptancePercent, false);
+    assert.equal(idle.reported.ttftP95RecentSeconds, false);
+
+    const busy = { ...fixture.slots[0], id_task: 18, task_id: 18, state: 1, is_processing: true, n_past: 65536, next_token: { ...fixture.slots[0].next_token, has_next_token: true, n_decoded: 20 } };
+    serve(fixture.metrics.replace("llamacpp:requests_processing 0", "llamacpp:requests_processing 1")
+      .replace("llamacpp:spec_decode_num_draft_tokens_total 0", "llamacpp:spec_decode_num_draft_tokens_total 40")
+      .replace("llamacpp:spec_decode_num_accepted_tokens_total 0", "llamacpp:spec_decode_num_accepted_tokens_total 30"));
+    setSlots([busy, fixture.slots[1]]);
+    collector.llamacppSlots.previous.at -= 1000;
+    const running = await collector.collect();
+    assert.equal(slotRequests(), 1);
+    assert.equal(running.runningRequests, 1);
+    assert.ok(running.outputTokensPerSecond > 0 && running.outputTokensPerSecond <= 20, `the first active sample counts from zero: ${running.outputTokensPerSecond}`);
+    assert.equal(running.kvCachePercent, 25, "n_past over n_ctx of the processing slot");
+    assert.equal(running.speculativeAcceptancePercent, 75);
+    setSlots([{ ...busy, next_token: { ...busy.next_token, n_decoded: 40 } }, fixture.slots[1]]);
+    collector.llamacppSlots.previous.at -= 1000;
+    const decoding = await collector.collect();
+    assert.ok(decoding.outputTokensPerSecond > 0 && decoding.outputTokensPerSecond <= 20, `${decoding.outputTokensPerSecond}`);
+
+    serve(fixture.metrics, "1791766800");
+    const restarted = await collector.collect();
+    assert.equal(restarted.processStartedAt, new Date(1791766800 * 1000).toISOString(), "a restart is a new run");
+    serve(fixture.metrics, "soon");
+    assert.equal((await collector.collect()).processStartedAt, null);
+    assert.equal(slotRequests(), 2);
   });
 });
 
