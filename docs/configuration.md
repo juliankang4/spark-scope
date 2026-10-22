@@ -10,7 +10,7 @@ The server is set with environment variables, all optional. Display preferences 
 |---|---|---|
 | `SPARK_SCOPE_HOST` | `127.0.0.1` | Listen address. Set `0.0.0.0` (or a specific address) to serve other machines; see [Security](../README.md#security). |
 | `SPARK_SCOPE_PORT` | `8787` | Listen port. |
-| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | Base URL of the OpenAI-compatible inference server, `http://` or `https://` and without a user name or password. With [model servers](topology.md#model-servers) in `topology.json`, each server's `api` is used instead. The dashboard reads `/health`, `/metrics` and `/v1/models`, plus `/slots` for llama.cpp and bloomery live output speed while requests run. oMLX uses `/api/status` after its health response identifies it. vLLM and oMLX listen on 8000 by default, SGLang on 30000, TensorFold, llama.cpp, bloomery and Strata on 8080. |
+| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | Base URL of the OpenAI-compatible inference server, `http://` or `https://` and without a user name or password. With [model servers](topology.md#model-servers) in `topology.json`, each server's `api` is used instead. The dashboard reads `/health`, `/metrics` and `/v1/models`, plus `/slots` for llama.cpp and bloomery live output speed while requests run. oMLX uses `/api/status` after its health response identifies it. vLLM, oMLX and Flare listen on 8000 by default, SGLang on 30000, TensorFold, llama.cpp, bloomery and Strata on 8080. |
 | `SPARK_SCOPE_API_KEY` | none | Optional engine Bearer key, read from the process environment for a single server. With several topology servers, each uses its own optional `apiKeyEnv` variable name instead. |
 | `SPARK_SCOPE_TOPOLOGY` | `~/.config/spark-scope/topology.json` if it exists, otherwise `topology.json` next to `server.mjs` | Topology file. When set explicitly, a missing file is an error. |
 | `SPARK_SCOPE_USAGE_DB` | `$XDG_DATA_HOME/spark-scope/usage.sqlite` (`~/.local/share/...`) | Token ledger database. The directory is created if needed. |
@@ -84,12 +84,22 @@ Apple Silicon Macs use the same topology as Linux nodes. `"host": "local"` colle
   - if the endpoint returns JSON despite the Accept header, the existing JSON parser remains available. It hides latency fields without histograms and uses context information from JSON, averaging processing slots when present;
   - speculative acceptance is accepted over offered draft tokens;
   - a server started with an API key needs the dashboard's environment-based Bearer key to read `/metrics`.
+- **NVIDIA Flare** (the Helios HTTP server that `flare` starts): read from its `flare_*` Prometheus metrics, which are always on and need no serving key. Its default API port is 8000. No running install was available, so the parser fixture reproduces the text of the [upstream formatter](https://github.com/NVIDIA/flare-local-inference/blob/ce7a4badd67790659fd5df901d3b2fcaeb678402/helios/src/server/metrics.rs) at that commit rather than a capture. Differences:
+  - the dashboard reads only `/health`, `/metrics` and `/v1/models`. Flare serves `/health` and `/metrics` from in-memory counters; neither admits a request nor touches the model;
+  - live output speed is the increase of `flare_generated_tokens_total` between polls;
+  - computed input is `flare_prefill_tokens_total`. Cached input adds the tokens covered by GPU prefix-cache checkpoints and by the host prefix store. Input totals are the sum of both;
+  - **Cache hit since start** is cached input over computed plus cached input. Flare counts reuse when a request is admitted and computed tokens when prefill completes, so the ratio can change before a request finishes. Because reuse is counted at admission, a failed host-store fetch, a preempted request that is readmitted from its checkpoint, or a request cancelled after admission can count its tokens more than once, so input and cached totals can run high;
+  - running requests are `flare_active_requests`; waiting requests are `flare_pending_requests`, the requests queued in the model scheduler. Requests still being tokenized are not counted;
+  - prefill and cache-read speed, TTFT, TPOT and KV cache are hidden: Flare exports no prefill time and no latency histograms, and its free-page count excludes prefix-cache pages that it evicts on demand, so a used-page share would stay near full on a warm idle server;
+  - speculative acceptance is accepted draft tokens over allocated draft positions (`flare_accepted_draft_tokens_total` over `flare_verification_draft_tokens_total`), hidden while no drafts run;
+  - a restart is recognised when the counters fall. Flare's model card has a `created` time for the serving instance, but it is not used yet: it needs the serving key on a keyed server, and it does not mean the same as a vLLM process start time;
+  - `/v1/models` needs the serving key when Flare was started with one. Without the dashboard's Bearer key the metrics are still read, but the model name is unknown, and the token ledger records nothing for a server without a model name. Set the key for Flare's ledger as well as its model label.
 - **oMLX**: read-only health and status polling on Apple Silicon Macs, tested with 0.7.0. See [oMLX](#omlx) below.
 - Other engines (Ollama, TensorRT-LLM, Triton) are recognised by process or image name on the node cards, but their throughput and token metrics are not read.
 
 The engine panel and mini window hide fields that the engine does not report, using the server's `reported` map. Optional speculative acceptance is hidden when null. A failed poll retains the last known field support and shows `unknown` for supported fields. Engines without latency histograms hide those fields. vLLM and SGLang retain their latency rows before the first request creates histogram samples.
 
-The engine label comes from the metric names, Strata's JSON format, oMLX's health shape or the GPU process name, and the number of serving nodes from how many nodes run a GPU process; neither is assumed. In multi-node serving, point `SPARK_SCOPE_API_URL` at the node that hosts the API.
+The engine label comes from the metric names (including Flare's `flare_` prefix), Strata's JSON format, oMLX's health shape or the GPU process name, and the number of serving nodes from how many nodes run a GPU process; neither is assumed. In multi-node serving, point `SPARK_SCOPE_API_URL` at the node that hosts the API.
 
 ### oMLX
 

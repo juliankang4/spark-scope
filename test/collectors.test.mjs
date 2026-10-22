@@ -250,6 +250,7 @@ test("engine names come only from metric prefixes and known process or image nam
   assert.equal(metricsEngine(parsePrometheus("vllm:num_requests_running 0\n")), "vLLM");
   assert.equal(metricsEngine(parsePrometheus("sglang:num_running_reqs 2\n")), "SGLang");
   assert.equal(metricsEngine(parsePrometheus("tensorfold:requests_running 1\n")), "TensorFold");
+  assert.equal(metricsEngine(parsePrometheus("flare_active_requests 0\n")), "Flare");
   assert.equal(metricsEngine(parsePrometheus("process_start_time_seconds 1\n")), null);
   assert.equal(knownEngine("sglang::scheduler_TP0"), "SGLang");
   assert.equal(knownEngine("lmsysorg/sglang:spark"), "SGLang");
@@ -260,6 +261,10 @@ test("engine names come only from metric prefixes and known process or image nam
   assert.equal(knownEngine("omlx-server"), "oMLX");
   assert.equal(knownEngine("bloomery-serve"), "bloomery");
   assert.equal(knownEngine("llama-server"), "llama.cpp");
+  assert.equal(knownEngine("flare"), "Flare");
+  assert.equal(knownEngine("/usr/bin/flare run model.safetensors"), "Flare");
+  assert.equal(knownEngine("cloudflare/cloudflared:latest"), null);
+  assert.equal(knownEngine("python3 -m tensorrt_llm.serve /models/flare/checkpoint"), "TensorRT-LLM");
   assert.equal(parseInferenceProcess("42, python3, 100, S, omlx").engine, "oMLX");
   assert.equal(knownEngine("python3"), null);
   const { readEngineMetrics } = await import("../lib/engines/index.mjs");
@@ -1131,6 +1136,76 @@ test("bloomery 0.3.1 is told from llama.cpp by its prompt cache counter and read
     serve(fixture.metrics, "soon");
     assert.equal((await collector.collect()).processStartedAt, null);
     assert.equal(slotRequests(), 2);
+  });
+});
+
+// Not captured from a running server: no Flare install was available. The fixture reproduces the /metrics text of
+// NVIDIA/flare-local-inference ce7a4ba (Helios 0.1.0) in order and wording: helios/src/server/metrics.rs render()
+// (lines 493-945, metric() at 948) and input_metrics() (lines 8-38), then the HTTP gauges of
+// helios/src/server.rs metrics() (lines 411-470). /health is server.rs lines 401-410; the model card is a subset of
+// helios/src/server/models.rs lines 49-56.
+test("Flare reads its flare_ counters, hides what Helios does not export and polls only GET reads", async () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/flare-v0.1.0.json", import.meta.url), "utf8"));
+  assert.deepEqual(Object.keys(fixture), ["metrics", "health", "models"]);
+  assert.equal(metricsEngine(parsePrometheus(fixture.metrics)), "Flare");
+  const { InferenceCollector } = await import("../lib/collectors.mjs");
+  await withFakeEngine(fixture.metrics, async (url, setMetrics, setHealth, setModels, _setSlots, requested, setResponse) => {
+    setHealth(fixture.health);
+    setModels(fixture.models.data);
+    const collector = new InferenceCollector(url);
+    const idle = await collector.collect();
+    assert.equal(idle.ok, true);
+    assert.equal(idle.engine, "Flare");
+    assert.equal(idle.modelName, "example-model");
+    assert.equal(idle.generationTokensTotal, 1536);
+    assert.equal(idle.promptComputeTokensTotal, 6144);
+    assert.equal(idle.promptCacheTokensTotal, 2048);
+    assert.equal(idle.promptTokensTotal, 8192);
+    assert.equal(idle.prefixCacheHitPercent, 25);
+    assert.equal(idle.metricKinds.prefixCacheHitPercent, "sinceStart");
+    assert.equal(idle.speculativeAcceptancePercent, 912 / 1200 * 100);
+    assert.equal(idle.runningRequests, 0);
+    assert.equal(idle.waitingRequests, 0);
+    assert.equal(idle.completedRequestsTotal, 3);
+    assert.equal(idle.processStartedAt, null, "whole-second uptime would move the ledger's run key every poll");
+    assert.equal(idle.outputTokensPerSecond, null, "one sample is not a rate");
+    for (const key of ["promptTokensPerSecond", "promptComputeTokensPerSecond", "promptCacheTokensPerSecond", "kvCachePercent", "ttftP95RecentSeconds", "tpotP95RecentSeconds"]) {
+      assert.equal(idle[key], null, key);
+      assert.equal(idle.reported[key], false, key);
+    }
+    assert.equal(idle.reported.meanDecodeSeconds, false);
+    for (const key of ["outputTokensPerSecond", "prefixCacheHitPercent", "speculativeAcceptancePercent", "requests", "completedRequestsTotal"]) assert.equal(idle.reported[key], true, key);
+    const active = fixture.metrics
+      .replace("flare_generated_tokens_total 1536", "flare_generated_tokens_total 1736")
+      .replace("flare_prefill_tokens_total 6144", "flare_prefill_tokens_total 7168")
+      .replace("flare_host_cache_reused_tokens_total 0", "flare_host_cache_reused_tokens_total 512")
+      .replace("flare_active_requests 0", "flare_active_requests 2")
+      .replace("flare_pending_requests 0", "flare_pending_requests 1");
+    setMetrics(active);
+    collector.previous.at -= 2000;
+    const serving = await collector.collect();
+    assert.ok(serving.outputTokensPerSecond > 90 && serving.outputTokensPerSecond <= 100, `${serving.outputTokensPerSecond}`);
+    assert.equal(serving.promptCacheTokensTotal, 2560, "host prefix-store reuse adds to GPU checkpoint reuse");
+    assert.equal(serving.promptTokensTotal, 7168 + 2560);
+    assert.equal(serving.prefixCacheHitPercent, 2560 / (7168 + 2560) * 100);
+    assert.equal(serving.runningRequests, 2);
+    assert.equal(serving.waitingRequests, 1);
+    assert.equal(serving.promptTokensPerSecond, null);
+    assert.equal(serving.kvCachePercent, null);
+    setMetrics(active.replace("flare_verification_draft_tokens_total 1200", "flare_verification_draft_tokens_total 0").replace("flare_accepted_draft_tokens_total 912", "flare_accepted_draft_tokens_total 0"));
+    const noDrafts = await collector.collect();
+    assert.equal(noDrafts.speculativeAcceptancePercent, null, "MTP off is not a 0% acceptance");
+    assert.equal(noDrafts.reported.speculativeAcceptancePercent, false);
+    setMetrics(fixture.metrics.replace("flare_generated_tokens_total 1536", "flare_generated_tokens_total 7"));
+    assert.equal((await collector.collect()).outputTokensPerSecond, null, "a restart that lowers the counters has no rate");
+    setMetrics(fixture.metrics);
+    setResponse("/v1/models", 401, { error: { message: "missing or invalid API key" } });
+    collector.models = [];
+    const keyed = await collector.collect();
+    assert.equal(keyed.ok, true, "/health and /metrics need no serving key");
+    assert.equal(keyed.modelName, null);
+    assert.equal(keyed.generationTokensTotal, 1536);
+    assert.deepEqual([...new Set(requested.filter((path) => !path.endsWith(" replied")))].sort(), ["/health", "/metrics", "/v1/models"]);
   });
 });
 

@@ -1,11 +1,11 @@
 <h1 align="center">Spark Scope</h1>
 
-<p align="center">A read-only monitoring dashboard and rack panel for NVIDIA DGX Spark-class machines<br>and the vLLM, SGLang, TensorFold, llama.cpp, bloomery, Strata or oMLX server running on them.<br>Linux machines with an NVIDIA GPU and Apple Silicon Macs running oMLX work too.</p>
+<p align="center">A read-only monitoring dashboard and rack panel for NVIDIA DGX Spark-class machines<br>and the vLLM, SGLang, TensorFold, llama.cpp, bloomery, Strata, oMLX or Flare server running on them.<br>Linux machines with an NVIDIA GPU and Apple Silicon Macs running oMLX work too.</p>
 
 <p align="center">
   <a href="https://github.com/juliankang4/spark-scope/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/juliankang4/spark-scope"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/juliankang4/spark-scope"></a>
-  <img alt="Engines: vLLM, SGLang, TensorFold, llama.cpp, bloomery, Strata and oMLX" src="https://img.shields.io/badge/engines-vLLM%20%7C%20SGLang%20%7C%20TensorFold%20%7C%20llama.cpp%20%7C%20bloomery%20%7C%20Strata%20%7C%20oMLX-76b900">
+  <img alt="Engines: vLLM, SGLang, TensorFold, llama.cpp, bloomery, Strata, oMLX and Flare" src="https://img.shields.io/badge/engines-vLLM%20%7C%20SGLang%20%7C%20TensorFold%20%7C%20llama.cpp%20%7C%20bloomery%20%7C%20Strata%20%7C%20oMLX%20%7C%20Flare-76b900">
 </p>
 
 <p align="center"><b>English</b> · <a href="README.ko.md">한국어</a></p>
@@ -55,7 +55,7 @@ README.md, sections "Installation" and "Applying it to your setup", and ask me b
 3. For each SSH node, check that `ssh -o BatchMode=yes <alias> true` runs without a prompt. If it
    does not, tell me which step of "Several nodes over SSH" is missing. Do not create keys, edit
    authorized_keys or accept host keys for me.
-4. Ask which inference server runs (vLLM, SGLang, TensorFold, llama.cpp, bloomery, Strata, oMLX or none),
+4. Ask which inference server runs (vLLM, SGLang, TensorFold, llama.cpp, bloomery, Strata, oMLX, Flare or none),
    its URL, and whether it needs an API key. If it needs one, do not ask me for the key. Create
    ~/.config/spark-scope/engine.env with mode 600 and let me add the line
    SPARK_SCOPE_API_KEY=... myself (or the variables named by apiKeyEnv for several servers).
@@ -64,7 +64,7 @@ README.md, sections "Installation" and "Applying it to your setup", and ask me b
    lines, load engine.env with EnvironmentFile= if it exists, and keep SPARK_SCOPE_HOST=127.0.0.1
    unless I ask otherwise. Ask me before running any command that needs sudo. Without systemd
    (for example on macOS), give me the `npm start` command to run myself, with the key entered
-   as the README shows under "vLLM, SGLang, TensorFold, llama.cpp, bloomery, Strata or oMLX".
+   as the README shows under "vLLM, SGLang, TensorFold, llama.cpp, bloomery, Strata, oMLX or Flare".
 6. Once it runs, check `curl -s http://127.0.0.1:8787/api/health` and the last lines of the
    log. Tell me the result and the address to open.
 
@@ -87,7 +87,7 @@ The manual steps follow.
   A version manager such as nvm works too. Some Node versions print an "SQLite is an experimental feature" warning on start; it is harmless.
 - On a Linux node: `bash`, `nvidia-smi` and the usual coreutils. DGX OS already has everything. `systemd`, `journalctl` and `docker` are used when present. Apple Silicon Macs need only the built-in macOS tools and no sudo. To run the dashboard on a Mac, install the macOS arm64 build of Node.js.
 - For remote nodes: an SSH client on the dashboard machine and key-based SSH access to each node.
-- Optionally an inference server with metrics: vLLM (on by default), SGLang (start it with `--enable-metrics`), TensorFold (always on), llama.cpp (start `llama-server` with `--metrics`), bloomery (always on), Strata (always on) or oMLX (status API, no metrics flag).
+- Optionally an inference server with metrics: vLLM (on by default), SGLang (start it with `--enable-metrics`), TensorFold (always on), llama.cpp (start `llama-server` with `--metrics`), bloomery (always on), Strata (always on), oMLX (status API, no metrics flag) or NVIDIA Flare (always on).
 
 ### Try it without a Spark
 
@@ -178,7 +178,7 @@ The dashboard can run on one of the Sparks (that node uses `"host": "local"`, th
 
 Optional permissions on the nodes: kernel error summaries need read access to the kernel journal (`journalctl -k`), which non-root accounts get through the `systemd-journal` or `adm` group. Without it the panel says "Kernel diagnostics unavailable". Container details need access to the Docker socket. Membership of the `docker` group is equivalent to root, so do not grant it just for this dashboard. Without it, container details are not shown.
 
-### vLLM, SGLang, TensorFold, llama.cpp, bloomery, Strata or oMLX
+### vLLM, SGLang, TensorFold, llama.cpp, bloomery, Strata, oMLX or Flare
 
 Point `SPARK_SCOPE_API_URL` at the inference server. In multi-node serving, point it at the node that hosts the API. The engine is recognised from what the server answers, so there is nothing else to set.
 
@@ -191,6 +191,7 @@ Point `SPARK_SCOPE_API_URL` at the inference server. In multi-node serving, poin
 | bloomery | Metrics are always on. | Same as llama.cpp. |
 | Strata | Metrics are always on. | Context use replaces KV cache. |
 | oMLX | No flag needed; it reads the status API. | No live output speed, TTFT, TPOT, KV cache, cache-read speed or speculative acceptance. Prefill and decode are averages over completed requests. |
+| Flare | Metrics are always on. | No prefill or cache-read speed, TTFT, TPOT or KV cache. If Flare was started with a serving key, the dashboard needs that key for the model name, and without a model name the token ledger records nothing. |
 
 The engine panel and the mini window show only the fields an engine reports. How each figure is measured: [Inference engines](docs/configuration.md#inference-engines).
 
@@ -275,7 +276,7 @@ The server itself is set with environment variables. The ones most setups need:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | The inference server (vLLM and oMLX listen on 8000, SGLang on 30000, TensorFold, llama.cpp, bloomery and Strata on 8080). |
+| `SPARK_SCOPE_API_URL` | `http://127.0.0.1:8000` | The inference server (vLLM, oMLX and Flare listen on 8000, SGLang on 30000, TensorFold, llama.cpp, bloomery and Strata on 8080). |
 | `SPARK_SCOPE_API_KEY` | none | Optional Bearer key for a single server, read only from the environment. |
 | `SPARK_SCOPE_HOST` | `127.0.0.1` | Listen address. `0.0.0.0` serves other machines; see [Security](#security). |
 | `SPARK_SCOPE_PORT` | `8787` | Listen port. |

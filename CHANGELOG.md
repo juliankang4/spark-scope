@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- NVIDIA Flare, read from its Prometheus metrics:
+  - output speed, running and waiting requests, cache hit since start, speculative acceptance and completed requests;
+  - no prefill or cache-read speed, TTFT, TPOT or KV cache.
+
 ### Fixed
 
 - Kernel diagnostics resume from a journal cursor, keep the 24-hour error counts and show the newest matching error ([#51](https://github.com/juliankang4/spark-scope/pull/51)).
