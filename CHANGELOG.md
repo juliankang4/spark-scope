@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Kernel diagnostics resume from a journal cursor, keep the 24-hour error counts and show the newest matching error ([#51](https://github.com/juliankang4/spark-scope/pull/51)).
+
 ## 0.1.4 (2026-10-09)
 
 <p align="center"><img src="docs/changes/0.1.4/dashboard-mac-omlx.png" alt="Web dashboard with an Apple Silicon Mac node and its oMLX engine panel" width="820"></p>

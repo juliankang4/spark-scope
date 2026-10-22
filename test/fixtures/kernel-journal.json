@@ -1,0 +1,14 @@
+{
+  "now": 1790990100,
+  "initial": [
+    "1790903700.000000 fixture kernel: NVRM: NV_ERR_NO_MEMORY",
+    "1790990000.000000 fixture kernel: NVRM: Xid 79, GPU has fallen off the bus"
+  ],
+  "next": "1790990100.000000 fixture kernel: NVRM: NV_ERR_NO_MEMORY",
+  "quiet": "1790882100.000000 fixture kernel: ordinary kernel event",
+  "quietSummary": "ok\t0\t0\t0\t0\t\t",
+  "race": "1790990100.000000 fixture kernel: NVRM: Xid 80",
+  "raceSummary": "ok\t4\t2\t2\t0\t1790990100\tNVRM: NV_ERR_NO_MEMORY",
+  "initialSummary": "ok\t2\t1\t1\t0\t1790990000\tNVRM: Xid 79, GPU has fallen off the bus",
+  "nextSummary": "ok\t3\t2\t1\t0\t1790990100\tNVRM: NV_ERR_NO_MEMORY"
+}

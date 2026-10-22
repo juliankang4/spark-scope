@@ -7,6 +7,7 @@ import {
   applyGpuMemoryFallback,
   buildRemoteScript,
   collectNode,
+  KernelJournal,
   collectorCommand,
   knownEngine,
   metricsEngine,
@@ -415,7 +416,7 @@ const withFakeNvidiaSmi = (body, run) => withFakeCommand({ uname: "echo Linux", 
 
 // A fake journalctl, with a pass-through timeout so this also runs where coreutils' timeout is missing (macOS).
 async function withFakeJournal(body, run) {
-  return withFakeCommand({ uname: "echo Linux", journalctl: body, timeout: 'shift; exec "$@"' }, null, run);
+  return withFakeCommand({ uname: "echo Linux", date: 'echo "${SCOPE_TEST_NOW:-1790990100}"', journalctl: body, timeout: 'shift; exec "$@"' }, null, run);
 }
 
 test("Darwin collection uses macOS commands on any test host, with pressure and missing readings", async () => {
@@ -500,12 +501,156 @@ test("kernel errors from before a reboot are counted: the journal is read across
   assert.match(node.kernelEvents.lastMessage, /fallen off the bus/);
 });
 
+test("the newest kernel error is shown even when journal output is reversed", async () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/kernel-journal.json", import.meta.url), "utf8"));
+  const reversed = [...fixture.initial].reverse();
+  const node = await withFakeJournal(`printf '%s\\n' ${reversed.map(line => `'${line}'`).join(" ")} '-- cursor: s=valid'`, () =>
+    collectNode({ host: "local", local: true }));
+  assert.deepEqual(node.kernelEvents, parseKernelEvents(fixture.initialSummary));
+});
+
 test("a journal that shows no kernel lines (no access, only the account's own journal) reads as unavailable, not as 0 errors", async () => {
   // journalctl -q without access opens only the user's journal: no matches (exit 1), and the check prints nothing.
   const node = await withFakeJournal('case "$*" in *-g*) exit 1 ;; *) exit 0 ;; esac', () =>
     collectNode({ id: "1", name: "this", host: "local", local: true }));
   assert.equal(node.kernelEvents.status, "unavailable");
   assert.equal(node.kernelEvents.available, false);
+});
+
+test("a kernel journal older than 24 hours stays available and starts incremental polling", async () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/kernel-journal.json", import.meta.url), "utf8"));
+  const journal = new KernelJournal();
+  await withFakeJournal(`case "$*" in
+    *--after-cursor*) echo '-- cursor: s=quiet-next'; exit 1 ;;
+    *-g*) exit 1 ;;
+    *) printf '%s\\n' '${fixture.quiet}' '-- cursor: s=quiet' ;;
+  esac`, async () => {
+    const poll = () => collectNode({ host: "local", local: true }, { kernelJournal: journal });
+    assert.deepEqual((await poll()).kernelEvents, parseKernelEvents(fixture.quietSummary));
+    assert.equal(journal.cursor, "s=quiet");
+    assert.deepEqual((await poll()).kernelEvents, parseKernelEvents(fixture.quietSummary));
+    assert.equal(journal.cursor, "s=quiet-next");
+    assert.equal(journal.entries.length, 0);
+  });
+});
+
+test("kernel errors arriving during the full query are not counted twice", async () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/kernel-journal.json", import.meta.url), "utf8"));
+  const journal = new KernelJournal();
+  await withFakeJournal(`case "$*" in
+    *--since*) printf '%s\\n' '${fixture.race}' ${[...fixture.initial].reverse().map(line => `'${line}'`).join(" ")} '-- cursor: s=oldest' ;;
+    *--after-cursor*) printf '%s\\n' '${fixture.race}' '${fixture.next}' '-- cursor: s=next' ;;
+    *--cursor*) while [ "$1" != "--cursor" ]; do shift; done; echo "-- cursor: $2" ;;
+    *) echo '-- cursor: s=tail' ;;
+  esac`, async () => {
+    const poll = () => collectNode({ host: "local", local: true }, { kernelJournal: journal });
+    assert.equal((await poll()).kernelEvents.total, 3);
+    const initialCursor = journal.cursor;
+    assert.deepEqual((await poll()).kernelEvents, parseKernelEvents(fixture.raceSummary));
+    assert.equal(initialCursor, "s=tail");
+    assert.equal(journal.entries.length, 4);
+    assert.equal(journal.cursor, "s=next");
+  });
+});
+
+test("invalid kernel cursors are discarded before the next poll", () => {
+  const journal = new KernelJournal();
+  for (const cursor of ["s=bad'\\ncommand", "s=" + "a".repeat(1024)]) {
+    journal.summary({ kernel_mode: "full", kernel: "ok", kernel_cursor: cursor });
+    assert.equal(journal.cursor, "");
+    assert.doesNotThrow(() => buildRemoteScript([], journal.cursor));
+    journal.summary({ kernel_mode: "full", kernel: "ok", kernel_cursor: "s=valid" });
+    assert.equal(journal.cursor, "s=valid");
+  }
+});
+
+test("kernel cursors preserve the old panel summary, advance without errors and recover after rotation", async () => {
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/kernel-journal.json", import.meta.url), "utf8"));
+  const journal = new KernelJournal();
+  const body = `case "$*" in
+    *--since*) printf '%s\\n' ${fixture.initial.map(line => `'${line}'`).join(" ")} '-- cursor: s=valid' ;;
+    *--cursor*)
+      case "$SCOPE_TEST_PHASE" in
+        rotated) echo '-- cursor: s=nearby' ;;
+        invalid) exit 2 ;;
+        *) printf '%s\\n' '-- cursor: s=valid' ;;
+      esac ;;
+    *--after-cursor*)
+      case "$SCOPE_TEST_PHASE" in
+        empty) echo '-- cursor: s=valid'; exit 1 ;;
+        timeout) echo '${fixture.next}'; echo '-- cursor: s=lost'; exit 124 ;;
+        *) echo '${fixture.next}'; echo '-- cursor: s=valid' ;;
+      esac ;;
+    *) printf '%s\\n' ${fixture.initial.map(line => `'${line}'`).join(" ")} '-- cursor: s=valid' ;;
+  esac`;
+  const savedPhase = process.env.SCOPE_TEST_PHASE;
+  const savedNow = process.env.SCOPE_TEST_NOW;
+  try {
+    await withFakeJournal(body, async () => {
+      const poll = () => collectNode({ host: "local", local: true }, { kernelJournal: journal });
+      process.env.SCOPE_TEST_PHASE = "initial";
+      assert.deepEqual((await poll()).kernelEvents, parseKernelEvents(fixture.initialSummary));
+      assert.equal(journal.cursor, "s=valid");
+      process.env.SCOPE_TEST_PHASE = "next";
+      assert.deepEqual((await poll()).kernelEvents, parseKernelEvents(fixture.nextSummary));
+      process.env.SCOPE_TEST_PHASE = "empty";
+      assert.deepEqual((await poll()).kernelEvents, parseKernelEvents(fixture.nextSummary));
+      process.env.SCOPE_TEST_PHASE = "timeout";
+      assert.equal((await poll()).kernelEvents.status, "timeout");
+      assert.equal(journal.cursor, "s=valid");
+      assert.equal(journal.entries.length, 3);
+      for (const phase of ["rotated", "invalid"]) {
+        process.env.SCOPE_TEST_PHASE = phase;
+        assert.deepEqual((await poll()).kernelEvents, parseKernelEvents(fixture.initialSummary));
+        assert.equal(journal.entries.length, 2);
+      }
+      process.env.SCOPE_TEST_PHASE = "empty";
+      process.env.SCOPE_TEST_NOW = String(fixture.now + 1);
+      assert.equal((await poll()).kernelEvents.total, 1);
+      process.env.SCOPE_TEST_NOW = String(fixture.now + 86401);
+      assert.equal((await poll()).kernelEvents.total, 0);
+      assert.equal(journal.entries.length, 0);
+    });
+  } finally {
+    if (savedPhase === undefined) delete process.env.SCOPE_TEST_PHASE; else process.env.SCOPE_TEST_PHASE = savedPhase;
+    if (savedNow === undefined) delete process.env.SCOPE_TEST_NOW; else process.env.SCOPE_TEST_NOW = savedNow;
+  }
+});
+
+test("kernel polls keep the newest 1000 errors and never treat cursor metadata as an error", async () => {
+  const journal = new KernelJournal();
+  await withFakeJournal(`case "$*" in
+    *--since*|*--after-cursor*) awk 'BEGIN {for (i=0; i<1005; i++) print "1790990000.000000 fixture kernel: NVRM: Xid " i; print "-- cursor: s=valid"}' ;;
+    *) echo '-- cursor: s=valid' ;;
+  esac`, async () => {
+    const poll = () => collectNode({ host: "local", local: true }, { kernelJournal: journal });
+    const first = (await poll()).kernelEvents;
+    assert.equal(first.total, 1000);
+    assert.equal(first.xid, 1000);
+    assert.equal(first.capped, true);
+    assert.equal(first.lastMessage, "NVRM: Xid 1004");
+    assert.deepEqual((await poll()).kernelEvents, first);
+    assert.equal(journal.entries.length, 1000);
+  });
+  assert.throws(() => buildRemoteScript([], "s=bad'\ncommand"), /invalid journal cursor/);
+  assert.match(buildRemoteScript(), /set -- --since '-24 hours' -n 1000 --reverse\n/);
+  assert.match(buildRemoteScript([], "s=valid"), /set -- --after-cursor "\$SCOPE_KERNEL_CURSOR"/);
+});
+
+test("an incremental kernel poll with no errors needs no extra presence query", async () => {
+  const journal = new KernelJournal();
+  journal.cursor = "s=valid";
+  const node = await withFakeJournal(`case "$*" in
+    *-g*) echo '-- cursor: s=valid'; exit 1 ;;
+    *--cursor*) echo '-- cursor: s=valid' ;;
+    *) exit 2 ;;
+  esac`, () => collectNode({ host: "local", local: true }, { kernelJournal: journal }));
+  assert.equal(node.kernelEvents.available, true);
+  assert.equal(node.kernelEvents.total, 0);
+  assert.equal(journal.cursor, "s=valid");
+  const interrupted = new KernelJournal();
+  interrupted.summary({ kernel_mode: "full", kernel_cursor: "s=incomplete", "kernel_event:0": "1790990000\t0\t1\tXid" });
+  assert.equal(interrupted.cursor, "");
 });
 
 test("a failed unit whose file is gone is not counted and does not leave the node degraded", async () => {

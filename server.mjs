@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
-import { collectNode, uncollectedNode, InferenceCollector, applyNetworkRates, applyGpuMemoryFallback } from "./lib/collectors.mjs";
+import { collectNode, uncollectedNode, InferenceCollector, KernelJournal, applyNetworkRates, applyGpuMemoryFallback } from "./lib/collectors.mjs";
 import { buildRingLinks, clusterStatus, serverState, servingSummary, DEFAULT_LINK_MIN_GBPS, STARTING_MESSAGE } from "./lib/cluster.mjs";
 import { downsampleHistory, summarizeHistory } from "./lib/history.mjs";
 import { hostAllowed, hostRules, SECURITY_HEADERS } from "./lib/http-guard.mjs";
@@ -84,6 +84,7 @@ const HISTORY_LIMIT = Math.ceil(HISTORY_WINDOW_MS / Math.min(config.nodeInterval
 // Nodes, SSH targets and links come from topology.json (or the file named by SPARK_SCOPE_TOPOLOGY).
 const topology = loadTopology();
 const nodeDefinitions = topology.nodes.map((node) => ({ ...node, interfaces: nodeInterfaces(topology, node.id) }));
+const kernelJournals = new Map(nodeDefinitions.map(node => [node.id, new KernelJournal()]));
 
 // One inference API per model server: those listed under "servers" in topology.json, or SPARK_SCOPE_API_URL for every
 // node. The first server's sessions keep the ledger's plain keys; the others prefix their id (see usage-store.mjs).
@@ -200,7 +201,7 @@ async function collectNodes() {
   collectingNodes = true;
   try {
     const snapshots = await Promise.all(nodeDefinitions.map((definition) => (
-      definition.collect ? collectNode(definition, { apiKeyEnvNames }) : uncollectedNode(definition))));
+      definition.collect ? collectNode(definition, { apiKeyEnvNames, kernelJournal: kernelJournals.get(definition.id) }) : uncollectedNode(definition))));
     for (let index = 0; index < nodeDefinitions.length; index += 1) {
       const definition = nodeDefinitions[index];
       const previous = state.nodes[definition.id];
