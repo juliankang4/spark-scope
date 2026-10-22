@@ -1,5 +1,5 @@
 import { mountMini } from './mini/mini-view.js';
-import { PHONE_QUERY, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, gpuMemory, memoryWording, readingLabel, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, serverStateKey, pickedServer, viewInference, engineMetric, nodeReading, hasNodeTemperature, memoryWarning, outputCoverage, engineNeedsKey } from './view-data.js';
+import { PHONE_QUERY, PALETTE, nodeColor, lowContrast, nodeOrder, linkText, unknown, finite, fixed, compact, duration, tokenRate, memory, memoryUnit, gpuMemory, memoryWording, readingLabel, temperature, temperatureUnit, escapeHtml as esc, clockTime, eventTime, localDay, monthLabel, monthName, dayLabel, monthOptions, systemStateText, roleName, chartPath, brailleChart, validateMonth, fabricLayout, labelWidth, nextTheme, topologyKey, staleAfterMs, livePoint, mergeLivePoint, timeoutSignal, onMediaChange, readingValue, shortcutAction, modelServers, severalServers, serverName, serverOfNode, serverColorIndex, serverStateKey, pickedServer, viewInference, engineMetric, nodeReading, hasNodeTemperature, memoryWarning, outputCoverage, engineNeedsKey } from './view-data.js';
 import { READING_IDS, rackQuery, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from './settings.js';
 import { t, setLanguage, translatePage, serverText, LANGUAGE_NAMES } from './i18n.js';
 import { hide as hideHelp } from './help.js';
@@ -113,6 +113,17 @@ function chartSeries(state) {
 }
 // The mean output over the samples with requests running, as the server computes it for the totals.
 function activeAverage(points){const rates=points.filter(point=>point.runningRequests>0&&finite(point.outputTokensPerSecond)).map(point=>point.outputTokensPerSecond);return rates.length?rates.reduce((sum,rate)=>sum+rate,0)/rates.length:null}
+// TUI Panel draws the output line in braille (designs.css shows the box); the last series is kept for a resize, a tab switch and a font swap.
+// The box covers the SVG (140 units); rows fill it from the top, so the margins keep the SVG's top 4 and baseline 118.
+let brailleSeries=null;
+function drawBraille(series=brailleSeries){
+  brailleSeries=series;const box=$('#output-braille');
+  if(!series||getComputedStyle(box).display==='none'){box.textContent='';return}
+  box.innerHTML='<span>'+'\u28ff'.repeat(10)+'</span>';const cell=box.firstChild.getBoundingClientRect(),pitch=parseFloat(getComputedStyle(box).lineHeight),cols=Math.floor(box.clientWidth/(cell.width/10)),rows=Math.floor(box.clientHeight/pitch),height=rows*pitch;
+  box.textContent=cols>0&&rows>0?brailleChart(series.history,'outputTokensPerSecond',{start:series.start,end:series.end,cols,rows,max:series.max,height,top:4*box.clientHeight/140,bottom:Math.max(0,height-118*box.clientHeight/140)}):'';
+  box.style.color=series.each?'var(--ink)':'';
+}
+addEventListener('resize',()=>drawBraille());document.fonts?.addEventListener('loadingdone',()=>drawBraille());
 function renderCharts(state) {
   const all=state.history||[],history=chartSeries(state),end=Date.now(),start=end-range*60_000;
   const several=severalServers(state),each=several&&settings.servers!=='one';
@@ -128,6 +139,7 @@ function renderCharts(state) {
   text('#legend-output',t(each?'chart.legend.total':'chart.legend.output')+(coverage?` ${coverage}`:''));
   $('#speed').nextElementSibling.textContent='tok/s'+(coverage?` ${coverage}`:'');
   const d=showOutput?chartPath(history,'outputTokensPerSecond',{start,end,min:0,max,top:4,bottom:22}):'';$('#output-line').setAttribute('d',d);$('#output-fill').setAttribute('d','');
+  drawBraille({history:showOutput?history:[],start,end,max,each});
   $('#avg-line').setAttribute('d',finite(avg)?chartPath([{at:start,value:avg},{at:end,value:avg}],'value',{start,end,min:0,max,top:4,bottom:22}):'');
   const queueMax=Math.max(1,...history.map(p=>p.queue).filter(finite));$('#queue-line').setAttribute('d',chartPath(history,'queue',{start,end,min:0,max:queueMax,top:120,bottom:4}));
   const label=value=>clock(value,{seconds:false});
@@ -172,7 +184,7 @@ function drawState(state) {
   servers=modelServers(state);syncNodes(nodeOrder(state));$('#shell').classList.remove('stale');
   const v=state.inference,stopped=state.inferenceState==='stopped',nodes=state.nodes||{},several=servers.length>1,focus=viewInference(state,settings);
   const online=metas.filter(m=>nodes[m.id]?.ok).length,serving=metas.filter(m=>nodes[m.id]?.ok&&nodes[m.id]?.inferenceProcessReady).length,count=metas.length;
-  $('.status').className='status '+(state.status==='healthy'?'':stopped?'stopped':'error');
+  $('.status').className='status '+(state.status==='healthy'?'healthy':stopped?'stopped':'error');
   const needsKey=servers.filter(server=>engineNeedsKey(server.inference));
   const singleKeyAlert=!several&&needsKey.length>0&&state.messageKey==='status.inferenceAttention';
   text('#status-title',singleKeyAlert?t('engine.apiKeyRequired'):serverText(state.messageKey,state.messageParams,state.message)||t('statusbar.checkingStatus'));
@@ -359,7 +371,7 @@ $('#token-csv').addEventListener('click',()=>{
 });
 function selectTab(btn,updateHash=true) {
   document.querySelectorAll('.top [role=tab]').forEach(b=>{b.setAttribute('aria-selected',String(b===btn));b.tabIndex=b===btn?0:-1;$('#'+b.getAttribute('aria-controls')).hidden=b!==btn});
-  const tokens=btn.id==='tab-tokens';if(updateHash)location.hash=tokens?'tokens':'scope';if(tokens)void refreshMonth();
+  const tokens=btn.id==='tab-tokens';if(updateHash)location.hash=tokens?'tokens':'scope';if(tokens)void refreshMonth();else drawBraille();
 }
 document.querySelectorAll('.top [role=tab]').forEach(btn=>{btn.addEventListener('click',()=>selectTab(btn));btn.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?$('#tab-scope'):e.key==='End'?$('#tab-tokens'):btn.id==='tab-scope'?$('#tab-tokens'):$('#tab-scope');selectTab(next);next.focus()}})});
 window.addEventListener('hashchange',()=>selectTab($(location.hash==='#tokens'?'#tab-tokens':'#tab-scope'),false));
@@ -477,7 +489,7 @@ $('#settings-reset').addEventListener('click',()=>{const before=settings;setting
 const miniButton=$('#mini-open'),MINI_SIZE={width:340,height:560},VIEW_KEY='spark-scope-view',phoneQuery=matchMedia(PHONE_QUERY);
 const miniPane=document.createElement('div');miniPane.className='m-inline';document.body.append(miniPane);
 let mini=null,inlineView=null,dashboardScroll=0;
-function showMini(){miniButton.setAttribute('aria-pressed',String(Boolean(mini)));miniButton.title=t(mini?'mini.closeTitle':'mini.openTitle');miniButton.setAttribute('aria-label',miniButton.title)}
+function showMini(){miniButton.setAttribute('aria-pressed',String(Boolean(mini)));miniButton.title=t(mini?'mini.closeTitle':'mini.openTitle');miniButton.setAttribute('aria-label',t(mini?'mini.closeLabel':'mini.openLabel'))}
 const saveView=view=>{try{store?.setItem(VIEW_KEY,view)}catch{}};
 const inlineShown=()=>document.documentElement.dataset.view==='mini';
 // The mini view uses this page's settings, so a settings link that could not be saved still applies to it.

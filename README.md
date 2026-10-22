@@ -265,7 +265,7 @@ The gear button opens the settings:
 - Node card: the four readings and their order, the bars, full or short labels, the levels that turn a reading orange.
 - Colors: a colour per node, from the palette or custom.
 - Units: °C or °F, GiB or GB, a 24- or 12-hour clock.
-- Dashboard: English or Korean, which panels to show, the chart range, the refresh interval, the design (Default, Console or Soft) and the theme.
+- Dashboard: English or Korean, which panels to show, the chart range, the refresh interval, the design (Default, Console, Soft, TUI Panel or TUI Classic) and the theme.
 - Rack panel: band motion and the kiosk URL with the current settings.
 
 They are kept per browser, and "Copy settings link" carries them to another one. Details: [Web page](docs/dashboard.md#settings).
@@ -306,4 +306,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, [Developme
 
 ## License
 
-MIT, see [LICENSE](LICENSE). The fonts in `public/fonts/` (Archivo and Bebas Neue) keep their own license, the SIL Open Font License 1.1, with its text next to them.
+MIT, see [LICENSE](LICENSE). The fonts in `public/fonts/` (Archivo, Bebas Neue, and Spark Scope Mono, a renamed subset of D2Coding) keep their own license, the SIL Open Font License 1.1, with its text next to them.

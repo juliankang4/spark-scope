@@ -25,7 +25,7 @@ CI runs them on Node 22.13 and 24, on x64 and arm64. It also runs `npm run check
 `tools/render.mjs` serves the pages with synthetic data and the server's security headers, and renders them in headless Chrome through the DevTools protocol:
 
 - the rack panel with one to eight nodes (four bays at most), the longest ids and names, a 2560 x 480 bar and a 1024 x 600 screen;
-- the web dashboard on a desktop, a tablet and a phone, with no empty cell in the node grid, the settings dialog, the explanations and the three designs in light and dark;
+- the web dashboard on a desktop, a tablet and a phone, with no empty cell in the node grid, the settings dialog, the explanations and the five designs in light and dark;
 - the mini window in each shape and tab, stacked in a tall window, and inside the dashboard page on a phone and in a browser without document picture-in-picture;
 - Mac node cards at desktop, tablet and phone widths, MacBooks with system-power telemetry and Macs without it, with no temperature trend or rack temperature, and unknown GPU power in the mini window;
 - four Sparks and a separate GPU workstation, with unified, discrete (VRAM) and unknown GPU memory on the dashboard, the mini window and the rack panel;
@@ -47,4 +47,4 @@ All page text is in `public/i18n.js`, English first and Korean below it. A new s
 
 ## Fonts
 
-`public/fonts/` bundles latin subsets of Archivo (text and numbers) and Bebas Neue (the rack panel's large figures), each under the SIL Open Font License 1.1 with its license text next to it. They keep that license whatever license applies to the rest of Spark Scope. Without them the pages fall back to the system UI font.
+`public/fonts/` bundles latin subsets of Archivo (text and numbers) and Bebas Neue (the rack panel's large figures), plus Spark Scope Mono (the TUI designs' font, a subset of D2Coding 1.4.0 renamed as its Reserved Font Name requires; `public/fonts/README.txt` lists what it holds and how it was made), each under the SIL Open Font License 1.1 with its license text next to it. They keep that license whatever license applies to the rest of Spark Scope. Without them the pages fall back to the system UI font.

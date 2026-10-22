@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readingValue, nodeColor, lowContrast, PALETTE, compact, duration, tokenRate, chartPath, clockTime, eventTime, memory, memoryUnit, temperature, temperatureUnit, validateMonth, monthOptions, monthLabel, dayLabel, localDay, nodeOrder, linkText, fabricLayout, nodeLabel, labelWidth, nextTheme, COLORS } from '../public/view-data.js';
+import { readingValue, nodeColor, lowContrast, PALETTE, compact, duration, tokenRate, chartPath, brailleChart, clockTime, eventTime, memory, memoryUnit, temperature, temperatureUnit, validateMonth, monthOptions, monthLabel, dayLabel, localDay, nodeOrder, linkText, fabricLayout, nodeLabel, labelWidth, nextTheme, COLORS } from '../public/view-data.js';
 import { loadTopology, publicTopology } from '../lib/topology.mjs';
 import { rackQuery, DEFAULTS, SETTINGS_KEY, parseSettings, loadSettings, saveSettings, loadTheme, saveTheme, settingsQuery, settingsFromQuery, withoutSettingsQuery } from '../public/settings.js';
 
@@ -60,8 +60,14 @@ test('monthly totals count cached input once and reject inconsistent responses',
 });
 
 test('charts leave missing observations as gaps and use elapsed time on the x axis', () => {
-  const d = chartPath([{at:0,v:0},{at:1000,v:1},{at:2000,v:null},{at:4000,v:2}], 'v', {start:0,end:4000,width:100,height:100,max:2,top:0,bottom:0});
+  const points = [{at:0,v:0},{at:1000,v:1},{at:2000,v:null},{at:4000,v:2}];
+  const d = chartPath(points, 'v', {start:0,end:4000,width:100,height:100,max:2,top:0,bottom:0});
   assert.equal(d,'M0.00 100.00 L25.00 50.00 M100.00 0.00');
+  // The braille copy: filled from the baseline along the line, blank across the gap, full height at the maximum.
+  assert.equal(brailleChart(points, 'v', {start:0,end:4000,cols:4,rows:1,max:2,height:100,top:0,bottom:0}), '\u28e0\u2846\u2800\u28b8');
+  assert.equal(brailleChart([], 'v', {start:0,end:1,cols:2,rows:2}), '\u2800\u2800\n\u2800\u2800');
+  // A sample before the window only anchors the line; it does not raise the first column.
+  assert.equal(brailleChart([{at:-2000,v:2},{at:0,v:0}], 'v', {start:0,end:4000,cols:2,rows:1,max:2,height:100,top:0,bottom:0}), '\u2840\u2800');
 });
 
 test('a node whose id is "at" still gets its own trend line, because values are picked per node', () => {

@@ -51,8 +51,9 @@ const FIELDS = {
   diskWarn: level(95, 50, 100),
   memWarn: level(2, 0, 64),
   colors: colorList,
-  // The page's look: Default, Console (a dark terminal look) or Soft (rounded cards); see designs.css.
-  design: choice('default', ['default', 'console', 'soft']),
+  // The page's look: Default, Console (a dark terminal look), Soft (rounded cards), TUI Panel (framed boxes, as btop)
+  // or TUI Classic (a full-screen terminal with a key bar, as htop); see designs.css.
+  design: choice('default', ['default', 'console', 'soft', 'tui-panel', 'tui-classic']),
   // The rack panel's bottom band: one-pixel steps (default), a smooth glide, or still between polls.
   motion: choice('step', ['step', 'smooth', 'still']),
   // With several model servers: every server at once, or one at a time (server names the one picked).

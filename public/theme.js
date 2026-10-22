@@ -8,11 +8,11 @@ try {
 } catch {
   document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
-// The design (Default, Console, Soft) is applied here as well, from a settings link or the saved settings.
+// The design (Default, Console, Soft, TUI Panel, TUI Classic) is applied here as well, from a settings link or the saved settings.
 try {
   const linked = new URLSearchParams(location.search).get('design');
   const saved = linked ?? JSON.parse(localStorage.getItem('spark-scope-settings') ?? '{}').design;
-  if (saved === 'console' || saved === 'soft') document.documentElement.dataset.design = saved;
+  if (['console', 'soft', 'tui-panel', 'tui-classic'].includes(saved)) document.documentElement.dataset.design = saved;
 } catch {}
 // The dashboard opens in its mini view on a phone until the dashboard is picked there, and wherever the page itself
 // last showed the mini view (browsers without document picture-in-picture). app.js draws the view and keeps the

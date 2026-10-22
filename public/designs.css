@@ -1,5 +1,9 @@
-/* The two other looks, chosen in the settings (Dashboard, Design). Each is a layer over styles.css on the same markup:
-   theme tokens plus a few component rules, under html[data-design=...]. Default needs no rules. */
+/* The other looks, chosen in the settings (Dashboard, Design). Each is a layer over styles.css on the same markup:
+   theme tokens plus component rules, under html[data-design=...]. Default needs no rules. */
+
+/* Spark Scope Mono, the TUI designs' font: a renamed subset of D2Coding (fonts/README.txt). Fetched only when used. */
+@font-face{font-family:'Spark Scope Mono';src:url('fonts/SparkScopeMono-Regular.woff2') format('woff2');font-weight:400;font-display:swap}
+@font-face{font-family:'Spark Scope Mono';src:url('fonts/SparkScopeMono-Bold.woff2') format('woff2');font-weight:700;font-display:swap}
 
 /* ===== Console: a terminal look, dark only (it ignores the theme setting) ===== */
 html[data-design=console]{color-scheme:dark;--text-font:ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;--num-font:ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
@@ -129,3 +133,267 @@ html[data-design=soft] .cal-day.empty{border:1px dashed var(--line)}
 html[data-design=soft] .cal-day .switch{border-radius:50%}
 html[data-design=soft] .day-detail,html[data-design=soft] .chart-box{border:0;border-radius:14px;background:var(--screen)}
 html[data-design=soft] .split{border:0;border-radius:999px;overflow:hidden}
+
+/* ===== TUI Panel and TUI Classic: two terminal looks in Spark Scope Mono, dark only (they ignore the theme). ===== */
+html:is([data-design=tui-panel],[data-design=tui-classic]){color-scheme:dark;--text-font:'Spark Scope Mono',ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;--num-font:var(--text-font)}
+html:is([data-design=tui-panel],[data-design=tui-classic]) body{font-size:13px}
+/* Header buttons as text: the shortcut key, then the button's own name, both from attributes the buttons already carry
+   (aria-keyshortcuts, and the translated aria-label). The theme button keeps its icon: its name is a whole sentence. */
+@media(min-width:761px){
+  html:is([data-design=tui-panel],[data-design=tui-classic]) .header-actions button{width:auto;padding:0 1.2ch;gap:.6ch;border-left:0;font-size:13px;white-space:nowrap}
+  html:is([data-design=tui-panel],[data-design=tui-classic]) .header-actions button:not(.theme-toggle) svg{display:none}
+  html:is([data-design=tui-panel],[data-design=tui-classic]) .header-actions button:not(.theme-toggle)::before{content:attr(aria-keyshortcuts);font-weight:700}
+  html:is([data-design=tui-panel],[data-design=tui-classic]) .header-actions button:not(.theme-toggle)::after{content:attr(aria-label)}
+  html:is([data-design=tui-panel],[data-design=tui-classic]) .header-actions .tabs button[aria-selected=true]::after{position:static;height:auto;background:none}
+  html:is([data-design=tui-panel],[data-design=tui-classic]) .header-actions .mini-open[aria-pressed=true]{box-shadow:none}
+}
+html:is([data-design=tui-panel],[data-design=tui-classic]) .badge::before{content:'['}html:is([data-design=tui-panel],[data-design=tui-classic]) .badge::after{content:']'}
+html:is([data-design=tui-panel],[data-design=tui-classic]) .node.is-unknown .gauge strong{font-size:13px;color:var(--muted)}
+
+/* ----- TUI Panel: like btop. Each part is a framed box with its title cut into the top border. ----- */
+html[data-design=tui-panel]{--paper:#0e1013;--chassis:#0e1013;--ink:#e3e5e8;--muted:#8a919b;--line:#3b414a;--blue:#58b4ff;--orange:#ff9e57;--green:#5fd38d;--red:#ff6b6b;--purple:#c49bff;--gold:#e8c55c;--magenta:#ff7ac6;--umber:#c7b299;
+  --grid:rgba(255,255,255,.045);--screen:#0e1013;--track:#252a31;--meter:#252a31;--link:#4a5260;--link-inner:#333a44;--hover:#1b1f25;--warning:#2b2016;--tabs:transparent;--brand:transparent;--brand-text:var(--green);--plot-fill:transparent;
+  --ramp:linear-gradient(90deg,#5fd38d,#e8c55c 65%,#ff6b6b);--blocks:repeating-linear-gradient(90deg,#000 0 6px,transparent 6px 8px)}
+html[data-design=tui-panel] .shell{border:0;box-shadow:none}
+html[data-design=tui-panel] :is(.top,.status,.servers,.node,.left,.right,.trend,.ledger,.token-view){position:relative;border:1px solid var(--line);border-radius:5px;margin:11px 5px 4px}
+html[data-design=tui-panel] :is(.top,.nodes,.body-grid,.lower){border-bottom:0}
+html[data-design=tui-panel] .lower{border-top:0}
+html[data-design=tui-panel] .body-grid.no-fabric .left{border-right:1px solid color-mix(in srgb,var(--blue) 50%,var(--line))}
+/* A border title: text on the page colour, cut into the frame. */
+html[data-design=tui-panel] :is(.brand,.node h2,.node .badge,.left>.section-head h2,.right>.section-head h2,.left>.section-head .ranges,.right>.section-head small,.ledger>.section-head h2,.ledger>.section-head small,.ledger-head h2,.trend>.section-head h2,.trend>.section-head small){position:absolute;top:-.75em;line-height:1.4;padding:0 6px;background:var(--paper);white-space:nowrap;max-width:calc(100% - 20px);overflow:hidden;text-overflow:ellipsis;margin:0}
+html[data-design=tui-panel] :is(.brand,.node h2,.left>.section-head h2,.right>.section-head h2,.ledger>.section-head h2,.ledger-head h2,.trend>.section-head h2){left:10px}
+html[data-design=tui-panel] :is(.node .badge,.left>.section-head .ranges,.right>.section-head small,.ledger>.section-head small,.trend>.section-head small){right:10px}
+html[data-design=tui-panel] .top{grid-template-columns:minmax(0,1fr) auto;min-height:0}
+html[data-design=tui-panel] .brand{gap:8px}
+html[data-design=tui-panel] .brand strong{font:700 14px var(--num-font);letter-spacing:0}
+html[data-design=tui-panel] .brand span{border:0;padding:0;color:var(--muted);font-size:13px}
+html[data-design=tui-panel] .identity{padding:14px 14px 10px}
+html[data-design=tui-panel] .identity small{font-size:12px}
+html[data-design=tui-panel] .identity h1{font:700 18px var(--num-font)}
+/* Keys in gold like btop's menu numbers; the open view in green. */
+html[data-design=tui-panel] .header-actions{background:transparent;padding-right:6px}
+html[data-design=tui-panel] .header-actions button::before{color:var(--gold)}
+html[data-design=tui-panel] .header-actions .tabs button[aria-selected=true]{color:var(--green)}
+html[data-design=tui-panel] .status{padding:8px 14px;font-size:13px}
+html[data-design=tui-panel] .status strong i{border-radius:0}
+html[data-design=tui-panel] .status .sub{font-size:12px}
+html[data-design=tui-panel] .servers{padding:8px 10px}
+html[data-design=tui-panel] .server-row{border-style:dashed}
+html[data-design=tui-panel] .nodes{border:0;overflow:visible}
+/* The gutter between node frames belongs to the grid, so the last frame ends where the grid ends. */
+html[data-design=tui-panel] #nodes{margin:0 5px;column-gap:10px}html[data-design=tui-panel] #nodes .node{margin-left:0;margin-right:0}
+html[data-design=tui-panel] .node{box-shadow:none;padding:16px 14px 6px;border-color:color-mix(in srgb,var(--node) 55%,var(--line))}
+html[data-design=tui-panel] .node header{display:block;height:0}
+html[data-design=tui-panel] .node h2{font:700 14px var(--num-font);color:var(--node);letter-spacing:0}
+html[data-design=tui-panel] .node h2::before{display:none}
+html[data-design=tui-panel] .badge{border:0;border-radius:0;font-size:12px}
+html[data-design=tui-panel] .role{margin:0 0 12px;font-size:12px}
+/* GPU load: name, a block bar on a fixed green-to-red ramp, then the figure in the ramp's colour at that load. */
+html[data-design=tui-panel] .instrument{grid-template-columns:1fr;gap:10px}
+html[data-design=tui-panel] .gauge{width:auto;height:auto;margin:0;text-align:left;display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center}
+html[data-design=tui-panel] .gauge svg{display:none}
+html[data-design=tui-panel] .gauge>span{order:-1;margin:0;font-size:12px}
+html[data-design=tui-panel] .gauge::after{content:'';height:12px;background:linear-gradient(90deg,transparent calc(var(--load,0)*1%),var(--track) 0),var(--ramp);-webkit-mask:var(--blocks);mask:var(--blocks)}
+html[data-design=tui-panel] .gauge strong{order:1;padding:0;min-width:4ch;text-align:right;font:700 17px var(--num-font);letter-spacing:0;color:color-mix(in oklch,var(--red) clamp(0%,calc((var(--load,0) - 50) * 2%),100%),var(--green))}
+html[data-design=tui-panel] .gauge strong small{font-size:12px;margin:0}
+html[data-design=tui-panel] .readings{gap:5px 18px}
+html[data-design=tui-panel] .reading{flex-direction:row;justify-content:space-between;align-items:baseline;gap:6px;min-width:0}
+html[data-design=tui-panel] .reading small{font-size:12px}
+html[data-design=tui-panel] .reading b{font:700 14px var(--num-font)}
+html[data-design=tui-panel] .reading em{font-size:11px}
+html[data-design=tui-panel] .mem{margin-top:14px}
+html[data-design=tui-panel] .memline{font-size:12px}
+html[data-design=tui-panel] .meter{height:10px;-webkit-mask:var(--blocks);mask:var(--blocks)}
+html[data-design=tui-panel] .meter i{opacity:1}
+html[data-design=tui-panel] .node details{border-top:1px dashed var(--line);margin-top:12px;font-size:12px}
+html[data-design=tui-panel] .left{border-color:color-mix(in srgb,var(--blue) 50%,var(--line));padding:20px 14px 12px}
+html[data-design=tui-panel] .right{border-color:color-mix(in srgb,var(--purple) 50%,var(--line));padding:20px 14px 12px}
+html[data-design=tui-panel] :is(.left,.right)>.section-head{margin:0;height:0}
+html[data-design=tui-panel] .section-head h2{font:700 14px var(--num-font)}
+html[data-design=tui-panel] .left>.section-head h2{color:var(--blue)}
+html[data-design=tui-panel] .right>.section-head h2{color:var(--purple)}
+html[data-design=tui-panel] .section-head small{font-size:12px}
+html[data-design=tui-panel] .header-actions .settings-open[aria-expanded=true]{background:transparent;color:var(--green)}
+html[data-design=tui-panel] .ranges{display:flex;gap:0}
+html[data-design=tui-panel] .ranges button{border:0;background:transparent;padding:0 5px;font-size:12px;color:var(--muted)}
+html[data-design=tui-panel] .ranges button[aria-pressed=true]{background:transparent;color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+/* The output line in braille (drawn by app.js); the average, queue and per-server lines stay drawn over it. */
+html[data-design=tui-panel] .plot{border:0;background:var(--screen)}
+html[data-design=tui-panel] .plot-top{inset:6px 4px auto}
+html[data-design=tui-panel] .braille{display:block}
+html[data-design=tui-panel] #output-line{display:none}
+html[data-design=tui-panel] .big{font:700 34px var(--num-font);letter-spacing:0}
+html[data-design=tui-panel] .big em{font-size:12px}
+html[data-design=tui-panel] .legend{font-size:12px}
+html[data-design=tui-panel] .engine{border-style:dashed}
+html[data-design=tui-panel] .engine-section h3{border-top-width:1px}
+html[data-design=tui-panel] .links th{font-size:12px}
+html[data-design=tui-panel] .links td{font-size:13px}
+html[data-design=tui-panel] :is(.links td,.links th){border-bottom:1px dashed var(--line)}
+html[data-design=tui-panel] .fabric text{font-family:var(--num-font)}
+html[data-design=tui-panel] .trends{border:0;padding:0 5px 4px;gap:10px}
+/* Below 1051 px two trend frames are too narrow for a title and its range note, so they stack. */
+@media(max-width:1050px){html[data-design=tui-panel] .trends{grid-template-columns:1fr}}
+html[data-design=tui-panel] .trend{margin:11px 0 0;padding:18px 14px 12px;border-color:color-mix(in srgb,var(--orange) 45%,var(--line))}
+html[data-design=tui-panel] .ledger{padding-top:20px;border-color:color-mix(in srgb,var(--green) 45%,var(--line))}
+html[data-design=tui-panel] .ledger>.section-head{margin:0;height:0}
+html[data-design=tui-panel] .ledger>.section-head h2{color:var(--green)}
+html[data-design=tui-panel] .foot{border:0;font-size:12px}
+/* Token ledger: the view is one box titled in its border. */
+html[data-design=tui-panel] .token-view{padding:22px 18px 18px}
+html[data-design=tui-panel] .ledger-head h2{font:700 15px var(--num-font);color:var(--green)}
+html[data-design=tui-panel] :is(.kpis,.day-detail,.chart-box,.months,.csv-button,.cal-day){border-radius:4px}
+html[data-design=tui-panel] .kpi b{letter-spacing:0}
+html[data-design=tui-panel] .ledger-tabs button[aria-selected=true]{color:var(--green)}
+html[data-design=tui-panel] .ledger-tabs button[aria-selected=true]::after{background:var(--green)}
+html[data-design=tui-panel] .statement .bar-col i,html[data-design=tui-panel] .share-bar i{-webkit-mask:var(--blocks);mask:var(--blocks)}
+html[data-design=tui-panel] .chip{border-style:dashed}
+/* Dialogs: a framed box with its title in the border colour. */
+html[data-design=tui-panel] :is(.settings,.shortcuts){border:1px solid var(--line);border-radius:6px}
+html[data-design=tui-panel] .settings-head,html[data-design=tui-panel] .settings-foot{border-color:var(--line)}
+html[data-design=tui-panel] :is(.settings-head h2,.shortcuts h2){color:var(--green);letter-spacing:0}
+html[data-design=tui-panel] .settings-nav button[aria-current=true]{box-shadow:inset 3px 0 0 var(--green)}
+html[data-design=tui-panel] .pills input:checked+span{background:var(--green);color:#0e1013}
+html[data-design=tui-panel] .pills label:hover input:checked+span{background:var(--green)}
+html[data-design=tui-panel] .settings-foot .primary{background:var(--green);border-color:var(--green);color:#0e1013}
+html[data-design=tui-panel] .settings-preview .nodes{border:0}
+@media(max-width:760px){
+  html[data-design=tui-panel] .identity{grid-row:auto;grid-column:auto;border-top:0}
+  html[data-design=tui-panel] .identity h1{font-size:15px}
+  html[data-design=tui-panel] .header-actions button{width:38px}
+  html[data-design=tui-panel] .settings-nav button[aria-current=true]{box-shadow:inset 0 -3px 0 var(--green)}
+}
+
+/* ----- TUI Classic: like htop. Edge to edge, reverse-video header rows, [|||| ] meters, and the header buttons
+   pinned to the bottom of the screen as the key bar. ----- */
+html[data-design=tui-classic]{--paper:#000;--chassis:#000;--ink:#d7d7d7;--muted:#8a8a8a;--line:#303030;--blue:#5f9fff;--orange:#ffaf5f;--green:#5fd75f;--red:#ff5f5f;--purple:#d787ff;--gold:#ffd75f;--magenta:#ff87d7;--umber:#d7af87;--cyan:#00afaf;
+  --grid:rgba(255,255,255,.05);--screen:#000;--track:#262626;--meter:#262626;--link:#5f5f5f;--link-inner:#3a3a3a;--hover:#1c1c1c;--warning:#2a1d0e;--tabs:#000;--brand:var(--cyan);--brand-text:#000;--plot-fill:transparent}
+/* A bar of "|" in --bar, one per character cell. */
+html[data-design=tui-classic] :is(.gauge,.meter i,.m-bar i){--pipes:repeating-linear-gradient(90deg,transparent 0 .35ch,var(--bar) .35ch .65ch,transparent .65ch 1ch)}
+html[data-design=tui-classic] body{padding:0 0 2em;line-height:1.4}
+html[data-design=tui-classic] .shell{max-width:none;border:0;box-shadow:none}
+html[data-design=tui-classic] .top{grid-template-columns:auto minmax(0,1fr);border-bottom:0;min-height:0}
+html[data-design=tui-classic] .brand{padding:4px 12px}
+html[data-design=tui-classic] .brand strong{font:700 13px var(--num-font);letter-spacing:0}
+html[data-design=tui-classic] .brand span{border:0;padding:0;font-size:13px}
+html[data-design=tui-classic] .identity{padding:4px 14px;display:flex;gap:2ch;align-items:baseline;min-width:0}
+html[data-design=tui-classic] .identity small{font-size:13px;order:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html[data-design=tui-classic] .identity h1{font:700 13px var(--num-font);margin:0;color:var(--cyan);white-space:nowrap}
+/* Key bar: the key in plain text, its name in reverse video; the open view and an open mini window in green. */
+html[data-design=tui-classic]{scroll-padding-bottom:calc(3em + env(safe-area-inset-bottom))}
+html[data-design=tui-classic] .header-actions{position:fixed;left:0;right:0;bottom:0;z-index:5;background:#000}
+html[data-design=tui-classic] .header-actions button{min-height:0;line-height:1.6;color:var(--ink);background:#000}
+@media(min-width:761px){
+  html[data-design=tui-classic] .header-actions button{padding:0;gap:0}
+  html[data-design=tui-classic] .header-actions button::before{padding:0 .4ch 0 1ch}
+  html[data-design=tui-classic] .header-actions button:not(.theme-toggle)::after{min-width:12ch;padding:0 1ch;background:var(--cyan);color:#000;text-align:left}
+  html[data-design=tui-classic] .header-actions .theme-toggle{padding:0 1ch}
+  html[data-design=tui-classic] .header-actions button:hover::after{background:#5fd7d7}
+  html[data-design=tui-classic] .header-actions :is(.tabs button[aria-selected=true],.mini-open[aria-pressed=true],.settings-open[aria-expanded=true])::after{background:var(--green)}
+  html[data-design=tui-classic] .header-actions .settings-open[aria-expanded=true]{background:#000;color:var(--ink)}
+}
+/* The status line opens with its state in reverse video. */
+html[data-design=tui-classic] .status{border-bottom:0;padding:2px 14px;font-size:13px}
+html[data-design=tui-classic] .status strong i{display:none}
+html[data-design=tui-classic] .status #status-title::before{color:#000;margin-right:1ch;padding:0 .5ch}
+html[data-design=tui-classic] .status.healthy #status-title::before{content:'OK';content:'OK'/'';background:var(--green)}
+html[data-design=tui-classic] .status.error #status-title::before{content:'!!';content:'!!'/'';background:var(--red)}
+html[data-design=tui-classic] .status.stopped #status-title::before{content:'--';content:'--'/'';background:var(--blue)}
+html[data-design=tui-classic] .status .sub{font-size:13px}
+html[data-design=tui-classic] .servers{border-bottom:0;padding:4px 14px}
+html[data-design=tui-classic] .server-row{border:0;padding:2px 1ch;font-size:13px}
+html[data-design=tui-classic] button.server-row[aria-pressed=true]{background:var(--hover);box-shadow:inset 1ch 0 0 -.6ch var(--cyan)}
+html[data-design=tui-classic] .nodes{border-bottom:0}
+html[data-design=tui-classic] .node{box-shadow:none;padding:8px 14px}
+/* The card's name row in reverse video in the node's colour (htop's column header), with black or white text,
+   whichever reads on that colour, so a custom dark colour stays legible. */
+html[data-design=tui-classic] .node header{background:var(--node);color:#000;color:oklch(from var(--node) clamp(0,(.62 - l) * 1000,1) 0 0);padding:0 1ch;margin:0 -1ch}
+html[data-design=tui-classic] .node h2{font:700 13px var(--num-font);letter-spacing:0}
+html[data-design=tui-classic] .node h2::before{display:none}
+html[data-design=tui-classic] .badge{border:0;padding:0 .5ch;font-size:13px;background:#000}
+html[data-design=tui-classic] .role{font-size:13px;margin:2px 0 4px}
+html[data-design=tui-classic] .instrument{grid-template-columns:1fr;gap:2px}
+/* GPU[||||||||      92%] */
+html[data-design=tui-classic] .gauge{--bar:var(--green);width:auto;height:auto;margin:0;text-align:left;display:grid;grid-template-columns:auto auto 1fr auto;align-items:center}
+html[data-design=tui-classic] .gauge svg{display:none}
+html[data-design=tui-classic] .gauge>span{order:1;margin:0;font:700 13px var(--num-font);color:var(--cyan)}
+html[data-design=tui-classic] .gauge::before{content:'[';order:2;font-weight:700}
+html[data-design=tui-classic] .gauge::after{content:'';order:3;height:1.1em;background:var(--pipes) 0/calc(var(--load,0)*1%) 100% no-repeat}
+html[data-design=tui-classic] .gauge strong{order:4;padding:0;font:400 13px var(--num-font);letter-spacing:0;color:var(--muted)}
+html[data-design=tui-classic] .gauge strong small{font-size:13px;margin:0}
+html[data-design=tui-classic] .gauge strong::after{content:']';color:var(--ink);font-weight:700}
+html[data-design=tui-classic] .readings{grid-template-columns:1fr 1fr;gap:0 3ch}
+html[data-design=tui-classic] .reading{flex-direction:row;justify-content:space-between;align-items:baseline;gap:1ch;min-width:0}
+html[data-design=tui-classic] .reading small{font-size:13px;color:var(--cyan)}
+html[data-design=tui-classic] .reading b{font:700 13px var(--num-font)}
+html[data-design=tui-classic] .reading em{font-size:13px}
+html[data-design=tui-classic] .mem{margin-top:2px}
+html[data-design=tui-classic] .memline{font-size:13px;margin:0;color:var(--cyan)}
+html[data-design=tui-classic] .memline span:last-child{color:var(--ink)}
+html[data-design=tui-classic] .meter{position:relative;height:1.2em;padding:.05em 1ch;background:none;font-weight:700}
+html[data-design=tui-classic] .meter::before{content:'[';position:absolute;left:0;top:0}
+html[data-design=tui-classic] .meter::after{content:']';position:absolute;right:0;top:0}
+html[data-design=tui-classic] .meter i{--bar:var(--node);height:1.1em;background:var(--pipes);opacity:1}
+html[data-design=tui-classic] .meter i.warn{--bar:var(--orange)}
+html[data-design=tui-classic] .node details{border-top:0;margin-top:2px;padding-top:0;font-size:13px}
+html[data-design=tui-classic] :is(.left,.right,.trends,.ledger){border:0;padding:8px 14px}
+html[data-design=tui-classic] .lower{border-top:0}
+/* Section heads in reverse video, as htop's column header. */
+html[data-design=tui-classic] .section-head{background:var(--green);color:#000;margin:0 -1ch 6px;padding:0 1ch}
+html[data-design=tui-classic] .section-head h2{font:700 13px var(--num-font);text-transform:uppercase}
+html[data-design=tui-classic] .section-head small{color:#000;font-size:13px}
+html[data-design=tui-classic] .ranges button{border:0;background:transparent;color:#000;padding:0 1ch;font-size:13px}
+html[data-design=tui-classic] .ranges button[aria-pressed=true]{background:var(--cyan);color:#000}
+html[data-design=tui-classic] .plot{border:0}
+html[data-design=tui-classic] .plot-top{inset:4px 0 auto}
+html[data-design=tui-classic] .big{font:700 28px var(--num-font);letter-spacing:0}
+html[data-design=tui-classic] .legend{font-size:13px}
+html[data-design=tui-classic] .engine{border:0;gap:2ch}
+html[data-design=tui-classic] .engine-section{border:0}
+html[data-design=tui-classic] .engine-section h3{border:0;padding:0;color:var(--cyan);font-size:13px;text-transform:uppercase}
+html[data-design=tui-classic] .engine-section:nth-child(2) h3{color:var(--orange)}html[data-design=tui-classic] .engine-section:nth-child(3) h3{color:var(--green)}
+html[data-design=tui-classic] .engine-section dl{padding:2px 0;font-size:13px}
+html[data-design=tui-classic] .engine-section dd{font-size:13px}
+html[data-design=tui-classic] .fabric text{font-family:var(--num-font)}
+html[data-design=tui-classic] .links th{color:var(--cyan);font-size:13px}
+html[data-design=tui-classic] .links td{font-size:13px}
+html[data-design=tui-classic] :is(.links td,.links th){border-bottom:0;padding:3px 4px}
+html[data-design=tui-classic] :is(.ledger-grid b,.kpi b){letter-spacing:0}
+html[data-design=tui-classic] .ledger-bottom{border-top:0}
+html[data-design=tui-classic] .foot{border-top:0;padding:4px 14px;font-size:13px}
+/* Token ledger: a reverse-video title row and tabs, tables with cyan headings. */
+html[data-design=tui-classic] .token-view{padding:8px 14px}
+html[data-design=tui-classic] .ledger-head h2{font:700 13px var(--num-font);text-transform:uppercase;background:var(--green);color:#000;padding:0 1ch}
+html[data-design=tui-classic] .ledger-tabs{border-bottom:0}
+html[data-design=tui-classic] .ledger-tabs button{padding:0 1ch;font-size:13px}
+html[data-design=tui-classic] .ledger-tabs button[aria-selected=true]{background:var(--cyan);color:#000}
+html[data-design=tui-classic] .ledger-tabs button[aria-selected=true]::after{display:none}
+html[data-design=tui-classic] :is(.statement thead th,.model-table thead th){color:var(--cyan);border-bottom-color:var(--line)}
+html[data-design=tui-classic] .kpis{border-color:var(--line)}
+html[data-design=tui-classic] .months button[aria-pressed=true]{background:var(--cyan);color:#000}
+/* Dialogs: htop's setup screen, a cyan title row over a black panel. */
+html[data-design=tui-classic] :is(.settings,.shortcuts){border:1px solid var(--cyan)}
+html[data-design=tui-classic] .settings-head{background:var(--cyan);color:#000;border-bottom:0;padding:4px 10px 4px 14px}
+html[data-design=tui-classic] .settings-head h2{font-size:13px;text-transform:uppercase;letter-spacing:0}
+html[data-design=tui-classic] .settings-close{border:0;color:#000;width:28px;height:28px}
+html[data-design=tui-classic] .shortcuts h2{background:var(--cyan);color:#000;margin:-18px -22px 14px;padding:4px 22px;font-size:13px;text-transform:uppercase}
+html[data-design=tui-classic] .settings-nav button[aria-current=true]{background:var(--cyan);color:#000;box-shadow:none}
+html[data-design=tui-classic] .pills input:checked+span{background:var(--cyan);color:#000}
+html[data-design=tui-classic] .pills label:hover input:checked+span{background:var(--cyan)}
+html[data-design=tui-classic] .settings-foot .primary{background:var(--cyan);border-color:var(--cyan);color:#000}
+html[data-design=tui-classic] .settings-preview .nodes{border-color:var(--line)}
+/* Phones have no keyboard: the key bar becomes a bar of icons, kept above the home indicator. */
+@media(max-width:760px){
+  html[data-design=tui-classic] body{padding-bottom:calc(52px + env(safe-area-inset-bottom))}
+  html[data-design=tui-classic] .top{grid-template-columns:1fr}
+  html[data-design=tui-classic] .identity{border-top:0;flex-wrap:wrap;gap:0 2ch}
+  html[data-design=tui-classic] .header-actions{border-top:1px solid var(--cyan);padding-bottom:env(safe-area-inset-bottom)}
+  html[data-design=tui-classic] .header-actions,html[data-design=tui-classic] .header-actions .tabs{flex:1 1 0}
+  html[data-design=tui-classic] .header-actions button{flex:1 1 0;max-width:none;min-height:48px;color:var(--muted)}
+  html[data-design=tui-classic] .header-actions :is(.tabs button[aria-selected=true],.mini-open[aria-pressed=true]){background:var(--cyan);color:#000}
+  html[data-design=tui-classic] .readings{grid-template-columns:1fr}
+  html[data-design=tui-classic] .settings-nav button[aria-current=true]{box-shadow:none}
+}
+/* The base phone rules shrink these labels to 9 and 10 px; the TUI designs keep their own sizes. */
+html[data-design=tui-panel] :is(.engine-section dt,.ledger-grid small){font-size:12px}
+html[data-design=tui-classic] :is(.engine-section dt,.ledger-grid small){font-size:13px}

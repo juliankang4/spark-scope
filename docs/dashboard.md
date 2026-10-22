@@ -71,7 +71,7 @@ The gear button at the right of the header opens the settings. A preview card sh
 - **Rack panel**: band motion and the kiosk URL with the current units, language and colours, to copy into the kiosk's `SPARK_SCOPE_RACK_URL`. The section appears once a rack panel has read the server in the last 7 days; otherwise Dashboard offers to show it.
 - **About**: the version, the engine and the node count.
 
-Designs: Default, Console (a terminal look, always dark) and Soft (rounded cards with a ring gauge, light and dark). The theme button in the header cycles through the other theme, the system's theme picked by hand, and back to following the system.
+Designs: Default, Console (a terminal look, always dark), Soft (rounded cards with a ring gauge, light and dark), TUI Panel (framed boxes like btop, with the output chart drawn in braille) and TUI Classic (edge to edge like htop, with the header buttons in a key bar at the bottom of the screen). Both TUI designs are always dark and use Spark Scope Mono, made from D2Coding; on a desktop their header buttons show their key and name in text. The theme button in the header cycles through the other theme, the system's theme picked by hand, and back to following the system.
 
 The settings are kept in this browser only, so each browser has its own. "Copy settings link" gives an address that carries them to another browser, for example `/?temp=f&readings=temp,power,disk,clock&bars=unified,disk&lang=ko`; opening it applies them once and drops them from the address. Nothing in the settings changes the server.
 

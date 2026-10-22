@@ -267,7 +267,7 @@ dsh plugin --profile web add dsh-spark-scope
 - 노드 카드: 측정값 네 개와 그 순서, 사용량 막대, 레이블 길이(길게 또는 짧게), 주황색 표시 기준을 정합니다.
 - 색상: 노드마다 색을 팔레트에서 고르거나 직접 선택합니다.
 - 단위: °C 또는 °F, GiB 또는 GB, 24시간제 또는 12시간제를 고릅니다.
-- 대시보드: 언어(English 또는 한국어), 표시할 패널, 차트 기간, 새로 고침 간격, 디자인(기본, 콘솔, 소프트), 테마를 정합니다.
+- 대시보드: 언어(English 또는 한국어), 표시할 패널, 차트 기간, 새로 고침 간격, 디자인(기본, 콘솔, 소프트, TUI 패널, TUI 클래식), 테마를 정합니다.
 - 랙 패널: 하단 띠 움직임을 정하고 현재 설정이 담긴 키오스크 URL을 볼 수 있습니다.
 
 설정은 브라우저마다 따로 저장됩니다. "설정 링크 복사"를 쓰면 다른 브라우저로 옮길 수 있습니다. 자세한 내용은 [웹 페이지](docs/dashboard.md#settings) 문서에 있습니다.
@@ -308,4 +308,4 @@ pull request를 열기 전에 읽어야 할 내용은 [CONTRIBUTING.md](CONTRIBU
 
 ## 라이선스
 
-MIT 라이선스입니다. 전문은 [LICENSE](LICENSE)에 있습니다. `public/fonts/`의 폰트(Archivo, Bebas Neue)는 자체 라이선스인 SIL Open Font License 1.1을 따르며 라이선스 전문이 같은 폴더에 있습니다.
+MIT 라이선스입니다. 전문은 [LICENSE](LICENSE)에 있습니다. `public/fonts/`의 폰트(Archivo, Bebas Neue, 그리고 D2Coding에서 필요한 글자만 추려 이름을 바꾼 Spark Scope Mono)는 자체 라이선스인 SIL Open Font License 1.1을 따르며 라이선스 전문이 같은 폴더에 있습니다.

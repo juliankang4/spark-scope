@@ -314,7 +314,7 @@ const CHECK_SETTINGS = `(() => {
 
 // Korean pages: English words on screen that are neither technical terms kept in English nor data from the fixture
 // (names, hosts, hardware, models, engines, containers, time zones) are text that missed the string table.
-const TERMS = "Mac OS GPU CPU NVMe NIC ACPI TSOC TS0E TS0P TS1E TS1P TGPU TUNC Xid NO MEMORY TP rank TTFT TPOT KV cache Prefill Decode Spec acceptance tok API QSFP SPARK SCOPE Spark Scope MHz GiB GB TiB TB Gb SSH RAM VRAM nvidia smi ms English rack URL DECODE PREFILL CSV Wh Ctrl Cmd Alt";
+const TERMS = "Mac OS GPU CPU NVMe NIC ACPI TSOC TS0E TS0P TS1E TS1P TGPU TUNC Xid NO MEMORY TP rank TTFT TPOT KV cache Prefill Decode Spec acceptance tok API QSFP SPARK SCOPE Spark Scope MHz GiB GB TiB TB Gb SSH RAM VRAM nvidia smi ms English rack URL DECODE PREFILL CSV Wh Ctrl Cmd Alt TUI";
 function dataWords(state) {
   const values = [state.usage?.timeZone, state.usage?.modelName, state.inference?.modelName, state.inference?.engine, state.serving?.engine, ...LEDGER_MODELS];
   for (const node of state.topology?.nodes ?? []) values.push(node.id, node.name, node.host, node.hardware);
@@ -618,28 +618,47 @@ try {
     await web.close();
   }
 
-  // The two other designs: the main view, the token ledger and the settings dialog. Console stays dark even with a
-  // light system theme; in Soft the ring value ("88%" as one unit) and its label sit centred on the ring.
-  for (const [design, label, width, height, scheme] of [["console", "desktop", 1440, 1000, "light"], ["console", "phone", 390, 844, "dark"], ["soft", "desktop", 1440, 1000, "light"], ["soft", "desktop", 1440, 1000, "dark"], ["soft", "phone", 390, 844, "dark"]]) {
+  // The other designs: the main view, the token ledger and the settings dialog. Console and the TUI designs stay dark
+  // even with a light system theme; in Soft the ring value ("88%" as one unit) and its label sit centred on the ring.
+  // The TUI designs load Spark Scope Mono and name the header buttons in text on a desktop; TUI Panel draws the output
+  // in braille instead of the SVG line, and TUI Classic pins the header buttons to the bottom as its key bar.
+  for (const [design, label, width, height, scheme] of [["console", "desktop", 1440, 1000, "light"], ["console", "phone", 390, 844, "dark"], ["soft", "desktop", 1440, 1000, "light"], ["soft", "desktop", 1440, 1000, "dark"], ["soft", "phone", 390, 844, "dark"], ["tui-panel", "desktop", 1440, 1000, "light"], ["tui-panel", "tablet", 768, 1024, "dark"], ["tui-panel", "phone", 390, 844, "dark"], ["tui-classic", "desktop", 1440, 1000, "light"], ["tui-classic", "phone", 390, 844, "dark"]]) {
     const web = await openPage({ width, height, colorScheme: scheme });
     current = { count: 4, mode: "serving", longNames: false };
     await web.go(`${base}/?design=${design}`);
     await web.waitFor("document.querySelectorAll('#nodes .node').length > 0 && /\\d/.test(document.querySelector('#updated-at').textContent)");
     await new Promise((resolve) => setTimeout(resolve, 300));
+    if (design.startsWith("tui")) await web.evaluate("document.fonts.ready.then(() => true)");
     const look = await web.evaluate(`(() => {
       const gauge = document.querySelector('#nodes .node .gauge'), value = gauge.querySelector('strong'), label = gauge.querySelector('span');
       const range = document.createRange(); range.selectNodeContents(value);
       const g = gauge.getBoundingClientRect(), v = range.getBoundingClientRect(), l = label.getBoundingClientRect();
       return { design: document.documentElement.dataset.design, scheme: getComputedStyle(document.documentElement).colorScheme,
-        dx: (v.left + v.right) / 2 - (g.left + g.right) / 2, dy: (Math.min(v.top, l.top) + Math.max(v.bottom, l.bottom)) / 2 - (g.top + g.bottom) / 2 };
+        dx: (v.left + v.right) / 2 - (g.left + g.right) / 2, dy: (Math.min(v.top, l.top) + Math.max(v.bottom, l.bottom)) / 2 - (g.top + g.bottom) / 2,
+        mono: [...document.fonts].some((face) => face.family.includes('Spark Scope Mono') && face.status === 'loaded'),
+        braille: (document.querySelector('#output-braille').textContent.match(/[\\u2801-\\u28ff]/g) || []).length,
+        outputLine: getComputedStyle(document.querySelector('#output-line')).display,
+        barGap: innerHeight - document.querySelector('.header-actions').getBoundingClientRect().bottom,
+        tabName: getComputedStyle(document.querySelector('#tab-scope'), '::after').content,
+        // TUI Panel border titles: a heading cut short, or running into the note on the right of the same frame.
+        clipped: [...document.querySelectorAll('.section-head')].filter((head) => {
+          const title = head.querySelector('h2'), note = head.querySelector(':scope>small');
+          if (!title?.getClientRects().length || getComputedStyle(title).position !== 'absolute') return false;
+          return title.scrollWidth > title.clientWidth + 1 || (note?.getClientRects().length && title.getBoundingClientRect().right > note.getBoundingClientRect().left);
+        }).map((head) => head.querySelector('h2').textContent) };
     })()`);
     const problems = [...await web.evaluate(CHECK_WEB), ...web.errors.splice(0)];
     if (look.design !== design) problems.push("design not applied: " + look.design);
-    if (design === "console" && look.scheme !== "dark") problems.push("Console is not dark: " + look.scheme);
+    if (["console", "tui-panel", "tui-classic"].includes(design) && look.scheme !== "dark") problems.push(design + " is not dark: " + look.scheme);
+    if (design.startsWith("tui") && !look.mono) problems.push("Spark Scope Mono not loaded");
+    if (design.startsWith("tui") && label === "desktop" && !/^".+"$/.test(look.tabName)) problems.push("header button shows no name: " + look.tabName);
+    if (design === "tui-panel" && (look.braille === 0 || look.outputLine !== "none")) problems.push(`braille output: ${look.braille} cells lit, SVG line ${look.outputLine}`);
+    if (look.clipped.length) problems.push("border title cut short: " + look.clipped.join(", "));
+    if (design === "tui-classic" && Math.abs(look.barGap) > 1) problems.push(`key bar ${look.barGap.toFixed(1)} px above the bottom`);
     if (design === "soft" && (Math.abs(look.dx) > 1.5 || Math.abs(look.dy) > 1.5)) problems.push(`ring value off centre by ${look.dx.toFixed(1)}, ${look.dy.toFixed(1)} px`);
     const name = `web-${label}-${design}-${scheme}.png`;
     await web.shoot(name, { fullPage: true });
-    report(name, [`ring value offset: ${look.dx.toFixed(1)}, ${look.dy.toFixed(1)} px`], problems);
+    report(name, [`ring value offset: ${look.dx.toFixed(1)}, ${look.dy.toFixed(1)} px`, `braille cells lit: ${look.braille}`], problems);
     await web.evaluate("document.querySelector('#tab-tokens').click()");
     await web.waitFor("document.querySelectorAll('#ledger-panel .statement tbody tr').length > 1");
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -649,6 +668,19 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 300));
     await web.shoot(`web-${label}-${design}-${scheme}-settings.png`);
     report(`web-${label}-${design}-${scheme}-settings.png`, [], [...await web.evaluate(CHECK_SETTINGS), ...web.errors.splice(0)]);
+    if (design === "tui-classic") {
+      // The fault badge: its own text colour on the state colour, with room before the title.
+      current = { count: 4, mode: "fault", longNames: false };
+      await web.go(`${base}/?design=${design}`);
+      await web.waitFor("/\\d/.test(document.querySelector('#updated-at').textContent)");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const badge = await web.evaluate(`(() => { const s = getComputedStyle(document.querySelector('#status-title'), '::before');
+        return { state: document.querySelector('.status').className, content: s.content, color: s.color, background: s.backgroundColor, padding: s.paddingLeft }; })()`);
+      const faultName = `web-${label}-${design}-${scheme}-fault.png`;
+      await web.shoot(faultName);
+      report(faultName, [`status: ${badge.state}, badge ${badge.content} ${badge.color} on ${badge.background}`],
+        [...(/error|stopped/.test(badge.state) && badge.color !== badge.background && badge.padding !== "0px" ? [] : ["fault badge unreadable or missing"]), ...web.errors.splice(0)]);
+    }
     await web.evaluate("localStorage.clear()");
     await web.close();
   }
@@ -656,7 +688,7 @@ try {
   // The mini window (/mini/, the same view the picture-in-picture window shows): Glance, Scope and Runs (with one
   // recorded run) behind tabs in the default size, Glance in a short, wide window and all three stacked in a window
   // taller than 720 px, in each design, and the default size in Korean.
-  for (const [design, scheme, lang] of [["default", "dark", "en"], ["console", "dark", "en"], ["soft", "light", "en"], ["default", "light", "ko"]]) {
+  for (const [design, scheme, lang] of [["default", "dark", "en"], ["console", "dark", "en"], ["soft", "light", "en"], ["default", "light", "ko"], ["tui-panel", "dark", "en"], ["tui-classic", "dark", "ko"]]) {
     for (const [shape, width, height] of [["tall", 340, 560], ["wide", 520, 190], ["stacked", 340, 1100]]) {
       if (lang === "ko" && shape !== "tall") continue;
       const page = await openPage({ width, height, colorScheme: scheme });
@@ -733,7 +765,7 @@ try {
 
   // A desktop browser without document picture-in-picture (Safari): the button switches the page to the mini view, in
   // one centred column, stacked in a tall window and behind tabs in a short one; the next visit opens in it again.
-  for (const [design, scheme, height] of [["default", "light", 1000], ["soft", "dark", 1000], ["console", "dark", 640]]) {
+  for (const [design, scheme, height] of [["default", "light", 1000], ["soft", "dark", 1000], ["console", "dark", 640], ["tui-classic", "dark", 1000]]) {
     const page = await openPage({ width: 1440, height, colorScheme: scheme, noPip: true });
     current = { count: 4, mode: "serving", longNames: false };
     await page.go(`${base}/`);
@@ -907,7 +939,7 @@ try {
     await page.close();
   }
 
-  for (const [width, height] of [[1440, 1000], [768, 1024], [390, 844]]) for (const design of ["default", "console", "soft"]) for (const lang of ["en", "ko"]) for (const macNodes of width === 1440 && design === "default" ? [2, 1] : [2]) {
+  for (const [width, height] of [[1440, 1000], [768, 1024], [390, 844]]) for (const design of ["default", "console", "soft", "tui-panel", "tui-classic"]) for (const lang of ["en", "ko"]) for (const macNodes of width === 1440 && design === "default" ? [2, 1] : [2]) {
     const web = await openPage({ width, height });
     current = { count: 2, mode: "serving", macNodes };
     await web.go(`${base}/?design=${design}&lang=${lang}`);
@@ -1145,7 +1177,7 @@ try {
 
   for (const [engine, activity] of [["vLLM", "serving"], ["SGLang", "serving"], ["llama.cpp", "serving"], ["Strata", "serving"], ["TensorFold", "serving"], ["llama.cpp", "idle"], ["Strata", "idle"], ["TensorFold", "idle"], ["llama.cpp", "down"], ["Strata", "down"], ["TensorFold", "down"], ["oMLX", "serving"], ["oMLX", "idle"], ["oMLX", "down"], ["oMLX", "key"]]) {
     current = { count: engine === "oMLX" ? 1 : 4, macNodes: engine === "oMLX" ? 1 : 0, mode: "serving", engine, engineIdle: activity === "idle", engineDown: activity === "down", engineKeyMissing: activity === "key", noSpec: true };
-    const looks = [["en", "default"], ["ko", "default"], ...(activity === "serving" ? [["en", "console"], ["en", "soft"], ["ko", "soft"]] : [])];
+    const looks = [["en", "default"], ["ko", "default"], ...(activity === "serving" ? [["en", "console"], ["en", "soft"], ["ko", "soft"], ["ko", "tui-classic"]] : [])];
     for (const [lang, design] of looks) {
       const engineState = fixtureState(current.count, "serving", Date.now(), current);
       const engineName = engine === "llama.cpp" ? "llamacpp" : engine.toLowerCase();
@@ -1325,6 +1357,7 @@ try {
     ["default", "light", "desktop", "en", LEDGER_SCENARIO.months], ["default", "dark", "phone", "en", LEDGER_SCENARIO.months],
     ["default", "light", "desktop", "ko", [fullMonth]], ["default", "dark", "phone", "ko", [fullMonth]],
     ["console", "dark", "desktop", "en", [fullMonth]], ["soft", "light", "desktop", "en", [fullMonth]], ["soft", "dark", "phone", "en", [fullMonth]],
+    ["tui-panel", "dark", "desktop", "ko", [fullMonth]], ["tui-classic", "dark", "phone", "en", [fullMonth]],
   ];
   for (const [design, scheme, label, lang, months] of LEDGER_CASES) {
     const [width, height] = SIZES[label];

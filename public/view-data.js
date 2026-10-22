@@ -291,6 +291,44 @@ export function chartPath(points, key, { start, end, width = 800, height = 140, 
   }
   return commands.join(' ');
 }
+// The same series as chartPath, as rows of braille cells (2 dots wide, 4 high) with the area under the line filled.
+// top, bottom and height are chartPath's margins, so the cells line up with the SVG drawn over the same box. A known
+// value always lights its baseline dot; a column with no value stays blank, so a gap never reads as zero.
+const BRAILLE_BITS = [[0x01, 0x02, 0x04, 0x40], [0x08, 0x10, 0x20, 0x80]];
+export function brailleChart(points, key, { start, end, cols, rows, min = 0, max = 1, height = 140, top = 4, bottom = 4 }) {
+  const pick = typeof key === 'function' ? key : point => point[key];
+  const width = cols * 2, dots = rows * 4, levels = new Array(width).fill(null);
+  const base = Math.round(bottom / height * dots), span = Math.max(1, dots - base - Math.round(top / height * dots));
+  const raise = (column, value) => { if (column >= 0 && column < width) levels[column] = Math.max(levels[column] ?? -Infinity, value); };
+  let previous = null;
+  for (const point of points) {
+    const value = pick(point);
+    if (!finite(value) || !finite(point.at)) { previous = null; continue; }
+    // A sample outside the window lights nothing itself; it only anchors the line into the edge columns.
+    const x = (point.at - start) / Math.max(1, end - start) * width;
+    if (x <= width) raise(Math.min(width - 1, Math.floor(x)), value);
+    // Columns whose centre lies between two connected samples take the value on the line between them.
+    if (previous) for (let column = Math.ceil(previous.x - .5); column + .5 <= x; column++) {
+      raise(column, previous.value + (value - previous.value) * (column + .5 - previous.x) / Math.max(1e-9, x - previous.x));
+    }
+    previous = { x, value };
+  }
+  const tall = levels.map(value => value === null ? 0 : 1 + Math.round(Math.min(1, Math.max(0, (value - min) / Math.max(.001, max - min))) * (span - 1)));
+  const lines = [];
+  for (let row = 0; row < rows; row++) {
+    let line = '';
+    for (let cell = 0; cell < cols; cell++) {
+      let bits = 0;
+      for (let side = 0; side < 2; side++) for (let dot = 0; dot < 4; dot++) {
+        const above = dots - 1 - (row * 4 + dot) - base;
+        if (above >= 0 && above < tall[cell * 2 + side]) bits |= BRAILLE_BITS[side][dot];
+      }
+      line += String.fromCharCode(0x2800 + bits);
+    }
+    lines.push(line);
+  }
+  return lines.join('\n');
+}
 export function validateMonth(payload, requestedMonth) {
   if (!payload || payload.error || payload.month !== requestedMonth || !Array.isArray(payload.days)) throw new Error('invalid monthly ledger response');
   for (const field of ['input', 'compute', 'cache', 'output', 'requests', 'total']) {

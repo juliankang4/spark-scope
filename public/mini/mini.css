@@ -99,7 +99,7 @@ body.m-page,body.m-pip,.m-inline{margin:0;padding:0;background:var(--paper);colo
   .m-wide-nodes div{display:grid;grid-template-columns:minmax(0,auto) 1fr auto;gap:6px;align-items:center;font:500 11px var(--num-font)}
   .m-wide-nodes div>span:first-child{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:70px}
 }
-/* Designs: Console squares everything off in monospace, Soft rounds it. */
+/* Designs: Console squares everything off in monospace, Soft rounds it; the TUI designs follow below. */
 html[data-design=soft] .m-tabs{border:0;background:var(--hover);border-radius:999px;padding:2px}
 html[data-design=soft] .m-tabs button{border-radius:999px}
 html[data-design=soft] .m-tabs button+button{border-left:0}
@@ -110,6 +110,17 @@ html[data-design=soft] .m-rec button,html[data-design=soft] .m-phase span{border
 html[data-design=console] .m-bar{background:repeating-linear-gradient(90deg,var(--meter) 0 5px,transparent 5px 7px)}
 html[data-design=console] .m-bar i{background:repeating-linear-gradient(90deg,var(--node) 0 5px,transparent 5px 7px)}
 html[data-design=console] .m-metric small::before{content:'> '}
+/* TUI Panel: block bars and rounded frames; TUI Classic: bars of "|" and reverse-video tabs (designs.css). */
+html[data-design=tui-panel] .m-bar{-webkit-mask:repeating-linear-gradient(90deg,#000 0 5px,transparent 5px 7px);mask:repeating-linear-gradient(90deg,#000 0 5px,transparent 5px 7px)}
+html[data-design=tui-panel] :is(.m-tabs,.m-scope,.m-stats){border-radius:4px}
+html[data-design=tui-panel] .m-tabs button[aria-selected=true]{background:var(--green);color:var(--paper)}
+html[data-design=tui-panel] .m-rec button{background:var(--green);border-color:var(--green);color:var(--paper)}
+html[data-design=tui-classic] .m-bar{background:none}
+html[data-design=tui-classic] .m-bar i{--bar:var(--node);background:var(--pipes)}
+html[data-design=tui-classic] .m-bar.m-mem i{--bar:color-mix(in srgb,var(--node) 55%,var(--meter))}
+html[data-design=tui-classic] .m-tabs{border-color:var(--cyan)}
+html[data-design=tui-classic] .m-tabs button[aria-selected=true]{background:var(--cyan);color:#000}
+html[data-design=tui-classic] .m-rec button{background:var(--cyan);border-color:var(--cyan);color:#000}
 /* A phone or a tall window: the parts follow one another, each as tall as its content, after a rule and its name. */
 .m-stacked .m-body{flex:none}
 .m-stacked .m-foot{margin-top:0}
