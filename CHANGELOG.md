@@ -1,16 +1,38 @@
 # Changelog
 
-## Unreleased
+## 0.1.5 (2026-10-23)
+
+<p align="center"><img src="docs/changes/0.1.5/dashboard-tui-panel.png" alt="Web dashboard in the TUI Panel design: framed boxes with titles in the border and the output chart drawn in braille" width="820"></p>
+
+<p align="center"><img src="docs/changes/0.1.5/dashboard-tui-classic.png" alt="Web dashboard in the TUI Classic design: reverse-video headers, pipe meters and a key bar at the bottom" width="820"></p>
 
 ### Added
 
-- NVIDIA Flare, read from its Prometheus metrics:
-  - output speed, running and waiting requests, cache hit since start, speculative acceptance and completed requests;
-  - no prefill or cache-read speed, TTFT, TPOT or KV cache.
+- Two designs, TUI Panel and TUI Classic, next to Default, Console and Soft in Settings, Dashboard ([#52](https://github.com/juliankang4/spark-scope/pull/52)):
+  - TUI Panel puts each part in a frame with its title in the border, with a block GPU load bar and the output chart drawn in braille;
+  - TUI Classic runs edge to edge with reverse-video headers, `[||||  92%]` meters and the header buttons in a key bar at the bottom of the screen;
+  - both are always dark and use Spark Scope Mono, a subset of D2Coding under the SIL Open Font License 1.1, renamed as its Reserved Font Name requires;
+  - the mini window, the token ledger and the settings dialog follow the design.
+- bloomery, a llama-server compatible engine, is named as itself instead of llama.cpp ([#54](https://github.com/juliankang4/spark-scope/pull/54)):
+  - live output speed and context used from its `/slots`;
+  - the run's start time from its `/metrics` response.
+- NVIDIA Flare, read from its `flare_` metrics ([#55](https://github.com/juliankang4/spark-scope/pull/55)):
+  - output speed, computed and cached input, cache hit since start, running and waiting requests and speculative acceptance;
+  - prefill speed, TTFT, TPOT and mean decode stay hidden, because Flare does not export them;
+  - a Flare started with a serving key needs `SPARK_SCOPE_API_KEY` (or `apiKeyEnv`) for the model name and the token ledger.
+
+### Changed
+
+- The pages lay out and rebuild less on each poll; the rack panel fits its bay footers in one pass ([#53](https://github.com/juliankang4/spark-scope/pull/53)).
+- The mini window button is labelled "Open mini window" or "Close mini window" for screen readers ([#52](https://github.com/juliankang4/spark-scope/pull/52)).
+- The TensorFold Python CUDA server's shorter metric names for running, waiting and KV usage are read ([#50](https://github.com/juliankang4/spark-scope/pull/50)).
 
 ### Fixed
 
 - Kernel diagnostics resume from a journal cursor, keep the 24-hour error counts and show the newest matching error ([#51](https://github.com/juliankang4/spark-scope/pull/51)).
+- The token ledger books a run once when its start time first appears or is missing for one poll, instead of counting it again ([#54](https://github.com/juliankang4/spark-scope/pull/54)).
+- The token ledger's calendar and month list no longer close their dropdowns or lose focus on each poll ([#53](https://github.com/juliankang4/spark-scope/pull/53)).
+- A node name was not escaped in the colour picker's label, and the mini window's run CSV download was never released ([#53](https://github.com/juliankang4/spark-scope/pull/53)).
 
 ## 0.1.4 (2026-10-09)
 
