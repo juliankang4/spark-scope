@@ -8,7 +8,7 @@
 /* ===== Console: a terminal look, dark only (it ignores the theme setting) ===== */
 html[data-design=console]{color-scheme:dark;--text-font:ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;--num-font:ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
   --paper:#0c110e;--chassis:#060908;--ink:#d9f2df;--muted:#7f9c87;--line:#1e3326;--blue:#5fd7e8;--orange:#ffb454;--green:#7ee787;--red:#ff7b72;--purple:#d2a8ff;--gold:#e3c66b;--magenta:#ff8fd0;--umber:#c9b8a4;
-  --grid:rgba(126,231,135,.09);--screen:#08100b;--track:#16261b;--meter:#16261b;--link:#3f6a4b;--link-inner:#284433;--hover:#122219;--warning:#2a1d0e;--tabs:#09110c;--brand:#060908;--brand-text:#7ee787;--plot-fill:transparent}
+  --grid:rgba(126,231,135,.09);--screen:#08100b;--track:#16261b;--meter:#16261b;--link:#3f6a4b;--hover:#122219;--warning:#2a1d0e;--tabs:#09110c;--brand:#060908;--brand-text:#7ee787;--plot-fill:transparent}
 html[data-design=console] .node:nth-child(8n+4){--node:#e6edf3}
 html[data-design=console] body{font-size:13px}
 html[data-design=console] .shell{border:1px solid var(--line);box-shadow:none}
@@ -60,9 +60,9 @@ html[data-design=console] .chart-box{background:var(--screen) linear-gradient(tr
 /* ===== Soft: rounded widgets, light and dark ===== */
 html[data-design=soft]{--text-font:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,'Helvetica Neue',sans-serif;--num-font:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',Roboto,'Helvetica Neue',sans-serif;
   --paper:#ffffff;--chassis:#eef0f3;--ink:#1c1e22;--muted:#6b7280;--line:#e4e6ea;--blue:#2563eb;--orange:#ea580c;--green:#059669;--red:#dc2626;--purple:#7c3aed;--gold:#a16207;--magenta:#db2777;--umber:#92745c;
-  --grid:rgba(28,30,34,.06);--screen:#f8f9fb;--track:#e8eaee;--meter:#eceef2;--link:#9aa3af;--link-inner:#c7ccd4;--hover:#f1f3f6;--warning:#fdf1e7;--tabs:#ffffff;--brand:#1c1e22;--brand-text:#ffffff;--plot-fill:#2563eb14}
+  --grid:rgba(28,30,34,.06);--screen:#f8f9fb;--track:#e8eaee;--meter:#eceef2;--link:#9aa3af;--hover:#f1f3f6;--warning:#fdf1e7;--tabs:#ffffff;--brand:#1c1e22;--brand-text:#ffffff;--plot-fill:#2563eb14}
 html[data-design=soft][data-theme=dark]{color-scheme:dark;--paper:#1c1c1f;--chassis:#111113;--ink:#f2f2f4;--muted:#a1a1aa;--line:#2b2b30;--blue:#60a5fa;--orange:#fb923c;--green:#34d399;--red:#f87171;--purple:#a78bfa;--gold:#facc15;--magenta:#f472b6;--umber:#c4a487;
-  --grid:rgba(255,255,255,.06);--screen:#18181b;--track:#2e2e33;--meter:#2a2a2f;--link:#71717a;--link-inner:#52525b;--hover:#26262a;--warning:#33241a;--tabs:#1c1c1f;--brand:#f2f2f4;--brand-text:#111113;--plot-fill:#60a5fa14}
+  --grid:rgba(255,255,255,.06);--screen:#18181b;--track:#2e2e33;--meter:#2a2a2f;--link:#71717a;--hover:#26262a;--warning:#33241a;--tabs:#1c1c1f;--brand:#f2f2f4;--brand-text:#111113;--plot-fill:#60a5fa14}
 html[data-design=soft] body{background:var(--chassis)}
 /* The page becomes a column of rounded cards on the background. */
 html[data-design=soft] .shell{background:transparent;border:0;box-shadow:none;display:grid;gap:14px}
@@ -152,7 +152,7 @@ html:is([data-design=tui-panel],[data-design=tui-classic]) .node.is-unknown .gau
 
 /* ----- TUI Panel: like btop. Each part is a framed box with its title cut into the top border. ----- */
 html[data-design=tui-panel]{--paper:#0e1013;--chassis:#0e1013;--ink:#e3e5e8;--muted:#8a919b;--line:#3b414a;--blue:#58b4ff;--orange:#ff9e57;--green:#5fd38d;--red:#ff6b6b;--purple:#c49bff;--gold:#e8c55c;--magenta:#ff7ac6;--umber:#c7b299;
-  --grid:rgba(255,255,255,.045);--screen:#0e1013;--track:#252a31;--meter:#252a31;--link:#4a5260;--link-inner:#333a44;--hover:#1b1f25;--warning:#2b2016;--tabs:transparent;--brand:transparent;--brand-text:var(--green);--plot-fill:transparent;
+  --grid:rgba(255,255,255,.045);--screen:#0e1013;--track:#252a31;--meter:#252a31;--link:#4a5260;--hover:#1b1f25;--warning:#2b2016;--tabs:transparent;--brand:transparent;--brand-text:var(--green);--plot-fill:transparent;
   --ramp:linear-gradient(90deg,#5fd38d,#e8c55c 65%,#ff6b6b);--blocks:repeating-linear-gradient(90deg,#000 0 6px,transparent 6px 8px)}
 html[data-design=tui-panel] .shell{border:0;box-shadow:none}
 html[data-design=tui-panel] :is(.top,.status,.servers,.node,.left,.right,.trend,.ledger,.token-view){position:relative;border:1px solid var(--line);border-radius:5px;margin:11px 5px 4px}
@@ -267,7 +267,7 @@ html[data-design=tui-panel] .settings-preview .nodes{border:0}
 /* ----- TUI Classic: like htop. Edge to edge, reverse-video header rows, [|||| ] meters, and the header buttons
    pinned to the bottom of the screen as the key bar. ----- */
 html[data-design=tui-classic]{--paper:#000;--chassis:#000;--ink:#d7d7d7;--muted:#8a8a8a;--line:#303030;--blue:#5f9fff;--orange:#ffaf5f;--green:#5fd75f;--red:#ff5f5f;--purple:#d787ff;--gold:#ffd75f;--magenta:#ff87d7;--umber:#d7af87;--cyan:#00afaf;
-  --grid:rgba(255,255,255,.05);--screen:#000;--track:#262626;--meter:#262626;--link:#5f5f5f;--link-inner:#3a3a3a;--hover:#1c1c1c;--warning:#2a1d0e;--tabs:#000;--brand:var(--cyan);--brand-text:#000;--plot-fill:transparent}
+  --grid:rgba(255,255,255,.05);--screen:#000;--track:#262626;--meter:#262626;--link:#5f5f5f;--hover:#1c1c1c;--warning:#2a1d0e;--tabs:#000;--brand:var(--cyan);--brand-text:#000;--plot-fill:transparent}
 /* A bar of "|" in --bar, one per character cell. */
 html[data-design=tui-classic] :is(.gauge,.meter i,.m-bar i){--pipes:repeating-linear-gradient(90deg,transparent 0 .35ch,var(--bar) .35ch .65ch,transparent .65ch 1ch)}
 html[data-design=tui-classic] body{padding:0 0 2em;line-height:1.4}

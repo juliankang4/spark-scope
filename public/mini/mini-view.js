@@ -357,12 +357,14 @@ export function mountMini(doc, win, { onBack, container = doc.body, getSettings 
       return;
     }
     if (target.dataset.run === 'csv') {
-      const link = doc.createElement('a');
-      link.href = win.URL.createObjectURL(new win.Blob([runsCsv(runs)], { type: 'text/csv' }));
+      // A temporary Blob URL, released once the download has started (as the dashboard's ledger CSV does).
+      const link = doc.createElement('a'), url = win.URL.createObjectURL(new win.Blob([runsCsv(runs)], { type: 'text/csv' }));
+      link.href = url;
       link.download = 'spark-scope-runs.csv';
       doc.body.append(link);
       link.click();
       link.remove();
+      win.setTimeout(() => win.URL.revokeObjectURL(url), 1000);
     }
   });
 

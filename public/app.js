@@ -26,6 +26,12 @@ const ledgerToday = () => localDay(Date.now(), ledgerTimeZone);
 let selectedMonth = ledgerToday().slice(0,7), earliestMonth = null, monthPicked = false;
 // Unchanged text is left alone, so live regions only speak when something actually changes.
 function text(selector, value) { const el = $(selector); if (el.textContent !== value) el.textContent = value; el.classList.toggle('unknown-value', value === unknown() || value === t('common.stopped')); }
+// Markup is replaced only when it differs from what was last written there, so a poll does not move the focus, close
+// an open list or restart a hover. The written string is kept because the browser spells some markup differently when
+// it reads it back (disabled as disabled="", "/>", entities), so innerHTML never compares equal. Content replaced by
+// other code (its first child changed) is written again.
+const written=new WeakMap();
+function setHtml(target,html){const el=typeof target==='string'?$(target):target,last=written.get(el);if(last?.html===html&&last.first===el.firstChild)return;el.innerHTML=html;written.set(el,{html,first:el.firstChild})}
 // Theme: follows the system until picked; the button cycles through the other look, the system's look and back to system.
 const themeToggle=$('#theme-toggle'),darkQuery=matchMedia('(prefers-color-scheme: dark)');
 function applyTheme() {
@@ -66,7 +72,7 @@ function renderNode(meta,node,root=$('#nodes')) {
   for(const name of ['role','connection']){const field=el.querySelector(`[data-node="${name}"]`);field.title=field.textContent}
   // GPU load: the figure with a small "%", and --load for the designs that draw it as a ring or a bar.
   const gpu=ok?node.gpu:{},load=finite(gpu?.utilization)?Math.max(0,Math.min(100,gpu.utilization)):null,gauge=el.querySelector('[data-node="gpu"]');
-  const gaugeHtml=load===null?esc(u):`${fixed(gpu.utilization,0)}<small>%</small>`;if(gauge.innerHTML!==gaugeHtml)gauge.innerHTML=gaugeHtml;
+  setHtml(gauge,load===null?esc(u):`${fixed(gpu.utilization,0)}<small>%</small>`);
   gauge.classList.toggle('unknown-value',load===null);gauge.classList.toggle('full',load!==null&&gpu.utilization>=99.5);el.style.setProperty('--load',String(load??0));
   const mem=settings.mem,memUnit=memoryUnit(mem),tempUnit=temperatureUnit(settings.temp);
   const gpuMem=gpuMemory(node),wording=memoryWording([gpuMem.kind]);
@@ -98,10 +104,10 @@ function renderLinks(state) {
   const topology=state?.topology??lastTopology,links=topology?.links??[],layout=fabricLayout(topology);
   const visible=Boolean(layout)&&!settings.hide.includes('interconnect');$('#fabric-panel').hidden=!visible;$('#body-grid').classList.toggle('no-fabric',!visible);
   if(!layout)return;
-  $('#link-rows').innerHTML=links.map(link=>{const live=state?.ringLinks?.[link.id],st=live?.state??'unknown',planes=link.planes??['a','b'],color=st==='up'&&!live.slow?'green':st==='down'?'red':st==='unknown'?'muted':'orange';const rate=plane=>planes.includes(plane)?fixed(live?.[plane]?.rateGbps,2):'—';return `<tr><td>${esc(link.label.replace('–',' ↔ '))}</td><td>${rate('a')}</td><td>${rate('b')}</td><td style="color:var(--${color})">${esc(linkText(live))}</td></tr>`}).join('');
-  $('#fabric-links').innerHTML=layout.links.map(line=>{const live=state?.ringLinks?.[line.id],[stroke,dash]=LINK_STROKE[live?.state==='up'&&live.slow?'slow':live?.state??'unknown']??LINK_STROKE.unknown;return `<line x1="${line.x1.toFixed(1)}" y1="${line.y1.toFixed(1)}" x2="${line.x2.toFixed(1)}" y2="${line.y2.toFixed(1)}" style="stroke:${stroke}${dash?`;stroke-dasharray:${dash}`:''}"><title>${esc(links.find(link=>link.id===line.id)?.label??line.id)}: ${esc(linkText(live))}</title></line>`}).join('');
+  setHtml('#link-rows',links.map(link=>{const live=state?.ringLinks?.[link.id],st=live?.state??'unknown',planes=link.planes??['a','b'],color=st==='up'&&!live.slow?'green':st==='down'?'red':st==='unknown'?'muted':'orange';const rate=plane=>planes.includes(plane)?fixed(live?.[plane]?.rateGbps,2):'—';return `<tr><td>${esc(link.label.replace('–',' ↔ '))}</td><td>${rate('a')}</td><td>${rate('b')}</td><td style="color:var(--${color})">${esc(linkText(live))}</td></tr>`}).join(''));
+  setHtml('#fabric-links',layout.links.map(line=>{const live=state?.ringLinks?.[line.id],[stroke,dash]=LINK_STROKE[live?.state==='up'&&live.slow?'slow':live?.state??'unknown']??LINK_STROKE.unknown;return `<line x1="${line.x1.toFixed(1)}" y1="${line.y1.toFixed(1)}" x2="${line.x2.toFixed(1)}" y2="${line.y2.toFixed(1)}" style="stroke:${stroke}${dash?`;stroke-dasharray:${dash}`:''}"><title>${esc(links.find(link=>link.id===line.id)?.label??line.id)}: ${esc(linkText(live))}</title></line>`}).join(''));
   // Short ids sit in a circle; longer ones in a pill sized to the label, with the full id and name on hover.
-  $('#fabric-nodes').innerHTML=layout.nodes.map(node=>{const width=labelWidth(node.label),meta=topology.nodes.find(item=>item.id===node.id),x=node.x.toFixed(1),y=node.y.toFixed(1),color=nodeColor(settings.colors,topology.nodes.findIndex(item=>item.id===node.id));const shape=width===38?`<circle cx="${x}" cy="${y}" r="19" style="stroke:${color}"/>`:`<rect x="${(node.x-width/2).toFixed(1)}" y="${(node.y-16).toFixed(1)}" width="${width}" height="32" rx="16" style="stroke:${color}"/>`;return `<g><title>${esc(node.id)}${meta?.name&&meta.name!==node.id?` | ${esc(meta.name)}`:''}</title>${shape}<text class="label" x="${x}" y="${(node.y+4).toFixed(1)}" text-anchor="middle">${esc(node.label)}</text></g>`}).join('');
+  setHtml('#fabric-nodes',layout.nodes.map(node=>{const width=labelWidth(node.label),meta=topology.nodes.find(item=>item.id===node.id),x=node.x.toFixed(1),y=node.y.toFixed(1),color=nodeColor(settings.colors,topology.nodes.findIndex(item=>item.id===node.id));const shape=width===38?`<circle cx="${x}" cy="${y}" r="19" style="stroke:${color}"/>`:`<rect x="${(node.x-width/2).toFixed(1)}" y="${(node.y-16).toFixed(1)}" width="${width}" height="32" rx="16" style="stroke:${color}"/>`;return `<g><title>${esc(node.id)}${meta?.name&&meta.name!==node.id?` | ${esc(meta.name)}`:''}</title>${shape}<text class="label" x="${x}" y="${(node.y+4).toFixed(1)}" text-anchor="middle">${esc(node.label)}</text></g>`}).join(''));
   const paths=links.reduce((sum,link)=>sum+(link.planes??['a','b']).length,0),count=$('#fabric-count');
   count.setAttribute('x',layout.caption.x);count.setAttribute('y',layout.caption.y);count.textContent=`${t('fabric.cables',{count:links.length})} | ${t('fabric.paths',{count:paths})}`;
 }
@@ -115,15 +121,23 @@ function chartSeries(state) {
 function activeAverage(points){const rates=points.filter(point=>point.runningRequests>0&&finite(point.outputTokensPerSecond)).map(point=>point.outputTokensPerSecond);return rates.length?rates.reduce((sum,rate)=>sum+rate,0)/rates.length:null}
 // TUI Panel draws the output line in braille (designs.css shows the box); the last series is kept for a resize, a tab switch and a font swap.
 // The box covers the SVG (140 units); rows fill it from the top, so the margins keep the SVG's top 4 and baseline 118.
-let brailleSeries=null;
-function drawBraille(series=brailleSeries){
-  brailleSeries=series;const box=$('#output-braille');
-  if(!series||getComputedStyle(box).display==='none'){box.textContent='';return}
-  box.innerHTML='<span>'+'\u28ff'.repeat(10)+'</span>';const cell=box.firstChild.getBoundingClientRect(),pitch=parseFloat(getComputedStyle(box).lineHeight),cols=Math.floor(box.clientWidth/(cell.width/10)),rows=Math.floor(box.clientHeight/pitch),height=rows*pitch;
-  box.textContent=cols>0&&rows>0?brailleChart(series.history,'outputTokensPerSecond',{start:series.start,end:series.end,cols,rows,max:series.max,height,top:4*box.clientHeight/140,bottom:Math.max(0,height-118*box.clientHeight/140)}):'';
-  box.style.color=series.each?'var(--ink)':'';
+// The grid is measured only when the box or its font may have changed (the box resized, shown or hidden, a font
+// loaded, a tab or design switched), so a poll draws without reading the layout.
+let brailleSeries=null,brailleGrid=null;
+function measureBraille(box){
+  if(getComputedStyle(box).display==='none')return {cols:0,rows:0};
+  box.innerHTML='<span>'+'\u28ff'.repeat(10)+'</span>';const cell=box.firstChild.getBoundingClientRect(),pitch=parseFloat(getComputedStyle(box).lineHeight),size=box.clientHeight;
+  return {cols:Math.floor(box.clientWidth/(cell.width/10)),rows:Math.floor(size/pitch),pitch,size};
 }
-addEventListener('resize',()=>drawBraille());document.fonts?.addEventListener('loadingdone',()=>drawBraille());
+function drawBraille(series=brailleSeries){
+  brailleSeries=series;const box=$('#output-braille');brailleGrid??=measureBraille(box);
+  const {cols,rows,pitch,size}=brailleGrid,height=rows*pitch;
+  box.textContent=series&&cols>0&&rows>0?brailleChart(series.history,'outputTokensPerSecond',{start:series.start,end:series.end,cols,rows,max:series.max,height,top:4*size/140,bottom:Math.max(0,height-118*size/140)}):'';
+  box.style.color=series?.each?'var(--ink)':'';
+}
+function remeasureBraille(){brailleGrid=null;drawBraille()}
+if(typeof ResizeObserver==='function')new ResizeObserver(remeasureBraille).observe($('#output-braille'));else addEventListener('resize',remeasureBraille);
+document.fonts?.addEventListener('loadingdone',remeasureBraille);
 function renderCharts(state) {
   const all=state.history||[],history=chartSeries(state),end=Date.now(),start=end-range*60_000;
   const several=severalServers(state),each=several&&settings.servers!=='one';
@@ -166,7 +180,7 @@ function showMemoryWording(nodes) {
 }
 // The current value per node under a trend chart; unknown for a node that did not answer (or with no state at all).
 function renderLegend(kind,nodes) {
-  $('#'+kind+'-legend').innerHTML=metas.flatMap((meta,index)=>{const node=nodes?.[meta.id];if(kind==='temp'&&!hasNodeTemperature(node))return [];const value=!node?.ok?unknown():kind==='temp'?temperature(node.gpu?.temperature,settings.temp):memory(gpuMemory(node).availableBytes,settings.mem);return `<span style="color:${nodeColor(settings.colors,index)}">${esc(meta.name)} <b class="num">${value}</b></span>`}).join('');
+  setHtml('#'+kind+'-legend',metas.flatMap((meta,index)=>{const node=nodes?.[meta.id];if(kind==='temp'&&!hasNodeTemperature(node))return [];const value=!node?.ok?unknown():kind==='temp'?temperature(node.gpu?.temperature,settings.temp):memory(gpuMemory(node).availableBytes,settings.mem);return `<span style="color:${nodeColor(settings.colors,index)}">${esc(meta.name)} <b class="num">${value}</b></span>`}).join(''));
 }
 function renderToday(usage) {
   $('#today-requests').hidden=usage?.reported?.requests===false;
@@ -189,7 +203,7 @@ function drawState(state) {
   const singleKeyAlert=!several&&needsKey.length>0&&state.messageKey==='status.inferenceAttention';
   text('#status-title',singleKeyAlert?t('engine.apiKeyRequired'):serverText(state.messageKey,state.messageParams,state.message)||t('statusbar.checkingStatus'));
   const watts=metas.map(m=>nodes[m.id]).filter(n=>n?.ok&&finite(n.gpu?.powerWatts)).map(n=>n.gpu.powerWatts);
-  $('#status-desc').innerHTML=`<span>${t('statusbar.nodes',{online,count})}</span><span>${t('statusbar.processes',{serving,count})}</span>${singleKeyAlert?'':`<span>${several?t('statusbar.apis',{answering:servers.filter(server=>server.inference?.ok).length,count:servers.length}):t(v?.ok?'statusbar.apiUp':engineNeedsKey(v)?'engine.apiKeyRequired':'statusbar.apiNoResponse')}</span>`}${several?needsKey.map(server=>`<span>${esc(serverName(server))}: ${t('engine.apiKeyRequired')}</span>`).join(''):''}${watts.length?`<span>${t('statusbar.gpuPower',{watts:fixed(watts.reduce((sum,w)=>sum+w,0),1)})}${watts.length<count?` ${t('statusbar.gpuPowerPartial',{reporting:watts.length,count})}`:''}</span>`:''}`;
+  setHtml('#status-desc',`<span>${t('statusbar.nodes',{online,count})}</span><span>${t('statusbar.processes',{serving,count})}</span>${singleKeyAlert?'':`<span>${several?t('statusbar.apis',{answering:servers.filter(server=>server.inference?.ok).length,count:servers.length}):t(v?.ok?'statusbar.apiUp':engineNeedsKey(v)?'engine.apiKeyRequired':'statusbar.apiNoResponse')}</span>`}${several?needsKey.map(server=>`<span>${esc(serverName(server))}: ${t('engine.apiKeyRequired')}</span>`).join(''):''}${watts.length?`<span>${t('statusbar.gpuPower',{watts:fixed(watts.reduce((sum,w)=>sum+w,0),1)})}${watts.length<count?` ${t('statusbar.gpuPowerPartial',{reporting:watts.length,count})}`:''}</span>`:''}`);
   text('#updated-at',clock(state.updatedAt));
   if(several){const names=servers.map(serverName).join(' | ');text('#model-title',names);text('#model-meta',t('header.servers',{count:servers.length,nodes:count}));document.title=`${names} | Spark Scope`}
   else{text('#model-title',v?.modelName||t(stopped?'header.inferenceStopped':'header.modelUnknown'));text('#model-meta',serving?t('header.engineRunning',{engine:state.serving?.engine??t('header.engineFallback'),count:serving}):t('header.liveMonitor',{count}));document.title=v?.modelName?`${v.modelName} | Spark Scope`:'Spark Scope'}
@@ -294,8 +308,6 @@ function rebuildMonths() {
   const list=older.length?`<select class="month-older" aria-label="${t(count?'ledger.earlierLabel':'ledger.monthSelectLabel')}">${placeholder}${older.map(month=>`<option value="${month}"${month===selectedMonth?' selected':''}>${monthLabel(month)}</option>`).join('')}</select>`:'';
   setHtml('#token-months',list+recent.map(month=>`<button type="button" data-month="${month}" aria-pressed="${month===selectedMonth}">${name(month)}</button>`).join(''));
 }
-// Markup is replaced only when it changed, so a poll does not move the focus or restart a hover.
-function setHtml(selector,html){const el=$(selector);if(el.innerHTML!==html)el.innerHTML=html}
 // A counter the engine does not export (usage.reported[key] === false) reads as unknown, not as 0.
 let unreported={};
 // The ledger view (statement, calendar or charts), the day picked in the calendar, and the month as last drawn.
@@ -333,7 +345,7 @@ function renderMonth(usage,previous) {
 function clearMonth(key,isError=false) {
   redrawMonth=()=>clearMonth(key,isError);shownMonth=null;delete $('#ledger-panel').dataset.month;const message=t(key);
   text('#month-period',message);$('#month-period').classList.toggle('month-load-error',isError);
-  $('#month-metrics').innerHTML='';$('#ledger-panel').innerHTML=`<p class="ledger-note">${esc(message)}</p>`;$('#model-table').innerHTML='';$('#token-csv').disabled=true;
+  setHtml('#month-metrics','');setHtml('#ledger-panel',`<p class="ledger-note">${esc(message)}</p>`);setHtml('#model-table','');$('#token-csv').disabled=true;
 }
 async function fetchMonth(month,signal){const res=await fetch(`/api/usage?month=${encodeURIComponent(month)}`,{cache:'no-store',signal});if(!res.ok)throw new Error('HTTP '+res.status);return validateMonth(await res.json(),month)}
 // The month before, for the comparison and the running total; without it the month is still drawn.
@@ -371,7 +383,7 @@ $('#token-csv').addEventListener('click',()=>{
 });
 function selectTab(btn,updateHash=true) {
   document.querySelectorAll('.top [role=tab]').forEach(b=>{b.setAttribute('aria-selected',String(b===btn));b.tabIndex=b===btn?0:-1;$('#'+b.getAttribute('aria-controls')).hidden=b!==btn});
-  const tokens=btn.id==='tab-tokens';if(updateHash)location.hash=tokens?'tokens':'scope';if(tokens)void refreshMonth();else drawBraille();
+  const tokens=btn.id==='tab-tokens';if(updateHash)location.hash=tokens?'tokens':'scope';if(tokens)void refreshMonth();else remeasureBraille();
 }
 document.querySelectorAll('.top [role=tab]').forEach(btn=>{btn.addEventListener('click',()=>selectTab(btn));btn.addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?$('#tab-scope'):e.key==='End'?$('#tab-tokens'):btn.id==='tab-scope'?$('#tab-tokens'):$('#tab-scope');selectTab(next);next.focus()}})});
 window.addEventListener('hashchange',()=>selectTab($(location.hash==='#tokens'?'#tab-tokens':'#tab-scope'),false));
@@ -384,7 +396,7 @@ function showUnits(){text('#temp-range',t('trends.selectedRange',{unit:temperatu
 // Puts the current settings into the form controls.
 function syncForm(){
   for(const [name,value] of Object.entries({...settings,theme:themeChoice??'system'}))for(const input of form.querySelectorAll(`input[name="${name}"]:not([type=number])`))input.type==='checkbox'?input.checked=Boolean(value):input.checked=input.value===String(value);
-  form.querySelectorAll('select[name="reading"]').forEach(select=>{const slot=Number(select.dataset.slot);const options=READING_IDS.map(id=>`<option value="${id}">${esc(t(readingLabel(id,{wording:'gpu'})))}</option>`).join('');if(select.innerHTML!==options)select.innerHTML=options;select.value=settings.readings[slot]});
+  form.querySelectorAll('select[name="reading"]').forEach(select=>{const slot=Number(select.dataset.slot);setHtml(select,READING_IDS.map(id=>`<option value="${id}">${esc(t(readingLabel(id,{wording:'gpu'})))}</option>`).join(''));select.value=settings.readings[slot]});
   form.querySelectorAll('[data-slot-label]').forEach(el=>{el.textContent=t('settings.card.slot',{n:Number(el.dataset.slotLabel)+1})});
   form.querySelectorAll('input[name="bar"]').forEach(input=>{input.checked=settings.bars.includes(input.value)});
   form.querySelectorAll('input[name="panel"]').forEach(input=>{input.checked=!settings.hide.includes(input.value)});
@@ -395,14 +407,14 @@ function syncForm(){
 // Labels and panels follow the settings on the page itself.
 function showLayout(){
   document.documentElement.dataset.labels=settings.labels;
-  if(settings.design==='default')delete document.documentElement.dataset.design;else document.documentElement.dataset.design=settings.design;
+  if(settings.design==='default')delete document.documentElement.dataset.design;else document.documentElement.dataset.design=settings.design;brailleGrid=null;
   $('#engines').hidden=settings.hide.includes('engine');
   const trends=settings.hide.includes('trends'),ledger=settings.hide.includes('ledger');$('.trends').hidden=trends;$('#today-ledger').hidden=ledger;$('.lower').hidden=trends&&ledger;$('.lower').classList.toggle('single',trends!==ledger);
 }
 // One node's card drawn with the current settings and live data, the update time on the chosen clock, and About.
 function renderPreview({rows=true}={}){
-  const select=$('#preview-node'),options=metas.map(meta=>`<option value="${esc(meta.id)}">${esc(meta.name)}</option>`).join('');
-  if(select.innerHTML!==options)select.innerHTML=options;select.hidden=metas.length<2;
+  const select=$('#preview-node');
+  setHtml(select,metas.map(meta=>`<option value="${esc(meta.id)}">${esc(meta.name)}</option>`).join(''));select.hidden=metas.length<2;
   if(!metas.some(meta=>meta.id===previewId))previewId=metas[0]?.id??null;select.value=previewId??'';
   const meta=metas.find(item=>item.id===previewId),box=$('#preview-nodes');
   box.innerHTML=meta?cardHtml(meta):'';if(meta)renderNode(meta,latest?.nodes?.[meta.id],box);if(rows)renderColorRows();
@@ -446,9 +458,9 @@ form.addEventListener('change',event=>{
 const colorOf=index=>settings.colors[index]??PALETTE[index%(PALETTE.length-1)];
 function renderColorRows(force=false){
   const rows=metas.map((meta,index)=>{const current=colorOf(index),custom=current.startsWith('#'),low=custom?lowContrast(current):null;
-    return `<div class="crow" data-node-row="${index}" aria-current="${meta.id===previewId}"><div class="cname"><i style="background:${nodeColor(settings.colors,index)}"></i><span>${esc(meta.name)}<small>${t('settings.colors.node',{n:index+1})}</small></span></div><div><div class="swatches">${PALETTE.map(name=>`<button type="button" class="sw" data-color="${index}" data-value="${name}" aria-pressed="${current===name}" aria-label="${t(`settings.color.${name}`)}" title="${t(`settings.color.${name}`)}" style="background:var(--${name})"></button>`).join('')}<label class="custom"><span>${t('settings.colors.custom')}</span><input type="color" data-custom="${index}" value="${custom?current:'#7cbbeb'}" class="${custom?'picked':''}" aria-label="${t('settings.colors.customFor',{node:meta.name})}"></label></div>${low?`<p class="contrast">${t(`settings.colors.low.${low}`)}</p>`:''}</div></div>`}).join('');
+    return `<div class="crow" data-node-row="${index}" aria-current="${meta.id===previewId}"><div class="cname"><i style="background:${nodeColor(settings.colors,index)}"></i><span>${esc(meta.name)}<small>${t('settings.colors.node',{n:index+1})}</small></span></div><div><div class="swatches">${PALETTE.map(name=>`<button type="button" class="sw" data-color="${index}" data-value="${name}" aria-pressed="${current===name}" aria-label="${t(`settings.color.${name}`)}" title="${t(`settings.color.${name}`)}" style="background:var(--${name})"></button>`).join('')}<label class="custom"><span>${t('settings.colors.custom')}</span><input type="color" data-custom="${index}" value="${custom?current:'#7cbbeb'}" class="${custom?'picked':''}" aria-label="${esc(t('settings.colors.customFor',{node:meta.name}))}"></label></div>${low?`<p class="contrast">${t(`settings.colors.low.${low}`)}</p>`:''}</div></div>`}).join('');
   // Left alone while a colour picker in it is open, so the next poll does not close it.
-  const box=$('#color-rows');if(box.innerHTML!==rows&&(force||!box.contains(document.activeElement?.closest('[data-custom]'))))box.innerHTML=rows;
+  const box=$('#color-rows');if(force||!box.contains(document.activeElement?.closest('[data-custom]')))setHtml(box,rows);
 }
 // A colour for one node: the list is filled up to that node with the current colours, and a list equal to the
 // defaults is stored as no choice at all.

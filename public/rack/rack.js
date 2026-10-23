@@ -114,7 +114,6 @@ function renderBay(meta, toMs, index) {
       : `<div class="down"><b class="num">—</b><span>${escapeHtml(t("rack.bay.notResponding", { target }))}${view.lastOk ? ` | ${t("rack.bay.lastOk", { time: view.lastOk })}` : ""}</span></div>`;
     const note = t(view.pending ? "rack.bay.noReadingsYet" : "rack.bay.readingsUnavailable");
     el.innerHTML = `${head}${body}<div class="foot"><span>${note}</span>${dots}</div>`;
-    fitFoot(el);
     return;
   }
   const trace = tempTrace(meta.id, toMs);
@@ -129,18 +128,18 @@ function renderBay(meta, toMs, index) {
       <div class="cap${view.thermalWarn ? " warn" : ""}">${view.hasTemperature ? `<span class="cap-label">${t("rack.caption.gpuTemp")} </span>${t("rack.caption.range", { range: trace.range })}` : `${t("node.reading.thermal")} ${escapeHtml(view.thermalState)}`}</div>
     </div>
     <div class="foot">${view.hasTemperature ? `<span>${t("rack.power", { watts: f1(view.power) })}</span>` : view.systemPower !== null ? `<span>${t("node.reading.systemPower")} ${f1(view.systemPower)} W</span>` : ""}${view.tsoc === null ? "" : `<span class="tsoc">TSOC ${f1(degrees(view.tsoc, options.temp))}${degreeUnit(options.temp)}</span>`}${dots}</div>`;
-  fitFoot(el);
 }
 
 // The footer keeps its first reading (the power) whole: when the line does not fit, the link dots drop their peer
-// names, then the TSOC reading and the "Links" label go, and only then is the power cut short.
-function fitFoot(bay) {
-  const foot = bay.querySelector(".foot");
-  const steps = ["fit-dots", "fit-tsoc", "fit-label", "fit-first"];
-  foot.classList.remove(...steps);
-  for (const step of steps) {
-    if (foot.scrollWidth <= foot.clientWidth) return;
-    foot.classList.add(step);
+// names, then the TSOC reading and the "Links" label go, and only then is the power cut short. Every bay takes each
+// step together after all bays are drawn, so a poll lays the panel out once rather than once per bay.
+const FIT_STEPS = ["fit-dots", "fit-tsoc", "fit-label", "fit-first"];
+function fitFeet() {
+  let open = [...bays.querySelectorAll(".bay .foot")];
+  for (const foot of open) foot.classList.remove(...FIT_STEPS);
+  for (const step of FIT_STEPS) {
+    open = open.filter((foot) => foot.scrollWidth > foot.clientWidth);
+    for (const foot of open) foot.classList.add(step);
   }
 }
 
@@ -195,9 +194,6 @@ function renderCluster(fetchFailed) {
   if (view.chips) {
     const line = $("cl-line1");
     line.innerHTML = view.chips.map((chip) => `<span class="chip"><span class="lamp ${chip.level}"></span><span class="chip-name">${escapeHtml(chip.name)}</span>${chip.value === undefined ? "" : `<b>${escapeHtml(chip.value)}${chip.unit ? `<span class="unit"> ${escapeHtml(chip.unit)}</span>` : ""}</b>`}</span>`).join("");
-    fitChips(line);
-    // Text is measured with the fonts at hand; a font that loads after this draw (wider than its fallback) refits.
-    document.fonts?.ready.then(() => fitChips(line));
   } else $("cl-line1").textContent = view.lines[0] ?? "";
   $("cl-line2").textContent = view.lines[1] ?? "";
   $("out-value").parentElement.hidden = !view.outShown;
@@ -206,6 +202,8 @@ function renderCluster(fetchFailed) {
   $("out-coverage").textContent = view.outputCoverage;
   $("tok-total").textContent = compact(view.todayTotal);
   $("tok-sub").textContent = view.todayRequests === null ? t("rack.tokensToday") : t("rack.tokensTodayRequests", { count: view.todayRequests.toLocaleString("en-US") });
+  // Fitted last: showing or hiding the output figure above changes the line's width.
+  if (view.chips) fitChips($("cl-line1"));
 }
 
 // Where even a lamp and a figure do not fit, the figures drop their unit, then the figures go and each chip keeps its
@@ -222,14 +220,24 @@ function renderBays() {
   const metas = bayNodes(latest);
   syncBays(metas);
   metas.forEach((meta, index) => renderBay(meta, toMs, index));
-  // The footers were fitted with the fonts at hand; a font that loads after this draw refits them.
-  document.fonts?.ready.then(() => bays.querySelectorAll(".bay").forEach((bay) => { if (bay.querySelector(".foot")) fitFoot(bay); }));
+  fitFeet();
 }
 
 function render() {
   renderBays();
   drawBand();
   renderCluster(false);
+  refitAfterFonts();
+}
+
+// Text is measured with the fonts at hand. While a font is still loading (the measuring itself can start it), the
+// footers and server chips are fitted again once it is in; with the fonts loaded, a poll fits them only once.
+function refitAfterFonts() {
+  if (document.fonts?.status !== "loading") return;
+  document.fonts.ready.then(() => {
+    fitFeet();
+    if ($("cl-line1").classList.contains("chips")) fitChips($("cl-line1"));
+  });
 }
 
 // Every two seconds, without history (small and cheap); one poll at a time, so answers never arrive out of order.
@@ -274,7 +282,7 @@ async function pollTemps() {
   try {
     const state = await getJson("/api/state?minutes=60&from=rack");
     tempHistory = state.history ?? [];
-    if (latest) renderBays();
+    if (latest) { renderBays(); refitAfterFonts(); }
   } catch {
     // Keep the previous trace; the 2-second poll reports the disconnect.
   }

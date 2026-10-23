@@ -53,7 +53,7 @@ body.m-page,body.m-pip,.m-inline{margin:0;padding:0;background:var(--paper);colo
 .m-servers .m-name>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .m-servers .m-serving{color:color-mix(in srgb,var(--green) 70%,var(--ink))}.m-servers .m-down{color:var(--red)}.m-servers .m-idle,.m-servers .m-checking{color:var(--muted)}
 .m-total>span{padding-top:3px;border-top:1px solid var(--line);font-weight:600}
-.m-hot{color:var(--red)}.m-warm{color:var(--orange)}
+.m-hot{color:var(--red)}
 .hot{color:var(--red)}.warm{color:var(--orange)}
 .m-foot{margin-top:auto;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:10px;color:var(--muted)}
 .m-link{border:0;background:none;color:var(--blue);padding:0;font:inherit;cursor:pointer;text-decoration:underline;white-space:nowrap}
