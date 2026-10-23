@@ -25,7 +25,7 @@
 
 - The pages lay out and rebuild less on each poll; the rack panel fits its bay footers in one pass ([#53](https://github.com/juliankang4/spark-scope/pull/53)).
 - The mini window button is labelled "Open mini window" or "Close mini window" for screen readers ([#52](https://github.com/juliankang4/spark-scope/pull/52)).
-- The TensorFold Python CUDA server's shorter metric names for running, waiting and KV usage are read ([#50](https://github.com/juliankang4/spark-scope/pull/50)).
+- The TensorFold Python CUDA server's shorter metric names for running, waiting and KV usage are read ([#50](https://github.com/juliankang4/spark-scope/pull/50), by [@kky42](https://github.com/kky42)).
 
 ### Fixed
 
@@ -33,6 +33,10 @@
 - The token ledger books a run once when its start time first appears or is missing for one poll, instead of counting it again ([#54](https://github.com/juliankang4/spark-scope/pull/54)).
 - The token ledger's calendar and month list no longer close their dropdowns or lose focus on each poll ([#53](https://github.com/juliankang4/spark-scope/pull/53)).
 - A node name was not escaped in the colour picker's label, and the mini window's run CSV download was never released ([#53](https://github.com/juliankang4/spark-scope/pull/53)).
+
+### Contributors
+
+- [@kky42](https://github.com/kky42) made their first contribution in [#50](https://github.com/juliankang4/spark-scope/pull/50).
 
 ## 0.1.4 (2026-10-09)
 
